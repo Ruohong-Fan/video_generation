@@ -185,7 +185,7 @@
     }
 
     .results-header {
-      padding: 16px 24px 12px;
+      padding: 12px 24px;
       border-bottom: 1px solid var(--border);
       display: flex;
       align-items: center;
@@ -200,6 +200,18 @@
       font-size: 0.75rem;
       font-weight: 600;
     }
+    .btn-clear {
+      margin-left: auto;
+      background: none;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--muted);
+      cursor: pointer;
+      font-size: 0.75rem;
+      padding: 4px 10px;
+      transition: color 0.15s, border-color 0.15s;
+    }
+    .btn-clear:hover { color: var(--error); border-color: var(--error); }
 
     .results-list {
       flex: 1;
@@ -273,6 +285,19 @@
       text-overflow: ellipsis;
     }
     .card-sub { font-size: 0.75rem; color: var(--muted); margin-top: 2px; }
+    .btn-delete {
+      background: none;
+      border: none;
+      color: var(--muted);
+      cursor: pointer;
+      font-size: 1rem;
+      padding: 2px 4px;
+      line-height: 1;
+      border-radius: 4px;
+      flex-shrink: 0;
+      transition: color 0.15s;
+    }
+    .btn-delete:hover { color: var(--error); }
 
     .spinner {
       width: 16px; height: 16px;
@@ -482,8 +507,9 @@
   <!-- Right: Results -->
   <div class="panel-right">
     <div class="results-header">
-      <h2>Results</h2>
+      <h2>History</h2>
       <span class="badge" id="task-count">0</span>
+      <button class="btn-clear" id="btn-clear">Clear completed</button>
     </div>
     <div class="results-list" id="results-list">
       <div class="empty-state" id="empty-state">
@@ -497,6 +523,42 @@
 
 <script>
   const API = '';
+  const activeTasks = new Map(); // task_id -> interval id
+
+  // ── Helpers ───────────────────────────────────────────────────────────────
+  function escHtml(str) {
+    return String(str)
+      .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+      .replace(/"/g,'&quot;');
+  }
+
+  function fmtTime(epoch) {
+    if (!epoch) return '';
+    return new Date(epoch * 1000).toLocaleString([], {
+      month: 'short', day: 'numeric',
+      hour: '2-digit', minute: '2-digit'
+    });
+  }
+
+  function statusIcon(status) {
+    if (status === 'done')    return '✓';
+    if (status === 'error')   return '✕';
+    if (status === 'running') return '<span class="spinner"></span>';
+    return '⋯';
+  }
+
+  function extractMedia(result) {
+    if (!result) return null;
+    const d = result.data || result;
+    return d.url || d.video_url || d.image_url || d.local_path || null;
+  }
+
+  function isVideo(src) { return /\.(mp4|mov|webm|avi)/i.test(src); }
+
+  function updateTaskCount() {
+    document.getElementById('task-count').textContent =
+      document.querySelectorAll('.result-card').length;
+  }
 
   // ── Credits ───────────────────────────────────────────────────────────────
   async function loadCredits() {
@@ -510,7 +572,182 @@
       document.getElementById('credits-text').textContent = 'Server offline';
     }
   }
-  loadCredits();
+
+  // ── Render a task card ────────────────────────────────────────────────────
+  function renderResult(taskId, task, prepend = false) {
+    const existing = document.getElementById(`card-${taskId}`);
+    const card = existing || document.createElement('div');
+    card.className = 'result-card';
+    card.id = `card-${taskId}`;
+
+    const mediaUrl = task.result ? extractMedia(task.result) : null;
+
+    let bodyHtml = '';
+    if (task.status === 'error') {
+      bodyHtml = `<div class="error-text">⚠ ${escHtml(task.error || 'Unknown error')}</div>`;
+      if (task.result?.raw) {
+        bodyHtml += `<div class="result-raw" style="margin-top:8px">${escHtml(task.result.raw)}</div>`;
+      }
+    } else if (task.status === 'done' && mediaUrl) {
+      if (isVideo(mediaUrl)) {
+        bodyHtml = `<div class="result-media">
+          <video controls autoplay loop muted playsinline>
+            <source src="${escHtml(mediaUrl)}" />
+          </video></div>`;
+      } else {
+        bodyHtml = `<div class="result-media">
+          <img src="${escHtml(mediaUrl)}" alt="Generated" loading="lazy" /></div>`;
+      }
+      bodyHtml += `<div class="result-actions">
+        <a class="btn-sm" href="${escHtml(mediaUrl)}" download target="_blank">⬇ Download</a>
+        <a class="btn-sm" href="${escHtml(mediaUrl)}" target="_blank">↗ Open</a>
+      </div>`;
+    } else if (task.status === 'done' && task.result) {
+      bodyHtml = `<div class="result-raw">${escHtml(JSON.stringify(task.result, null, 2))}</div>`;
+    } else {
+      const qi = task.result?.queue_info;
+      const qLine = qi
+        ? `<div style="color:var(--warning);font-size:.78rem;margin-top:6px">
+            Queue position: ${qi.queue_idx.toLocaleString()} — checking every 15s…
+           </div>`
+        : '';
+      bodyHtml = `<div style="color:var(--muted);font-size:.82rem">
+        Generating… this may take several minutes.${qLine}</div>`;
+    }
+
+    const ts = fmtTime(task.created_at);
+    const statusLabel = task.status === 'running' ? 'generating' : task.status;
+
+    card.innerHTML = `
+      <div class="card-header">
+        <div class="card-status ${task.status}">${statusIcon(task.status)}</div>
+        <div class="card-meta">
+          <div class="card-title">${escHtml(task.label || taskId)}</div>
+          <div class="card-sub">${statusLabel}${ts ? ' · ' + ts : ''}</div>
+        </div>
+        <button class="btn-delete" title="Remove" onclick="deleteTask('${escHtml(taskId)}')">×</button>
+      </div>
+      <div class="card-body">${bodyHtml}</div>`;
+
+    if (!existing) {
+      const list = document.getElementById('results-list');
+      document.getElementById('empty-state')?.remove();
+      if (prepend) list.prepend(card); else list.appendChild(card);
+    }
+
+    updateTaskCount();
+    return card;
+  }
+
+  // ── Delete a single task ──────────────────────────────────────────────────
+  async function deleteTask(taskId) {
+    const entry = activeTasks.get(taskId);
+    if (entry) { clearInterval(entry); activeTasks.delete(taskId); }
+    document.getElementById(`card-${taskId}`)?.remove();
+    updateTaskCount();
+    if (!document.querySelector('.result-card')) {
+      document.getElementById('results-list').innerHTML =
+        `<div class="empty-state" id="empty-state">
+          <div class="icon">🎬</div>
+          <p>Your generated videos and images will appear here.</p>
+          <p style="font-size:0.78rem">Fill in a prompt and click Generate to start.</p>
+        </div>`;
+    }
+    await fetch(`${API}/api/task/${taskId}`, { method: 'DELETE' });
+  }
+
+  // ── Clear completed tasks ─────────────────────────────────────────────────
+  document.getElementById('btn-clear').addEventListener('click', async () => {
+    document.querySelectorAll('.result-card').forEach(card => {
+      const id = card.id.replace('card-', '');
+      if (!activeTasks.has(id)) card.remove();
+    });
+    updateTaskCount();
+    if (!document.querySelector('.result-card')) {
+      document.getElementById('results-list').innerHTML =
+        `<div class="empty-state" id="empty-state">
+          <div class="icon">🎬</div>
+          <p>Your generated videos and images will appear here.</p>
+          <p style="font-size:0.78rem">Fill in a prompt and click Generate to start.</p>
+        </div>`;
+    }
+    await fetch(`${API}/api/tasks`, { method: 'DELETE' });
+  });
+
+  // ── Poll a single task ────────────────────────────────────────────────────
+  async function pollTask(taskId) {
+    try {
+      const r = await fetch(`${API}/api/task/${taskId}`);
+      if (!r.ok) { stopPolling(taskId); return; }
+      const task = await r.json();
+      renderResult(taskId, task);
+      if (task.status === 'done' || task.status === 'error') {
+        stopPolling(taskId);
+        loadCredits();
+      }
+    } catch (e) { console.error('Poll error', e); }
+  }
+
+  function stopPolling(taskId) {
+    const iv = activeTasks.get(taskId);
+    if (iv) clearInterval(iv);
+    activeTasks.delete(taskId);
+  }
+
+  function startPolling(taskId) {
+    if (activeTasks.has(taskId)) return;
+    const iv = setInterval(() => pollTask(taskId), 4000);
+    activeTasks.set(taskId, iv);
+    pollTask(taskId);
+  }
+
+  // ── Load all tasks from server on page start ──────────────────────────────
+  async function loadAllTasks() {
+    try {
+      const r = await fetch(`${API}/api/tasks`);
+      const d = await r.json();
+      if (!d.ok) return;
+      // Sort by created_at ascending so newest ends up on top after prepend
+      const sorted = Object.entries(d.tasks)
+        .sort(([,a],[,b]) => (a.created_at || 0) - (b.created_at || 0));
+      for (const [taskId, task] of sorted) {
+        renderResult(taskId, task, true); // prepend → newest at top
+        if (task.status === 'running' || task.status === 'queued') {
+          startPolling(taskId);
+        }
+      }
+    } catch (e) { console.error('Failed to load tasks', e); }
+  }
+
+  // ── Start a new generation task ───────────────────────────────────────────
+  async function startTask(endpoint, body, isFormData = false) {
+    let resp;
+    if (isFormData) {
+      resp = await fetch(`${API}${endpoint}`, { method: 'POST', body });
+    } else {
+      resp = await fetch(`${API}${endpoint}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+    }
+    const data = await resp.json();
+    if (!data.ok) throw new Error(data.error || 'Request failed');
+    const taskId = data.task_id;
+    renderResult(taskId, { status: 'queued', label: data.label || endpoint, created_at: Date.now() / 1000 }, true);
+    startPolling(taskId);
+  }
+
+  function withLoading(btn, fn) {
+    return async () => {
+      btn.disabled = true;
+      const orig = btn.textContent;
+      btn.textContent = 'Generating…';
+      try { await fn(); }
+      catch (e) { alert(`Error: ${e.message}`); }
+      finally { btn.disabled = false; btn.textContent = orig; }
+    };
+  }
 
   // ── Tabs ──────────────────────────────────────────────────────────────────
   document.querySelectorAll('.tab').forEach(tab => {
@@ -528,169 +765,13 @@
     const nameEl = document.getElementById(nameId);
     const drop = document.getElementById(dropId);
     input.addEventListener('change', () => {
-      if (input.files[0]) {
-        nameEl.textContent = input.files[0].name;
-        drop.classList.add('has-file');
-      }
+      if (input.files[0]) { nameEl.textContent = input.files[0].name; drop.classList.add('has-file'); }
     });
   }
   setupUpload('i2v-file', 'i2v-filename', 'i2v-drop');
   setupUpload('i2i-file', 'i2i-filename', 'i2i-drop');
 
-  // ── Task tracking ─────────────────────────────────────────────────────────
-  const activeTasks = new Map(); // task_id -> {card, pollInterval}
-  let totalTasks = 0;
-
-  function updateTaskCount() {
-    document.getElementById('task-count').textContent = totalTasks;
-  }
-
-  function statusIcon(status) {
-    if (status === 'done') return '✓';
-    if (status === 'error') return '✕';
-    if (status === 'running') return '<span class="spinner"></span>';
-    return '⋯';
-  }
-
-  function extractMedia(result) {
-    if (!result) return null;
-    // Try common keys in jimeng response
-    const data = result.data || result;
-    return data.url || data.video_url || data.image_url || data.local_path || null;
-  }
-
-  function isVideo(src) {
-    return /\.(mp4|mov|webm|avi)/i.test(src);
-  }
-
-  function renderResult(taskId, task) {
-    const existing = document.getElementById(`card-${taskId}`);
-    const card = existing || document.createElement('div');
-    card.className = 'result-card';
-    card.id = `card-${taskId}`;
-
-    const icon = statusIcon(task.status);
-    const mediaUrl = task.result ? extractMedia(task.result) : null;
-
-    let bodyHtml = '';
-    if (task.status === 'error') {
-      bodyHtml = `<div class="error-text">⚠ ${escHtml(task.error || 'Unknown error')}</div>`;
-      if (task.result?.raw) {
-        bodyHtml += `<div class="result-raw" style="margin-top:8px">${escHtml(task.result.raw)}</div>`;
-      }
-    } else if (task.status === 'done' && mediaUrl) {
-      if (isVideo(mediaUrl)) {
-        bodyHtml = `
-          <div class="result-media">
-            <video controls autoplay loop muted playsinline>
-              <source src="${escHtml(mediaUrl)}" />
-            </video>
-          </div>`;
-      } else {
-        bodyHtml = `
-          <div class="result-media">
-            <img src="${escHtml(mediaUrl)}" alt="Generated image" loading="lazy" />
-          </div>`;
-      }
-      bodyHtml += `
-        <div class="result-actions">
-          <a class="btn-sm" href="${escHtml(mediaUrl)}" download target="_blank">⬇ Download</a>
-          <a class="btn-sm" href="${escHtml(mediaUrl)}" target="_blank">↗ Open</a>
-        </div>`;
-    } else if (task.status === 'done' && task.result) {
-      bodyHtml = `<div class="result-raw">${escHtml(JSON.stringify(task.result, null, 2))}</div>`;
-    } else {
-      const queueInfo = task.result?.queue_info;
-      const queueLine = queueInfo
-        ? `<div style="color:var(--warning);font-size:.78rem;margin-top:6px">Queue position: ${queueInfo.queue_idx} of ${queueInfo.queue_length} — checking every 15s…</div>`
-        : '';
-      bodyHtml = `<div style="color:var(--muted);font-size:.82rem">Generating… this may take several minutes in a large queue.${queueLine}</div>`;
-    }
-
-    card.innerHTML = `
-      <div class="card-header">
-        <div class="card-status ${task.status}">${icon}</div>
-        <div class="card-meta">
-          <div class="card-title">${escHtml(task.label || taskId)}</div>
-          <div class="card-sub">${task.status} · ${new Date().toLocaleTimeString()}</div>
-        </div>
-      </div>
-      <div class="card-body">${bodyHtml}</div>`;
-
-    if (!existing) {
-      const list = document.getElementById('results-list');
-      document.getElementById('empty-state')?.remove();
-      list.prepend(card);
-    }
-    return card;
-  }
-
-  function escHtml(str) {
-    return String(str)
-      .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
-      .replace(/"/g,'&quot;');
-  }
-
-  async function pollTask(taskId) {
-    try {
-      const r = await fetch(`${API}/api/task/${taskId}`);
-      const task = await r.json();
-      renderResult(taskId, task);
-
-      if (task.status === 'done' || task.status === 'error') {
-        const entry = activeTasks.get(taskId);
-        if (entry) clearInterval(entry.interval);
-        activeTasks.delete(taskId);
-        loadCredits(); // refresh credits after generation
-      }
-    } catch (e) {
-      console.error('Poll error', e);
-    }
-  }
-
-  async function startTask(endpoint, body, isFormData = false) {
-    let resp;
-    if (isFormData) {
-      resp = await fetch(`${API}${endpoint}`, { method: 'POST', body });
-    } else {
-      resp = await fetch(`${API}${endpoint}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-    }
-    const data = await resp.json();
-    if (!data.ok) throw new Error(data.error || 'Request failed');
-
-    totalTasks++;
-    updateTaskCount();
-
-    const taskId = data.task_id;
-    renderResult(taskId, { status: 'queued', label: data.label || endpoint });
-
-    const interval = setInterval(() => pollTask(taskId), 4000);
-    activeTasks.set(taskId, { interval });
-    pollTask(taskId);
-  }
-
-  function withLoading(btn, fn) {
-    return async () => {
-      btn.disabled = true;
-      const orig = btn.textContent;
-      btn.textContent = 'Generating…';
-      try {
-        await fn();
-      } catch (e) {
-        alert(`Error: ${e.message}`);
-      } finally {
-        btn.disabled = false;
-        btn.textContent = orig;
-      }
-    };
-  }
-
   // ── Buttons ───────────────────────────────────────────────────────────────
-
   document.getElementById('btn-t2v').addEventListener('click', withLoading(
     document.getElementById('btn-t2v'),
     () => startTask('/api/text2video', {
@@ -735,6 +816,10 @@
       return startTask('/api/image2image', fd, true);
     }
   ));
+
+  // ── Init ──────────────────────────────────────────────────────────────────
+  loadCredits();
+  loadAllTasks();
 </script>
 </body>
 </html>

@@ -2,12 +2,14 @@
 """
 Flask backend for the Jimeng video generation web UI.
 Wraps the `dreamina` CLI and exposes a simple REST API.
+Tasks are persisted to tasks.json so history survives server restarts.
 """
 
 import json
 import os
 import subprocess
 import threading
+import time
 import uuid
 from pathlib import Path
 
@@ -20,21 +22,49 @@ CORS(app)
 UPLOAD_DIR = Path("uploads")
 UPLOAD_DIR.mkdir(exist_ok=True)
 
-# In-memory task store: task_id -> {status, result, error, command, created_at}
-tasks: dict[str, dict] = {}
+TASKS_FILE = Path("tasks.json")
+POLL_INTERVAL = 15    # seconds between query_result calls
+POLL_TIMEOUT  = 1800  # give up after 30 minutes
 
+# task_id -> {status, label, result, error, created_at}
+tasks: dict[str, dict] = {}
+_tasks_lock = threading.Lock()
+
+
+# ── Persistence ───────────────────────────────────────────────────────────────
+
+def save_tasks():
+    with _tasks_lock:
+        try:
+            TASKS_FILE.write_text(json.dumps(tasks, indent=2))
+        except Exception:
+            pass
+
+
+def load_tasks():
+    global tasks
+    if TASKS_FILE.exists():
+        try:
+            tasks = json.loads(TASKS_FILE.read_text())
+            # Mark any tasks that were mid-run as interrupted
+            for t in tasks.values():
+                if t.get("status") in ("running", "queued"):
+                    t["status"] = "error"
+                    t["error"] = "Server restarted while task was running"
+            save_tasks()
+        except Exception:
+            tasks = {}
+
+
+load_tasks()
+
+
+# ── CLI helper ────────────────────────────────────────────────────────────────
 
 def run_command(cmd: list[str]) -> tuple[bool, str]:
-    """Run a dreamina CLI command and return (success, output)."""
     env = {**os.environ, "PATH": f"{os.environ.get('HOME', '')}/.local/bin:{os.environ.get('PATH', '')}"}
     try:
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=300,
-            env=env,
-        )
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=300, env=env)
         output = result.stdout.strip() or result.stderr.strip()
         return result.returncode == 0, output
     except subprocess.TimeoutExpired:
@@ -45,20 +75,12 @@ def run_command(cmd: list[str]) -> tuple[bool, str]:
         return False, str(e)
 
 
-import time
-
-POLL_INTERVAL = 15   # seconds between query_result calls
-POLL_TIMEOUT  = 1800 # give up after 30 minutes
-
+# ── Task runner ───────────────────────────────────────────────────────────────
 
 def run_task(task_id: str, cmd: list[str]):
-    """Execute a dreamina command in a background thread and store the result.
-
-    If the initial command returns gen_status='querying' (task still queued),
-    we keep polling with `dreamina query_result` until the task finishes or
-    POLL_TIMEOUT is reached.
-    """
     tasks[task_id]["status"] = "running"
+    save_tasks()
+
     success, output = run_command(cmd)
 
     result_data = None
@@ -67,18 +89,17 @@ def run_task(task_id: str, cmd: list[str]):
     except (json.JSONDecodeError, ValueError):
         result_data = {"raw": output}
 
-    # If dreamina returned a submit_id but the task is still queued, keep polling
     submit_id = result_data.get("submit_id") if isinstance(result_data, dict) else None
     gen_status = result_data.get("gen_status", "") if isinstance(result_data, dict) else ""
 
+    # Keep polling if task is still queued/processing
     if submit_id and gen_status in ("querying", "processing", "waiting"):
         deadline = time.time() + POLL_TIMEOUT
         while time.time() < deadline:
             queue_info = result_data.get("queue_info", {})
-            queue_idx = queue_info.get("queue_idx", "?")
-            tasks[task_id]["status"] = "running"
-            tasks[task_id]["result"] = result_data  # show live queue position
-            tasks[task_id]["queue"] = f"Queue position: {queue_idx}"
+            tasks[task_id]["result"] = result_data
+            tasks[task_id]["queue_idx"] = queue_info.get("queue_idx")
+            save_tasks()
 
             time.sleep(POLL_INTERVAL)
 
@@ -97,14 +118,34 @@ def run_task(task_id: str, cmd: list[str]):
     if success or (isinstance(result_data, dict) and result_data.get("gen_status") == "done"):
         tasks[task_id]["status"] = "done"
         tasks[task_id]["result"] = result_data
-        tasks[task_id].pop("queue", None)
+        tasks[task_id].pop("queue_idx", None)
     else:
         tasks[task_id]["status"] = "error"
-        tasks[task_id]["error"] = output if not submit_id else f"Timed out or failed (submit_id={submit_id})"
+        tasks[task_id]["error"] = (
+            output if not submit_id
+            else f"Timed out or failed. submit_id={submit_id}"
+        )
         tasks[task_id]["result"] = result_data
 
+    save_tasks()
 
-# ── Static files ─────────────────────────────────────────────────────────────
+
+def _start_task(cmd: list[str], label: str) -> dict:
+    task_id = str(uuid.uuid4())
+    tasks[task_id] = {
+        "status": "queued",
+        "label": label,
+        "result": None,
+        "error": None,
+        "created_at": time.time(),
+    }
+    save_tasks()
+    thread = threading.Thread(target=run_task, args=(task_id, cmd), daemon=True)
+    thread.start()
+    return {"ok": True, "task_id": task_id}
+
+
+# ── Static files ──────────────────────────────────────────────────────────────
 
 @app.get("/")
 def index():
@@ -116,7 +157,7 @@ def uploaded_file(filename):
     return send_from_directory(UPLOAD_DIR, filename)
 
 
-# ── API: Account ─────────────────────────────────────────────────────────────
+# ── API: Account ──────────────────────────────────────────────────────────────
 
 @app.get("/api/credits")
 def get_credits():
@@ -124,7 +165,12 @@ def get_credits():
     return jsonify({"ok": success, "output": output})
 
 
-# ── API: Task status ──────────────────────────────────────────────────────────
+# ── API: Tasks ────────────────────────────────────────────────────────────────
+
+@app.get("/api/tasks")
+def list_tasks():
+    return jsonify({"ok": True, "tasks": tasks})
+
 
 @app.get("/api/task/<task_id>")
 def get_task(task_id: str):
@@ -134,15 +180,21 @@ def get_task(task_id: str):
     return jsonify({"ok": True, **task})
 
 
-@app.get("/api/tasks")
-def list_tasks():
-    return jsonify({"ok": True, "tasks": tasks})
+@app.delete("/api/task/<task_id>")
+def delete_task(task_id: str):
+    tasks.pop(task_id, None)
+    save_tasks()
+    return jsonify({"ok": True})
 
 
-@app.get("/api/dreamina/tasks")
-def list_dreamina_tasks():
-    success, output = run_command(["dreamina", "list_task"])
-    return jsonify({"ok": success, "output": output})
+@app.delete("/api/tasks")
+def clear_tasks():
+    """Delete all completed/errored tasks, keep running ones."""
+    to_remove = [k for k, v in tasks.items() if v["status"] in ("done", "error")]
+    for k in to_remove:
+        tasks.pop(k)
+    save_tasks()
+    return jsonify({"ok": True, "removed": len(to_remove)})
 
 
 @app.get("/api/query/<submit_id>")
@@ -157,31 +209,18 @@ def query_result(submit_id: str):
 
 # ── API: Generation ───────────────────────────────────────────────────────────
 
-def _start_task(cmd: list[str], label: str) -> dict:
-    task_id = str(uuid.uuid4())
-    tasks[task_id] = {"status": "queued", "label": label, "result": None, "error": None}
-    thread = threading.Thread(target=run_task, args=(task_id, cmd), daemon=True)
-    thread.start()
-    return {"ok": True, "task_id": task_id}
-
-
 @app.post("/api/text2video")
 def text2video():
     data = request.get_json(force=True)
     prompt = data.get("prompt", "").strip()
     if not prompt:
         return jsonify({"ok": False, "error": "prompt is required"}), 400
-
-    duration = str(data.get("duration", "5"))
-    ratio = data.get("ratio", "16:9")
-    resolution = data.get("resolution", "720P")
-
     cmd = [
         "dreamina", "text2video",
         f"--prompt={prompt}",
-        f"--duration={duration}",
-        f"--ratio={ratio}",
-        f"--video_resolution={resolution}",
+        f"--duration={data.get('duration', '5')}",
+        f"--ratio={data.get('ratio', '16:9')}",
+        f"--video_resolution={data.get('resolution', '720P')}",
         "--poll=240",
     ]
     return jsonify(_start_task(cmd, f"text2video: {prompt[:60]}"))
@@ -193,15 +232,11 @@ def text2image():
     prompt = data.get("prompt", "").strip()
     if not prompt:
         return jsonify({"ok": False, "error": "prompt is required"}), 400
-
-    ratio = data.get("ratio", "16:9")
-    resolution = data.get("resolution", "2k")
-
     cmd = [
         "dreamina", "text2image",
         f"--prompt={prompt}",
-        f"--ratio={ratio}",
-        f"--resolution_type={resolution}",
+        f"--ratio={data.get('ratio', '16:9')}",
+        f"--resolution_type={data.get('resolution', '2k')}",
         "--poll=90",
     ]
     return jsonify(_start_task(cmd, f"text2image: {prompt[:60]}"))
@@ -212,14 +247,10 @@ def image2video():
     prompt = request.form.get("prompt", "").strip()
     duration = request.form.get("duration", "5")
     image_file = request.files.get("image")
-
     if not image_file:
         return jsonify({"ok": False, "error": "image file is required"}), 400
-
-    filename = f"{uuid.uuid4()}_{image_file.filename}"
-    save_path = UPLOAD_DIR / filename
+    save_path = UPLOAD_DIR / f"{uuid.uuid4()}_{image_file.filename}"
     image_file.save(save_path)
-
     cmd = [
         "dreamina", "image2video",
         f"--image={save_path}",
@@ -228,7 +259,6 @@ def image2video():
     ]
     if prompt:
         cmd.append(f"--prompt={prompt}")
-
     return jsonify(_start_task(cmd, f"image2video: {image_file.filename}"))
 
 
@@ -237,16 +267,12 @@ def image2image():
     prompt = request.form.get("prompt", "").strip()
     ratio = request.form.get("ratio", "")
     image_file = request.files.get("image")
-
     if not image_file:
         return jsonify({"ok": False, "error": "image file is required"}), 400
     if not prompt:
         return jsonify({"ok": False, "error": "prompt is required"}), 400
-
-    filename = f"{uuid.uuid4()}_{image_file.filename}"
-    save_path = UPLOAD_DIR / filename
+    save_path = UPLOAD_DIR / f"{uuid.uuid4()}_{image_file.filename}"
     image_file.save(save_path)
-
     cmd = [
         "dreamina", "image2image",
         f"--images={save_path}",
@@ -255,7 +281,6 @@ def image2image():
     ]
     if ratio:
         cmd.append(f"--ratio={ratio}")
-
     return jsonify(_start_task(cmd, f"image2image: {prompt[:60]}"))
 
 
@@ -265,15 +290,12 @@ def multiframe2video():
     duration = request.form.get("duration", "5")
     first_frame = request.files.get("first_frame")
     last_frame = request.files.get("last_frame")
-
     if not first_frame or not last_frame:
         return jsonify({"ok": False, "error": "first_frame and last_frame are required"}), 400
-
     first_path = UPLOAD_DIR / f"{uuid.uuid4()}_{first_frame.filename}"
     last_path = UPLOAD_DIR / f"{uuid.uuid4()}_{last_frame.filename}"
     first_frame.save(first_path)
     last_frame.save(last_path)
-
     cmd = [
         "dreamina", "multiframe2video",
         f"--first_frame={first_path}",
@@ -283,7 +305,6 @@ def multiframe2video():
     ]
     if prompt:
         cmd.append(f"--prompt={prompt}")
-
     return jsonify(_start_task(cmd, f"multiframe2video: {first_frame.filename} → {last_frame.filename}"))
 
 
