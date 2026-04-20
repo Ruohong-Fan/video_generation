@@ -250,6 +250,7 @@ def multiframe2video():
 
 
 if __name__ == "__main__":
-    print("Starting Jimeng Video Generation UI...")
-    print("Open http://localhost:5000 in your browser")
-    app.run(host="0.0.0.0", port=5000, debug=False)
+    port = int(os.environ.get("PORT", 5000))
+    print(f"Starting Jimeng Video Generation UI...")
+    print(f"Open http://localhost:{port} in your browser")
+    app.run(host="0.0.0.0", port=port, debug=False)
