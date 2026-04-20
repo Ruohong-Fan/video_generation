@@ -600,7 +600,11 @@
     } else if (task.status === 'done' && task.result) {
       bodyHtml = `<div class="result-raw">${escHtml(JSON.stringify(task.result, null, 2))}</div>`;
     } else {
-      bodyHtml = `<div style="color:var(--muted);font-size:.82rem">Generating… this may take up to 2 minutes.</div>`;
+      const queueInfo = task.result?.queue_info;
+      const queueLine = queueInfo
+        ? `<div style="color:var(--warning);font-size:.78rem;margin-top:6px">Queue position: ${queueInfo.queue_idx} of ${queueInfo.queue_length} — checking every 15s…</div>`
+        : '';
+      bodyHtml = `<div style="color:var(--muted);font-size:.82rem">Generating… this may take several minutes in a large queue.${queueLine}</div>`;
     }
 
     card.innerHTML = `

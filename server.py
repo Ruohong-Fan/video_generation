@@ -45,24 +45,62 @@ def run_command(cmd: list[str]) -> tuple[bool, str]:
         return False, str(e)
 
 
+import time
+
+POLL_INTERVAL = 15   # seconds between query_result calls
+POLL_TIMEOUT  = 1800 # give up after 30 minutes
+
+
 def run_task(task_id: str, cmd: list[str]):
-    """Execute a dreamina command in a background thread and store the result."""
+    """Execute a dreamina command in a background thread and store the result.
+
+    If the initial command returns gen_status='querying' (task still queued),
+    we keep polling with `dreamina query_result` until the task finishes or
+    POLL_TIMEOUT is reached.
+    """
     tasks[task_id]["status"] = "running"
     success, output = run_command(cmd)
 
-    # Try to parse JSON output from dreamina
     result_data = None
     try:
         result_data = json.loads(output)
     except (json.JSONDecodeError, ValueError):
         result_data = {"raw": output}
 
-    if success:
+    # If dreamina returned a submit_id but the task is still queued, keep polling
+    submit_id = result_data.get("submit_id") if isinstance(result_data, dict) else None
+    gen_status = result_data.get("gen_status", "") if isinstance(result_data, dict) else ""
+
+    if submit_id and gen_status in ("querying", "processing", "waiting"):
+        deadline = time.time() + POLL_TIMEOUT
+        while time.time() < deadline:
+            queue_info = result_data.get("queue_info", {})
+            queue_idx = queue_info.get("queue_idx", "?")
+            tasks[task_id]["status"] = "running"
+            tasks[task_id]["result"] = result_data  # show live queue position
+            tasks[task_id]["queue"] = f"Queue position: {queue_idx}"
+
+            time.sleep(POLL_INTERVAL)
+
+            ok, poll_output = run_command(["dreamina", "query_result", f"--submit_id={submit_id}"])
+            try:
+                result_data = json.loads(poll_output)
+            except (json.JSONDecodeError, ValueError):
+                result_data = {"raw": poll_output}
+
+            gen_status = result_data.get("gen_status", "") if isinstance(result_data, dict) else ""
+            if gen_status not in ("querying", "processing", "waiting"):
+                break
+
+        success = gen_status == "done"
+
+    if success or (isinstance(result_data, dict) and result_data.get("gen_status") == "done"):
         tasks[task_id]["status"] = "done"
         tasks[task_id]["result"] = result_data
+        tasks[task_id].pop("queue", None)
     else:
         tasks[task_id]["status"] = "error"
-        tasks[task_id]["error"] = output
+        tasks[task_id]["error"] = output if not submit_id else f"Timed out or failed (submit_id={submit_id})"
         tasks[task_id]["result"] = result_data
 
 
