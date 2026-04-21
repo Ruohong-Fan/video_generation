@@ -453,10 +453,387 @@ body {
 </div>
 
 <script>
-  // Commit 1 shell: structure only. Behavior ships in subsequent commits.
-  // Minimal init so the page looks alive until the graph engine lands.
+  // ── State ────────────────────────────────────────────────────────────────
+  const nodes = new Map();   // id -> node
+  const edges = [];          // { id, fromId, toId }
+  const selected = new Set();
 
-  // Credits fetch (reuse simple endpoint)
+  const view = { x: 0, y: 0, scale: 1 };
+  let nextId = 1;
+
+  const NODE_SPECS = {
+    script:      { icon: '📝', title: 'Script',        hasIn: false, hasOut: true  },
+    text2image:  { icon: '🖼️', title: 'Text → Image',   hasIn: true,  hasOut: true  },
+    text2video:  { icon: '🎬', title: 'Text → Video',   hasIn: true,  hasOut: true  },
+    image2video: { icon: '🎞️', title: 'Image → Video',  hasIn: true,  hasOut: true  },
+    image2image: { icon: '🎨', title: 'Image → Image',  hasIn: true,  hasOut: true  },
+    audio:       { icon: '🎵', title: 'Audio',          hasIn: false, hasOut: true  },
+  };
+
+  // ── DOM references ──────────────────────────────────────────────────────
+  const canvas    = document.getElementById('canvas');
+  const canvasWrap = document.getElementById('canvas-wrap');
+  const edgesSvg  = document.getElementById('edges');
+  const addMenu   = document.getElementById('add-menu');
+  const selInfo   = document.getElementById('sel-info');
+
+  // ── Helpers ──────────────────────────────────────────────────────────────
+  const uid = () => 'n' + (nextId++) + Math.random().toString(36).slice(2, 6);
+  const esc = (s) => String(s ?? '')
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+
+  function toast(msg, kind='') {
+    const t = document.createElement('div');
+    t.className = 'toast ' + kind;
+    t.textContent = msg;
+    document.body.appendChild(t);
+    setTimeout(() => t.remove(), 2200);
+  }
+
+  function applyView() {
+    canvas.style.transform   = `translate(${view.x}px, ${view.y}px) scale(${view.scale})`;
+    edgesSvg.style.transform = `translate(${view.x}px, ${view.y}px) scale(${view.scale})`;
+  }
+
+  function screenToWorld(sx, sy) {
+    const rect = canvasWrap.getBoundingClientRect();
+    return {
+      x: (sx - rect.left - view.x) / view.scale,
+      y: (sy - rect.top  - view.y) / view.scale,
+    };
+  }
+
+  function updateSelInfo() {
+    selInfo.textContent = `${nodes.size} node${nodes.size===1?'':'s'} · ${selected.size} selected`;
+  }
+
+  // ── Node creation ───────────────────────────────────────────────────────
+  function createNode(type, x, y) {
+    const spec = NODE_SPECS[type];
+    if (!spec) return;
+    const id = uid();
+    const node = {
+      id, type, x, y,
+      prompt: '',
+      params: { duration: '5', ratio: type.endsWith('video') ? '16:9' : '16:9', resolution: type.endsWith('video') ? '720P' : '2k' },
+      status: 'idle',
+      result: null,   // { url, kind }
+      taskId: null,
+      uploadUrl: null,
+    };
+    nodes.set(id, node);
+    renderNode(node);
+    updateSelInfo();
+    return node;
+  }
+
+  function renderNode(node) {
+    const existing = document.getElementById(node.id);
+    if (existing) existing.remove();
+
+    const spec = NODE_SPECS[node.type];
+    const el = document.createElement('div');
+    el.className = `node ${node.status}`;
+    el.id = node.id;
+    el.style.left = node.x + 'px';
+    el.style.top  = node.y + 'px';
+
+    const bodyHtml = renderNodeBody(node);
+
+    el.innerHTML = `
+      ${spec.hasIn  ? '<div class="handle in"  data-node="'+node.id+'" data-dir="in"></div>'  : ''}
+      ${spec.hasOut ? '<div class="handle out" data-node="'+node.id+'" data-dir="out"></div>' : ''}
+      <div class="node-header">
+        <div class="node-icon">${spec.icon}</div>
+        <div class="node-title">${esc(spec.title)}</div>
+        <div class="node-status"></div>
+      </div>
+      <div class="node-body">${bodyHtml}</div>
+      <div class="node-footer">
+        <span class="node-id">${node.status}</span>
+        <button class="node-run" data-action="run">▶ Run</button>
+      </div>
+    `;
+    canvas.appendChild(el);
+
+    // Wire up field changes
+    el.querySelectorAll('[data-field]').forEach(input => {
+      input.addEventListener('input', (e) => {
+        const field = e.target.dataset.field;
+        const val = e.target.value;
+        if (field === 'prompt') node.prompt = val;
+        else node.params[field] = val;
+      });
+      // Stop drag when interacting with inputs
+      input.addEventListener('pointerdown', e => e.stopPropagation());
+    });
+
+    // Upload handling for audio/image-input nodes
+    const fileInput = el.querySelector('input[type=file]');
+    if (fileInput) {
+      fileInput.addEventListener('change', async (e) => {
+        const f = e.target.files[0];
+        if (!f) return;
+        const fd = new FormData();
+        fd.append('file', f);
+        const resp = await fetch('/api/upload', { method: 'POST', body: fd });
+        const d = await resp.json();
+        if (d.ok) {
+          node.uploadUrl = d.url;
+          node.result = { url: d.url, kind: node.type === 'audio' ? 'audio' : 'image' };
+          renderNode(node);
+        } else {
+          toast('Upload failed', 'error');
+        }
+      });
+    }
+
+    // Run button
+    el.querySelector('[data-action=run]')?.addEventListener('pointerdown', e => e.stopPropagation());
+    el.querySelector('[data-action=run]')?.addEventListener('click', () => runNode(node.id));
+  }
+
+  function renderNodeBody(node) {
+    const resultHtml = node.result?.url
+      ? (node.result.kind === 'video'
+          ? `<div class="node-preview"><video src="${esc(node.result.url)}" controls muted loop playsinline></video></div>`
+          : node.result.kind === 'audio'
+          ? `<div class="node-preview"><audio src="${esc(node.result.url)}" controls style="width:100%"></audio></div>`
+          : `<div class="node-preview"><img src="${esc(node.result.url)}" alt=""/></div>`)
+      : '';
+
+    if (node.type === 'script') {
+      return `
+        <div>
+          <div class="node-label">Prompt / notes</div>
+          <textarea data-field="prompt" rows="4" placeholder="Write a prompt here…">${esc(node.prompt)}</textarea>
+        </div>`;
+    }
+    if (node.type === 'audio') {
+      return `
+        <div>
+          <div class="node-label">Audio file</div>
+          <input type="file" accept="audio/*" />
+          ${resultHtml}
+        </div>`;
+    }
+    if (node.type === 'text2image') {
+      return `
+        <div>
+          <div class="node-label">Prompt</div>
+          <textarea data-field="prompt" rows="3" placeholder="A misty mountain at dawn…">${esc(node.prompt)}</textarea>
+        </div>
+        <div class="node-row">
+          <div>
+            <div class="node-label">Ratio</div>
+            <select data-field="ratio">
+              ${['16:9','1:1','9:16','4:3','3:4'].map(r => `<option value="${r}" ${node.params.ratio===r?'selected':''}>${r}</option>`).join('')}
+            </select>
+          </div>
+          <div>
+            <div class="node-label">Resolution</div>
+            <select data-field="resolution">
+              ${['1k','2k','4k'].map(r => `<option value="${r}" ${node.params.resolution===r?'selected':''}>${r.toUpperCase()}</option>`).join('')}
+            </select>
+          </div>
+        </div>
+        ${resultHtml}`;
+    }
+    if (node.type === 'text2video') {
+      return `
+        <div>
+          <div class="node-label">Prompt</div>
+          <textarea data-field="prompt" rows="3" placeholder="Camera pushes in…">${esc(node.prompt)}</textarea>
+        </div>
+        <div class="node-row">
+          <div>
+            <div class="node-label">Duration</div>
+            <select data-field="duration">
+              <option value="5" ${node.params.duration==='5'?'selected':''}>5s</option>
+              <option value="10" ${node.params.duration==='10'?'selected':''}>10s</option>
+            </select>
+          </div>
+          <div>
+            <div class="node-label">Ratio</div>
+            <select data-field="ratio">
+              ${['16:9','9:16','1:1'].map(r => `<option value="${r}" ${node.params.ratio===r?'selected':''}>${r}</option>`).join('')}
+            </select>
+          </div>
+        </div>
+        <div>
+          <div class="node-label">Resolution</div>
+          <select data-field="resolution">
+            ${['480P','720P','1080P'].map(r => `<option value="${r}" ${node.params.resolution===r?'selected':''}>${r}</option>`).join('')}
+          </select>
+        </div>
+        ${resultHtml}`;
+    }
+    if (node.type === 'image2video') {
+      return `
+        <div>
+          <div class="node-label">Motion prompt</div>
+          <textarea data-field="prompt" rows="2" placeholder="Camera pans right…">${esc(node.prompt)}</textarea>
+        </div>
+        <div class="node-row">
+          <div>
+            <div class="node-label">Duration</div>
+            <select data-field="duration">
+              <option value="5" ${node.params.duration==='5'?'selected':''}>5s</option>
+              <option value="10" ${node.params.duration==='10'?'selected':''}>10s</option>
+            </select>
+          </div>
+          <div>
+            <div class="node-label">Source</div>
+            <input type="file" accept="image/*" />
+          </div>
+        </div>
+        ${resultHtml}`;
+    }
+    if (node.type === 'image2image') {
+      return `
+        <div>
+          <div class="node-label">Transform prompt</div>
+          <textarea data-field="prompt" rows="2" placeholder="Oil painting style…">${esc(node.prompt)}</textarea>
+        </div>
+        <div>
+          <div class="node-label">Source (optional if connected)</div>
+          <input type="file" accept="image/*" />
+        </div>
+        ${resultHtml}`;
+    }
+    return '';
+  }
+
+  // Stub: real implementation lands in Commit 5
+  function runNode(id) {
+    toast('Run wiring lands in a later commit', '');
+  }
+
+  // ── Dragging a node ─────────────────────────────────────────────────────
+  let dragState = null;
+  canvas.addEventListener('pointerdown', (e) => {
+    const nodeEl = e.target.closest('.node');
+    if (!nodeEl) return;
+    if (e.target.closest('input, textarea, select, button, .handle')) return;
+    const node = nodes.get(nodeEl.id);
+    if (!node) return;
+    dragState = {
+      node, el: nodeEl,
+      startX: e.clientX, startY: e.clientY,
+      origX: node.x, origY: node.y,
+    };
+    nodeEl.setPointerCapture?.(e.pointerId);
+    e.preventDefault();
+  });
+  canvas.addEventListener('pointermove', (e) => {
+    if (!dragState) return;
+    const dx = (e.clientX - dragState.startX) / view.scale;
+    const dy = (e.clientY - dragState.startY) / view.scale;
+    dragState.node.x = dragState.origX + dx;
+    dragState.node.y = dragState.origY + dy;
+    dragState.el.style.left = dragState.node.x + 'px';
+    dragState.el.style.top  = dragState.node.y + 'px';
+  });
+  canvas.addEventListener('pointerup',   () => { dragState = null; });
+  canvas.addEventListener('pointercancel', () => { dragState = null; });
+
+  // ── Canvas panning (drag empty space) ───────────────────────────────────
+  let panState = null;
+  canvasWrap.addEventListener('pointerdown', (e) => {
+    // Only pan if clicking on empty canvas area (not a node)
+    if (e.target.closest('.node')) return;
+    panState = { startX: e.clientX, startY: e.clientY, origX: view.x, origY: view.y };
+    canvasWrap.classList.add('panning');
+    canvasWrap.setPointerCapture?.(e.pointerId);
+  });
+  canvasWrap.addEventListener('pointermove', (e) => {
+    if (!panState) return;
+    view.x = panState.origX + (e.clientX - panState.startX);
+    view.y = panState.origY + (e.clientY - panState.startY);
+    applyView();
+  });
+  canvasWrap.addEventListener('pointerup', () => {
+    panState = null;
+    canvasWrap.classList.remove('panning');
+  });
+
+  // ── Canvas zoom (wheel) ─────────────────────────────────────────────────
+  canvasWrap.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    const delta = -e.deltaY * 0.0015;
+    const newScale = Math.min(2, Math.max(0.3, view.scale * (1 + delta)));
+    const w = screenToWorld(e.clientX, e.clientY);
+    view.scale = newScale;
+    // Re-center around cursor position
+    const rect = canvasWrap.getBoundingClientRect();
+    view.x = e.clientX - rect.left - w.x * view.scale;
+    view.y = e.clientY - rect.top  - w.y * view.scale;
+    applyView();
+  }, { passive: false });
+
+  // ── Add-node menu wiring ────────────────────────────────────────────────
+  document.getElementById('btn-add').addEventListener('click', (e) => {
+    const r = e.currentTarget.getBoundingClientRect();
+    addMenu.style.left = (r.right + 8) + 'px';
+    addMenu.style.top = r.top + 'px';
+    addMenu.classList.toggle('open');
+  });
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('#add-menu') && !e.target.closest('#btn-add')) {
+      addMenu.classList.remove('open');
+    }
+  });
+  addMenu.querySelectorAll('.add-menu-item').forEach(item => {
+    item.addEventListener('click', () => {
+      const type = item.dataset.nodeType;
+      // Drop the new node near the center of the current viewport
+      const rect = canvasWrap.getBoundingClientRect();
+      const center = screenToWorld(rect.left + rect.width/2, rect.top + rect.height/2);
+      createNode(type, center.x - 120 + Math.random()*40, center.y - 60 + Math.random()*40);
+      addMenu.classList.remove('open');
+    });
+  });
+
+  // ── Fit / Center ────────────────────────────────────────────────────────
+  document.getElementById('btn-center').addEventListener('click', () => {
+    view.x = 0; view.y = 0; view.scale = 1;
+    applyView();
+  });
+  document.getElementById('btn-fit').addEventListener('click', () => {
+    if (nodes.size === 0) return;
+    let minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity;
+    for (const n of nodes.values()) {
+      minX = Math.min(minX, n.x); minY = Math.min(minY, n.y);
+      maxX = Math.max(maxX, n.x + 240); maxY = Math.max(maxY, n.y + 260);
+    }
+    const rect = canvasWrap.getBoundingClientRect();
+    const sx = (rect.width  - 80) / (maxX - minX || 1);
+    const sy = (rect.height - 80) / (maxY - minY || 1);
+    view.scale = Math.min(2, Math.max(0.3, Math.min(sx, sy)));
+    view.x = 40 - minX * view.scale;
+    view.y = 40 - minY * view.scale;
+    applyView();
+  });
+
+  // ── Clear canvas ────────────────────────────────────────────────────────
+  document.getElementById('btn-clear-all').addEventListener('click', () => {
+    if (!nodes.size) return;
+    if (!confirm('Clear all nodes?')) return;
+    nodes.clear();
+    edges.length = 0;
+    selected.clear();
+    canvas.innerHTML = '';
+    edgesSvg.innerHTML = '';
+    updateSelInfo();
+  });
+
+  // ── Stub buttons (real versions land in later commits) ──────────────────
+  document.getElementById('btn-run-selected').addEventListener('click', () =>
+    toast('Execution lands in a later commit'));
+  document.getElementById('btn-run-all').addEventListener('click', () =>
+    toast('Execution lands in a later commit'));
+
+  // ── Credits ─────────────────────────────────────────────────────────────
   (async () => {
     try {
       const r = await fetch('/api/credits');
@@ -468,27 +845,7 @@ body {
     }
   })();
 
-  // Placeholder handlers so buttons are not silently broken
-  function notImpl(name) {
-    return () => console.log(`[todo] ${name} — lands in a later commit`);
-  }
-  document.getElementById('btn-add').addEventListener('click', (e) => {
-    const menu = document.getElementById('add-menu');
-    const r = e.currentTarget.getBoundingClientRect();
-    menu.style.left = (r.right + 8) + 'px';
-    menu.style.top = r.top + 'px';
-    menu.classList.toggle('open');
-  });
-  document.addEventListener('click', (e) => {
-    if (!e.target.closest('#add-menu') && !e.target.closest('#btn-add')) {
-      document.getElementById('add-menu').classList.remove('open');
-    }
-  });
-  document.getElementById('btn-fit').addEventListener('click', notImpl('fit'));
-  document.getElementById('btn-center').addEventListener('click', notImpl('center'));
-  document.getElementById('btn-run-selected').addEventListener('click', notImpl('run selected'));
-  document.getElementById('btn-run-all').addEventListener('click', notImpl('run all'));
-  document.getElementById('btn-clear-all').addEventListener('click', notImpl('clear canvas'));
+  updateSelInfo();
 </script>
 </body>
 </html>
