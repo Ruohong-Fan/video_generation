@@ -184,17 +184,30 @@ body {
   border-radius: 12px;
   width: 240px;
   box-shadow: 0 4px 20px rgba(0,0,0,0.4);
-  transition: border-color 0.15s, box-shadow 0.15s;
+  transition: border-color 0.12s, box-shadow 0.12s, background 0.12s;
   cursor: move;
   user-select: none;
 }
+.node:hover {
+  border-color: var(--muted);
+  box-shadow: 0 6px 24px rgba(0,0,0,0.5);
+}
 .node.selected {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 2px rgba(124,106,247,0.3), 0 4px 20px rgba(0,0,0,0.5);
+  border-color: var(--accent2);
+  border-width: 2px;
+  background: #18172a;
+  box-shadow: 0 0 0 3px rgba(124,106,247,0.45), 0 6px 28px rgba(0,0,0,0.55);
+}
+.node.selected .node-header {
+  background: rgba(124,106,247,0.12);
+  border-bottom-color: rgba(124,106,247,0.25);
 }
 .node.running { border-color: var(--warning); }
+.node.running .node-header { background: rgba(251,191,36,0.08); }
 .node.done { border-color: var(--success); }
+.node.done .node-header { background: rgba(74,222,128,0.08); }
 .node.error { border-color: var(--error); }
+.node.error .node-header { background: rgba(248,113,113,0.08); }
 
 .node-header {
   padding: 10px 12px;
