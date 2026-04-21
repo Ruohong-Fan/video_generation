@@ -169,6 +169,7 @@ body {
   height: 100%;
   pointer-events: none;
   overflow: visible;
+  transform-origin: 0 0;
 }
 .edge { fill: none; stroke: var(--muted); stroke-width: 2; opacity: 0.55; transition: stroke 0.15s, opacity 0.15s; pointer-events: stroke; cursor: pointer; }
 .edge:hover, .edge.selected { stroke: var(--accent2); opacity: 1; stroke-width: 3; }
@@ -1074,50 +1075,53 @@ body {
   // ── Handle drag (create edges) ──────────────────────────────────────────
   let edgeDrag = null;
 
-  canvas.addEventListener('pointerdown', (e) => {
-    const handle = e.target.closest('.handle');
-    if (!handle) return;
-    if (handle.dataset.dir !== 'out') return; // Only drag from outputs
-    e.stopPropagation();
-    e.preventDefault();
-    const fromId = handle.dataset.node;
-    edgeDrag = { fromId };
-    handle.classList.add('connecting');
-    canvasWrap.setPointerCapture?.(e.pointerId);
-  });
-
-  canvasWrap.addEventListener('pointermove', (e) => {
-    if (!edgeDrag) return;
-    const a = handlePos(edgeDrag.fromId, 'out');
-    const w = screenToWorld(e.clientX, e.clientY);
-    let tempPath = edgesSvg.querySelector('.edge-temp');
-    if (!tempPath) {
-      tempPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-      tempPath.setAttribute('class', 'edge-temp');
-      edgesSvg.appendChild(tempPath);
-    }
-    tempPath.setAttribute('d', edgePath(a.x, a.y, w.x, w.y));
-  });
-
-  canvasWrap.addEventListener('pointerup', (e) => {
-    if (!edgeDrag) return;
-    const el = document.elementFromPoint(e.clientX, e.clientY);
-    const target = el?.closest?.('.handle');
-    if (target && target.dataset.dir === 'in') {
-      addEdge(edgeDrag.fromId, target.dataset.node);
-    }
+  function cancelEdgeDrag() {
     document.querySelectorAll('.handle.connecting').forEach(h => h.classList.remove('connecting'));
     edgesSvg.querySelector('.edge-temp')?.remove();
     edgeDrag = null;
+  }
+
+  canvas.addEventListener('pointerdown', (e) => {
+    const handle = e.target.closest('.handle');
+    if (!handle) return;
+    if (handle.dataset.dir !== 'out') return;
+    e.stopPropagation();
+    e.preventDefault();
+
+    const fromId = handle.dataset.node;
+    edgeDrag = { fromId };
+    handle.classList.add('connecting');
+
+    function onMove(ev) {
+      const a = handlePos(fromId, 'out');
+      const w = screenToWorld(ev.clientX, ev.clientY);
+      let tempPath = edgesSvg.querySelector('.edge-temp');
+      if (!tempPath) {
+        tempPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        tempPath.setAttribute('class', 'edge-temp');
+        edgesSvg.appendChild(tempPath);
+      }
+      tempPath.setAttribute('d', edgePath(a.x, a.y, w.x, w.y));
+    }
+
+    function onUp(ev) {
+      document.removeEventListener('pointermove', onMove);
+      document.removeEventListener('pointerup',   onUp);
+      const el = document.elementFromPoint(ev.clientX, ev.clientY);
+      const target = el?.closest?.('.handle');
+      if (target && target.dataset.dir === 'in' && target.dataset.node !== fromId) {
+        addEdge(fromId, target.dataset.node);
+      }
+      cancelEdgeDrag();
+    }
+
+    document.addEventListener('pointermove', onMove);
+    document.addEventListener('pointerup',   onUp);
   });
 
   // Cancel edge drag on Escape
   window.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && edgeDrag) {
-      document.querySelectorAll('.handle.connecting').forEach(h => h.classList.remove('connecting'));
-      edgesSvg.querySelector('.edge-temp')?.remove();
-      edgeDrag = null;
-    }
+    if (e.key === 'Escape' && edgeDrag) cancelEdgeDrag();
   });
 
   // ── Selection ───────────────────────────────────────────────────────────
@@ -1252,6 +1256,7 @@ body {
 
   canvasWrap.addEventListener('pointerdown', (e) => {
     if (e.target.closest('.node')) return;
+    if (e.target.closest('svg')) return; // let SVG path (edge) clicks pass to their own handlers
     if (e.button === 2) return;
 
     // Shift+drag → box-select
