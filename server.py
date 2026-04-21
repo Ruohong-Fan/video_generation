@@ -26,8 +26,8 @@ UPLOAD_DIR.mkdir(exist_ok=True)
 
 TASKS_FILE = Path("tasks.json")
 WORKFLOW_FILE = Path("workflow.json")
-POLL_INTERVAL = 15    # seconds between query_result calls
-POLL_TIMEOUT  = 1800  # give up after 30 minutes
+POLL_INTERVAL = int(os.environ.get("POLL_INTERVAL_SECONDS", "15"))
+POLL_TIMEOUT = int(os.environ.get("POLL_TIMEOUT_SECONDS", "21600"))  # 6 hours; <=0 disables timeout
 
 # task_id -> {status, label, result, error, created_at}
 tasks: dict[str, dict] = {}
@@ -78,6 +78,20 @@ def run_command(cmd: list[str]) -> tuple[bool, str]:
         return False, str(e)
 
 
+def _task_state(result_data: dict | None) -> str:
+    if not isinstance(result_data, dict):
+        return "unknown"
+
+    status = str(result_data.get("gen_status") or result_data.get("status") or "").lower()
+    if status in {"done", "success", "succeeded", "finish", "finished", "completed"}:
+        return "done"
+    if status in {"querying", "processing", "waiting", "queued", "queueing", "pending", "running"}:
+        return "pending"
+    if status in {"fail", "failed", "error"}:
+        return "error"
+    return "unknown"
+
+
 # ── Task runner ───────────────────────────────────────────────────────────────
 
 def run_task(task_id: str, cmd: list[str]):
@@ -93,15 +107,17 @@ def run_task(task_id: str, cmd: list[str]):
         result_data = {"raw": output}
 
     submit_id = result_data.get("submit_id") if isinstance(result_data, dict) else None
-    gen_status = result_data.get("gen_status", "") if isinstance(result_data, dict) else ""
+    state = _task_state(result_data)
 
     # Keep polling if task is still queued/processing
-    if submit_id and gen_status in ("querying", "processing", "waiting"):
-        deadline = time.time() + POLL_TIMEOUT
-        while time.time() < deadline:
+    if submit_id and state == "pending":
+        deadline = (time.time() + POLL_TIMEOUT) if POLL_TIMEOUT > 0 else None
+        while deadline is None or time.time() < deadline:
             queue_info = result_data.get("queue_info", {})
             tasks[task_id]["result"] = result_data
+            tasks[task_id]["status"] = "queued"
             tasks[task_id]["queue_idx"] = queue_info.get("queue_idx")
+            tasks[task_id]["error"] = None
             save_tasks()
 
             time.sleep(POLL_INTERVAL)
@@ -112,21 +128,33 @@ def run_task(task_id: str, cmd: list[str]):
             except (json.JSONDecodeError, ValueError):
                 result_data = {"raw": poll_output}
 
-            gen_status = result_data.get("gen_status", "") if isinstance(result_data, dict) else ""
-            if gen_status not in ("querying", "processing", "waiting"):
+            state = _task_state(result_data)
+            if state != "pending":
                 break
 
-        success = gen_status == "done"
+        if deadline is not None and time.time() >= deadline and state == "pending":
+            tasks[task_id]["status"] = "queued"
+            tasks[task_id]["result"] = result_data
+            tasks[task_id]["error"] = f"Still queued after waiting {POLL_TIMEOUT // 3600 or POLL_TIMEOUT // 60}h; keep this task and query again later with submit_id={submit_id}"
+            save_tasks()
+            return
 
-    if success or (isinstance(result_data, dict) and result_data.get("gen_status") == "done"):
+        success = state == "done"
+
+    if success or _task_state(result_data) == "done":
         tasks[task_id]["status"] = "done"
         tasks[task_id]["result"] = result_data
+        tasks[task_id]["error"] = None
         tasks[task_id].pop("queue_idx", None)
     else:
         tasks[task_id]["status"] = "error"
         tasks[task_id]["error"] = (
             output if not submit_id
-            else f"Timed out or failed. submit_id={submit_id}"
+            else (
+                result_data.get("fail_reason")
+                if isinstance(result_data, dict) and result_data.get("fail_reason")
+                else f"Generation failed. submit_id={submit_id}"
+            )
         )
         tasks[task_id]["result"] = result_data
 

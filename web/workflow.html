@@ -828,8 +828,7 @@ body {
   }
 
   async function pollUntilDone(taskId, nodeId) {
-    const deadline = Date.now() + 30 * 60 * 1000;
-    while (Date.now() < deadline) {
+    while (true) {
       await new Promise(r => setTimeout(r, 3000));
       const resp = await fetch('/api/task/' + taskId);
       if (!resp.ok) throw new Error('Task lookup failed');
