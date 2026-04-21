@@ -400,7 +400,6 @@ body {
 
 <div class="topbar">
   <div class="logo">Jimeng <span>Workflow</span></div>
-  <a class="chip" href="/classic" style="text-decoration:none">← Classic UI</a>
   <div class="topbar-right">
     <div class="chip"><div class="dot"></div><span id="credits-text">Loading…</span></div>
     <div class="chip" id="save-status">Saved</div>
@@ -482,6 +481,9 @@ body {
   const uid = () => 'n' + (nextId++) + Math.random().toString(36).slice(2, 6);
   const esc = (s) => String(s ?? '')
     .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  const mediaUrl = (url) => (url && /^https?:\/\//i.test(url))
+    ? `/api/media_proxy?url=${encodeURIComponent(url)}`
+    : (url || '');
 
   function toast(msg, kind='') {
     const t = document.createElement('div');
@@ -516,7 +518,12 @@ body {
     const node = {
       id, type, x, y,
       prompt: '',
-      params: { duration: '5', ratio: type.endsWith('video') ? '16:9' : '16:9', resolution: type.endsWith('video') ? '720P' : '2k' },
+      params: {
+        duration: '5',
+        ratio: '16:9',
+        resolution: type.endsWith('video') ? '720P' : '2k',
+        modelVersion: '',
+      },
       status: 'idle',
       result: null,   // { url, kind }
       taskId: null,
@@ -599,11 +606,16 @@ body {
   function renderNodeBody(node) {
     let resultHtml = '';
     if (node.result?.url) {
+      const previewUrl = mediaUrl(node.result.url);
       resultHtml = (node.result.kind === 'video'
-        ? `<div class="node-preview"><video src="${esc(node.result.url)}" controls muted loop playsinline></video></div>`
+        ? `<div class="node-preview">
+             <video controls preload="metadata" muted playsinline referrerpolicy="no-referrer">
+               <source src="${esc(previewUrl)}" type="video/mp4" />
+             </video>
+           </div>`
         : node.result.kind === 'audio'
-        ? `<div class="node-preview"><audio src="${esc(node.result.url)}" controls style="width:100%"></audio></div>`
-        : `<div class="node-preview"><img src="${esc(node.result.url)}" alt=""/></div>`);
+        ? `<div class="node-preview"><audio src="${esc(previewUrl)}" controls referrerpolicy="no-referrer" style="width:100%"></audio></div>`
+        : `<div class="node-preview"><img src="${esc(previewUrl)}" alt="" referrerpolicy="no-referrer" /></div>`);
     } else if (node.result?.localPath) {
       resultHtml = `
         <div class="node-preview empty">
@@ -683,6 +695,15 @@ body {
           </div>
         </div>
         <div>
+          <div class="node-label">Mode</div>
+          <select data-field="modelVersion">
+            <option value="seedance2.0fast" ${node.params.modelVersion==='seedance2.0fast'?'selected':''}>Non-VIP Fast</option>
+            <option value="" ${!node.params.modelVersion ? 'selected' : ''}>Non-VIP</option>
+            <option value="seedance2.0fast_vip" ${node.params.modelVersion==='seedance2.0fast_vip'?'selected':''}>VIP Fast</option>
+            <option value="seedance2.0_vip" ${node.params.modelVersion==='seedance2.0_vip'?'selected':''}>VIP</option>
+          </select>
+        </div>
+        <div>
           <div class="node-label">Resolution</div>
           <select data-field="resolution">
             ${['480P','720P','1080P'].map(r => `<option value="${r}" ${node.params.resolution===r?'selected':''}>${r}</option>`).join('')}
@@ -709,6 +730,15 @@ body {
             <div class="node-label">Source</div>
             <input type="file" accept="image/*" />
           </div>
+        </div>
+        <div>
+          <div class="node-label">Mode</div>
+          <select data-field="modelVersion">
+            <option value="seedance2.0fast" ${node.params.modelVersion==='seedance2.0fast'?'selected':''}>Non-VIP Fast</option>
+            <option value="" ${!node.params.modelVersion ? 'selected' : ''}>Non-VIP</option>
+            <option value="seedance2.0fast_vip" ${node.params.modelVersion==='seedance2.0fast_vip'?'selected':''}>VIP Fast</option>
+            <option value="seedance2.0_vip" ${node.params.modelVersion==='seedance2.0_vip'?'selected':''}>VIP</option>
+          </select>
         </div>
         ${statusHtml}
         ${resultHtml}`;
@@ -769,12 +799,23 @@ body {
     } else if (node.type === 'text2video') {
       if (!prompt) throw new Error('prompt required (connect a Script or type one)');
       endpoint = '/api/text2video';
-      body = { prompt, duration: node.params.duration, ratio: node.params.ratio, resolution: node.params.resolution };
+      body = {
+        prompt,
+        duration: node.params.duration,
+        ratio: node.params.ratio,
+        resolution: node.params.resolution,
+        model_version: node.params.modelVersion || '',
+      };
     } else if (node.type === 'image2video') {
       if (!imageUrl) throw new Error('image required (connect an image node or upload)');
       endpoint = '/api/image2video';
       const origin = window.location.origin;
-      body = { image_url: imageUrl.startsWith('http') ? imageUrl : origin + imageUrl, prompt, duration: node.params.duration };
+      body = {
+        image_url: imageUrl.startsWith('http') ? imageUrl : origin + imageUrl,
+        prompt,
+        duration: node.params.duration,
+        model_version: node.params.modelVersion || '',
+      };
     } else if (node.type === 'image2image') {
       if (!imageUrl) throw new Error('image required (connect an image node or upload)');
       if (!prompt) throw new Error('prompt required');
@@ -1387,7 +1428,12 @@ body {
           nodes.set(n.id, {
             id: n.id, type: n.type, x: n.x, y: n.y,
             prompt: n.prompt || '',
-            params: n.params || { duration: '5', ratio: '16:9', resolution: '720P' },
+            params: {
+              duration: n.params?.duration || '5',
+              ratio: n.params?.ratio || '16:9',
+              resolution: n.params?.resolution || (n.type && n.type.endsWith('video') ? '720P' : '2k'),
+              modelVersion: n.params?.modelVersion || '',
+            },
             status: n.status || 'idle',
             result: n.result || null,
             taskId: null,

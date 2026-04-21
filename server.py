@@ -14,8 +14,10 @@ import threading
 import time
 import uuid
 from pathlib import Path
+from urllib.parse import urlparse
 
-from flask import Flask, jsonify, request, send_from_directory
+import requests
+from flask import Flask, Response, jsonify, request, send_from_directory, stream_with_context
 from flask_cors import CORS
 
 app = Flask(__name__, static_folder="web")
@@ -92,13 +94,23 @@ def _task_state(result_data: dict | None) -> str:
     return "unknown"
 
 
+def _should_keep_polling(result_data: dict | None, submit_id: str | None) -> bool:
+    state = _task_state(result_data)
+    if state == "pending":
+        return True
+    # Some CLI responses only include submit_id initially; treat that as async work in progress.
+    if submit_id and state == "unknown":
+        return True
+    return False
+
+
 # ── Task runner ───────────────────────────────────────────────────────────────
 
 def run_task(task_id: str, cmd: list[str]):
     tasks[task_id]["status"] = "running"
     save_tasks()
 
-    success, output = run_command(cmd)
+    _command_ok, output = run_command(cmd)
 
     result_data = None
     try:
@@ -108,12 +120,13 @@ def run_task(task_id: str, cmd: list[str]):
 
     submit_id = result_data.get("submit_id") if isinstance(result_data, dict) else None
     state = _task_state(result_data)
+    last_pending_result = result_data if _should_keep_polling(result_data, submit_id) else None
 
     # Keep polling if task is still queued/processing
-    if submit_id and state == "pending":
+    if submit_id and _should_keep_polling(result_data, submit_id):
         deadline = (time.time() + POLL_TIMEOUT) if POLL_TIMEOUT > 0 else None
         while deadline is None or time.time() < deadline:
-            queue_info = result_data.get("queue_info", {})
+            queue_info = result_data.get("queue_info", {}) if isinstance(result_data, dict) else {}
             tasks[task_id]["result"] = result_data
             tasks[task_id]["status"] = "queued"
             tasks[task_id]["queue_idx"] = queue_info.get("queue_idx")
@@ -122,30 +135,45 @@ def run_task(task_id: str, cmd: list[str]):
 
             time.sleep(POLL_INTERVAL)
 
-            ok, poll_output = run_command(["dreamina", "query_result", f"--submit_id={submit_id}"])
+            poll_ok, poll_output = run_command(["dreamina", "query_result", f"--submit_id={submit_id}"])
             try:
-                result_data = json.loads(poll_output)
+                polled_result = json.loads(poll_output)
             except (json.JSONDecodeError, ValueError):
-                result_data = {"raw": poll_output}
+                polled_result = {"raw": poll_output}
 
-            state = _task_state(result_data)
-            if state != "pending":
+            poll_state = _task_state(polled_result)
+
+            # Transient CLI/network timeouts should not fail a still-queued task.
+            if not poll_ok and poll_state == "unknown":
+                continue
+
+            result_data = polled_result
+            state = poll_state
+
+            if _should_keep_polling(result_data, submit_id):
+                last_pending_result = result_data
+
+            if not _should_keep_polling(result_data, submit_id):
                 break
 
-        if deadline is not None and time.time() >= deadline and state == "pending":
+        if deadline is not None and time.time() >= deadline and _should_keep_polling(result_data, submit_id):
             tasks[task_id]["status"] = "queued"
-            tasks[task_id]["result"] = result_data
+            tasks[task_id]["result"] = last_pending_result or result_data
             tasks[task_id]["error"] = f"Still queued after waiting {POLL_TIMEOUT // 3600 or POLL_TIMEOUT // 60}h; keep this task and query again later with submit_id={submit_id}"
             save_tasks()
             return
 
-        success = state == "done"
+    state = _task_state(result_data)
 
-    if success or _task_state(result_data) == "done":
+    if state == "done":
         tasks[task_id]["status"] = "done"
         tasks[task_id]["result"] = result_data
         tasks[task_id]["error"] = None
         tasks[task_id].pop("queue_idx", None)
+    elif submit_id and _should_keep_polling(result_data, submit_id):
+        tasks[task_id]["status"] = "queued"
+        tasks[task_id]["result"] = last_pending_result or result_data
+        tasks[task_id]["error"] = None
     else:
         tasks[task_id]["status"] = "error"
         tasks[task_id]["error"] = (
@@ -183,11 +211,6 @@ def index():
     return send_from_directory("web", "workflow.html")
 
 
-@app.get("/classic")
-def classic_view():
-    return send_from_directory("web", "index.html")
-
-
 @app.get("/workflow")
 def workflow_view():
     return send_from_directory("web", "workflow.html")
@@ -196,6 +219,46 @@ def workflow_view():
 @app.get("/uploads/<path:filename>")
 def uploaded_file(filename):
     return send_from_directory(UPLOAD_DIR, filename)
+
+
+@app.get("/api/media_proxy")
+def media_proxy():
+    source_url = request.args.get("url", "").strip()
+    parsed = urlparse(source_url)
+    if parsed.scheme not in {"http", "https"}:
+        return jsonify({"ok": False, "error": "A valid http(s) media URL is required"}), 400
+
+    upstream_headers = {
+        "User-Agent": request.headers.get("User-Agent", "Mozilla/5.0"),
+    }
+    if request.headers.get("Range"):
+        upstream_headers["Range"] = request.headers["Range"]
+
+    try:
+        upstream = requests.get(source_url, headers=upstream_headers, stream=True, timeout=60)
+    except requests.RequestException as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 502
+
+    passthrough_headers = {}
+    for key in ("Content-Type", "Content-Length", "Content-Range", "Accept-Ranges"):
+        value = upstream.headers.get(key)
+        if value:
+            passthrough_headers[key] = value
+
+    def generate():
+        try:
+            for chunk in upstream.iter_content(chunk_size=1024 * 256):
+                if chunk:
+                    yield chunk
+        finally:
+            upstream.close()
+
+    return Response(
+        stream_with_context(generate()),
+        status=upstream.status_code,
+        headers=passthrough_headers,
+        direct_passthrough=True,
+    )
 
 
 # ── API: Account ──────────────────────────────────────────────────────────────
@@ -254,6 +317,7 @@ def query_result(submit_id: str):
 def text2video():
     data = request.get_json(force=True)
     prompt = data.get("prompt", "").strip()
+    model_version = data.get("model_version", "").strip()
     if not prompt:
         return jsonify({"ok": False, "error": "prompt is required"}), 400
     cmd = [
@@ -264,6 +328,8 @@ def text2video():
         f"--video_resolution={data.get('resolution', '720P')}",
         "--poll=240",
     ]
+    if model_version:
+        cmd.append(f"--model_version={model_version}")
     return jsonify(_start_task(cmd, f"text2video: {prompt[:60]}"))
 
 
@@ -310,6 +376,7 @@ def _get_param(request, key: str, default=""):
 def image2video():
     prompt = _get_param(request, "prompt", "").strip()
     duration = _get_param(request, "duration", "5")
+    model_version = _get_param(request, "model_version", "").strip()
     image_ref = _resolve_image_input(request)
     if not image_ref:
         return jsonify({"ok": False, "error": "image or image_url is required"}), 400
@@ -321,6 +388,8 @@ def image2video():
     ]
     if prompt:
         cmd.append(f"--prompt={prompt}")
+    if model_version:
+        cmd.append(f"--model_version={model_version}")
     return jsonify(_start_task(cmd, f"image2video: {prompt[:60] or image_ref[-40:]}"))
 
 
