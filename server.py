@@ -5,6 +5,8 @@ Wraps the `dreamina` CLI and exposes a simple REST API.
 Tasks are persisted to tasks.json so history survives server restarts.
 """
 
+from __future__ import annotations
+
 import json
 import os
 import subprocess
