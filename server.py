@@ -23,6 +23,7 @@ UPLOAD_DIR = Path("uploads")
 UPLOAD_DIR.mkdir(exist_ok=True)
 
 TASKS_FILE = Path("tasks.json")
+WORKFLOW_FILE = Path("workflow.json")
 POLL_INTERVAL = 15    # seconds between query_result calls
 POLL_TIMEOUT  = 1800  # give up after 30 minutes
 
@@ -242,46 +243,99 @@ def text2image():
     return jsonify(_start_task(cmd, f"text2image: {prompt[:60]}"))
 
 
+def _resolve_image_input(request) -> str | None:
+    """Return a path-or-URL usable by `dreamina --image=...`.
+    Accepts either a multipart upload OR JSON with image_url.
+    """
+    if request.content_type and "multipart" in request.content_type:
+        image_file = request.files.get("image")
+        if image_file:
+            save_path = UPLOAD_DIR / f"{uuid.uuid4()}_{image_file.filename}"
+            image_file.save(save_path)
+            return str(save_path)
+        return None
+
+    data = request.get_json(silent=True) or {}
+    return data.get("image_url") or data.get("image") or None
+
+
+def _get_param(request, key: str, default=""):
+    if request.content_type and "multipart" in request.content_type:
+        return request.form.get(key, default)
+    data = request.get_json(silent=True) or {}
+    return data.get(key, default)
+
+
 @app.post("/api/image2video")
 def image2video():
-    prompt = request.form.get("prompt", "").strip()
-    duration = request.form.get("duration", "5")
-    image_file = request.files.get("image")
-    if not image_file:
-        return jsonify({"ok": False, "error": "image file is required"}), 400
-    save_path = UPLOAD_DIR / f"{uuid.uuid4()}_{image_file.filename}"
-    image_file.save(save_path)
+    prompt = _get_param(request, "prompt", "").strip()
+    duration = _get_param(request, "duration", "5")
+    image_ref = _resolve_image_input(request)
+    if not image_ref:
+        return jsonify({"ok": False, "error": "image or image_url is required"}), 400
     cmd = [
         "dreamina", "image2video",
-        f"--image={save_path}",
+        f"--image={image_ref}",
         f"--duration={duration}",
         "--poll=240",
     ]
     if prompt:
         cmd.append(f"--prompt={prompt}")
-    return jsonify(_start_task(cmd, f"image2video: {image_file.filename}"))
+    return jsonify(_start_task(cmd, f"image2video: {prompt[:60] or image_ref[-40:]}"))
 
 
 @app.post("/api/image2image")
 def image2image():
-    prompt = request.form.get("prompt", "").strip()
-    ratio = request.form.get("ratio", "")
-    image_file = request.files.get("image")
-    if not image_file:
-        return jsonify({"ok": False, "error": "image file is required"}), 400
+    prompt = _get_param(request, "prompt", "").strip()
+    ratio = _get_param(request, "ratio", "")
+    image_ref = _resolve_image_input(request)
+    if not image_ref:
+        return jsonify({"ok": False, "error": "image or image_url is required"}), 400
     if not prompt:
         return jsonify({"ok": False, "error": "prompt is required"}), 400
-    save_path = UPLOAD_DIR / f"{uuid.uuid4()}_{image_file.filename}"
-    image_file.save(save_path)
     cmd = [
         "dreamina", "image2image",
-        f"--images={save_path}",
+        f"--images={image_ref}",
         f"--prompt={prompt}",
         "--poll=90",
     ]
     if ratio:
         cmd.append(f"--ratio={ratio}")
     return jsonify(_start_task(cmd, f"image2image: {prompt[:60]}"))
+
+
+# ── API: Upload and Workflow ──────────────────────────────────────────────────
+
+@app.post("/api/upload")
+def upload():
+    """Generic file upload. Returns a URL the frontend can use as an input."""
+    f = request.files.get("file")
+    if not f:
+        return jsonify({"ok": False, "error": "file is required"}), 400
+    filename = f"{uuid.uuid4()}_{f.filename}"
+    save_path = UPLOAD_DIR / filename
+    f.save(save_path)
+    return jsonify({"ok": True, "url": f"/uploads/{filename}", "path": str(save_path)})
+
+
+@app.get("/api/workflow")
+def get_workflow():
+    if WORKFLOW_FILE.exists():
+        try:
+            return jsonify({"ok": True, "workflow": json.loads(WORKFLOW_FILE.read_text())})
+        except Exception:
+            pass
+    return jsonify({"ok": True, "workflow": {"nodes": {}, "edges": []}})
+
+
+@app.put("/api/workflow")
+def save_workflow():
+    data = request.get_json(force=True)
+    try:
+        WORKFLOW_FILE.write_text(json.dumps(data, indent=2))
+        return jsonify({"ok": True})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
 
 
 @app.post("/api/multiframe2video")
