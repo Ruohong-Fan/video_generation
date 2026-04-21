@@ -415,8 +415,8 @@ body {
 </div>
 
 <div class="canvas-wrap" id="canvas-wrap">
-  <svg class="edges" id="edges"></svg>
   <div class="canvas" id="canvas"></div>
+  <svg class="edges" id="edges"></svg>
 </div>
 
 <div class="add-menu" id="add-menu">
@@ -603,6 +603,31 @@ body {
     // Run button
     el.querySelector('[data-action=run]')?.addEventListener('pointerdown', e => e.stopPropagation());
     el.querySelector('[data-action=run]')?.addEventListener('click', () => runNode(node.id));
+  }
+
+  // Inject/replace the preview section inside an already-rendered node
+  function updateNodePreview(id) {
+    const node = nodes.get(id);
+    const el = document.getElementById(id);
+    if (!node || !el) return;
+
+    // Remove any existing preview
+    el.querySelectorAll('.node-preview').forEach(p => p.remove());
+    if (!node.result?.url) return;
+
+    const preview = document.createElement('div');
+    preview.className = 'node-preview';
+    if (node.result.kind === 'video') {
+      preview.innerHTML = `<video src="${esc(node.result.url)}" controls muted loop playsinline></video>`;
+    } else if (node.result.kind === 'audio') {
+      preview.innerHTML = `<audio src="${esc(node.result.url)}" controls style="width:100%"></audio>`;
+    } else {
+      preview.innerHTML = `<img src="${esc(node.result.url)}" alt=""/>`;
+    }
+
+    // Place it at the bottom of .node-body, above the footer
+    const body = el.querySelector('.node-body');
+    if (body) body.appendChild(preview);
   }
 
   function renderNodeBody(node) {
@@ -914,17 +939,11 @@ body {
         error: null,
         queueIdx: null,
       });
-      rewireNode(id);
       toast(`${node.type} done`, 'success');
     } catch (err) {
       setNodeStatus(id, 'error', { error: err.message, queueIdx: null });
       toast(`${node.type}: ${err.message}`, 'error');
     }
-  }
-
-  // Re-attach drag/click handlers that renderNode wires up
-  function rewireNode(id) {
-    // renderNode already re-wires when called. This helper is for clarity.
   }
 
   function topoSort(ids) {
@@ -1233,35 +1252,37 @@ body {
 
   canvasWrap.addEventListener('pointerdown', (e) => {
     if (e.target.closest('.node')) return;
+    if (e.button === 2) return;
 
-    // Space+drag or middle-click → pan
-    if (spaceDown || e.button === 1) {
-      panState = { startX: e.clientX, startY: e.clientY, origX: view.x, origY: view.y };
-      canvasWrap.classList.add('panning');
+    // Shift+drag → box-select
+    if (e.shiftKey) {
+      const start = screenToWorld(e.clientX, e.clientY);
+      selBoxState = { sx: start.x, sy: start.y };
+      selBoxEl = document.createElement('div');
+      selBoxEl.className = 'sel-box';
+      canvas.appendChild(selBoxEl);
       canvasWrap.setPointerCapture?.(e.pointerId);
       return;
     }
 
-    // Otherwise → start box-select
-    if (!e.shiftKey) clearSelection();
-    const start = screenToWorld(e.clientX, e.clientY);
-    selBoxState = { sx: start.x, sy: start.y, cx: start.x, cy: start.y };
-    selBoxEl = document.createElement('div');
-    selBoxEl.className = 'sel-box';
-    canvas.appendChild(selBoxEl);
+    // Default: pan (left-drag, middle-click, or space+drag)
+    panState = { startX: e.clientX, startY: e.clientY, origX: view.x, origY: view.y, moved: false };
+    canvasWrap.classList.add('panning');
     canvasWrap.setPointerCapture?.(e.pointerId);
   });
 
   canvasWrap.addEventListener('pointermove', (e) => {
     if (panState) {
-      view.x = panState.origX + (e.clientX - panState.startX);
-      view.y = panState.origY + (e.clientY - panState.startY);
+      const dx = e.clientX - panState.startX;
+      const dy = e.clientY - panState.startY;
+      if (Math.abs(dx) + Math.abs(dy) > 3) panState.moved = true;
+      view.x = panState.origX + dx;
+      view.y = panState.origY + dy;
       applyView();
       return;
     }
     if (selBoxState && selBoxEl) {
       const cur = screenToWorld(e.clientX, e.clientY);
-      selBoxState.cx = cur.x; selBoxState.cy = cur.y;
       const lo = Math.min(selBoxState.sx, cur.x);
       const to = Math.min(selBoxState.sy, cur.y);
       const w  = Math.abs(cur.x - selBoxState.sx);
@@ -1275,6 +1296,7 @@ body {
   });
 
   canvasWrap.addEventListener('pointerup', () => {
+    if (panState && !panState.moved) clearSelection(); // click on empty = deselect all
     panState = null;
     canvasWrap.classList.remove('panning');
     if (selBoxEl) { selBoxEl.remove(); selBoxEl = null; }
