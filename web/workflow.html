@@ -400,7 +400,7 @@ body {
 
 <div class="topbar">
   <div class="logo">Jimeng <span>Workflow</span></div>
-  <a class="chip" href="/" style="text-decoration:none">← Classic UI</a>
+  <a class="chip" href="/classic" style="text-decoration:none">← Classic UI</a>
   <div class="topbar-right">
     <div class="chip"><div class="dot"></div><span id="credits-text">Loading…</span></div>
     <div class="chip" id="save-status">Saved</div>
@@ -1290,6 +1290,96 @@ body {
       document.getElementById('credits-text').textContent = 'Server offline';
     }
   })();
+
+  // ── Persistence (save/load workflow to server) ──────────────────────────
+  const saveStatus = document.getElementById('save-status');
+  let saveTimer = null;
+  let loading = false;
+
+  function serialize() {
+    return {
+      nodes: [...nodes.values()].map(n => ({
+        id: n.id, type: n.type, x: n.x, y: n.y,
+        prompt: n.prompt, params: n.params,
+        status: n.status === 'running' || n.status === 'queued' ? 'idle' : n.status,
+        result: n.result, uploadUrl: n.uploadUrl,
+      })),
+      edges: edges.map(e => ({ id: e.id, fromId: e.fromId, toId: e.toId })),
+      view: { x: view.x, y: view.y, scale: view.scale },
+    };
+  }
+
+  function scheduleSave() {
+    if (loading) return;
+    saveStatus.textContent = 'Saving…';
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(async () => {
+      try {
+        const resp = await fetch('/api/workflow', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(serialize()),
+        });
+        const d = await resp.json();
+        saveStatus.textContent = d.ok ? 'Saved' : 'Save failed';
+      } catch {
+        saveStatus.textContent = 'Offline';
+      }
+    }, 600);
+  }
+
+  // Observe mutations on canvas + edges SVG to catch drags/renders/connections
+  const mo = new MutationObserver(scheduleSave);
+  mo.observe(canvas,   { childList: true, subtree: true, attributes: true, attributeFilter: ['style'] });
+  mo.observe(edgesSvg, { childList: true, subtree: true });
+
+  // Save on field edits inside nodes (prompt, params)
+  canvas.addEventListener('input', scheduleSave);
+
+  async function loadWorkflow() {
+    loading = true;
+    try {
+      const resp = await fetch('/api/workflow');
+      const d = await resp.json();
+      const wf = d.workflow || {};
+      if (wf.nodes && typeof wf.nodes === 'object') {
+        const arr = Array.isArray(wf.nodes) ? wf.nodes : Object.values(wf.nodes);
+        for (const n of arr) {
+          nodes.set(n.id, {
+            id: n.id, type: n.type, x: n.x, y: n.y,
+            prompt: n.prompt || '',
+            params: n.params || { duration: '5', ratio: '16:9', resolution: '720P' },
+            status: n.status || 'idle',
+            result: n.result || null,
+            taskId: null,
+            uploadUrl: n.uploadUrl || null,
+          });
+          renderNode(nodes.get(n.id));
+        }
+      }
+      if (Array.isArray(wf.edges)) {
+        for (const e of wf.edges) {
+          if (nodes.has(e.fromId) && nodes.has(e.toId)) {
+            edges.push({ id: e.id, fromId: e.fromId, toId: e.toId, selected: false });
+          }
+        }
+        renderAllEdges();
+      }
+      if (wf.view) {
+        view.x = wf.view.x ?? 0;
+        view.y = wf.view.y ?? 0;
+        view.scale = wf.view.scale ?? 1;
+        applyView();
+      }
+      saveStatus.textContent = 'Saved';
+    } catch {
+      saveStatus.textContent = 'Offline';
+    } finally {
+      loading = false;
+    }
+  }
+
+  loadWorkflow();
 
   updateSelInfo();
 </script>

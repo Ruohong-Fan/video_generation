@@ -150,6 +150,11 @@ def _start_task(cmd: list[str], label: str) -> dict:
 
 @app.get("/")
 def index():
+    return send_from_directory("web", "workflow.html")
+
+
+@app.get("/classic")
+def classic_view():
     return send_from_directory("web", "index.html")
 
 
