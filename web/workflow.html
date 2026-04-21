@@ -170,9 +170,10 @@ body {
   pointer-events: none;
   overflow: visible;
 }
-.edge { fill: none; stroke: var(--muted); stroke-width: 2; opacity: 0.55; transition: stroke 0.15s, opacity 0.15s; }
-.edge.active { stroke: var(--accent2); opacity: 1; stroke-width: 2.5; }
-.edge-temp { stroke: var(--accent); stroke-width: 2; stroke-dasharray: 5 5; opacity: 0.8; }
+.edge { fill: none; stroke: var(--muted); stroke-width: 2; opacity: 0.55; transition: stroke 0.15s, opacity 0.15s; pointer-events: stroke; cursor: pointer; }
+.edge:hover, .edge.selected { stroke: var(--accent2); opacity: 1; stroke-width: 3; }
+.edge-hit { fill: none; stroke: transparent; stroke-width: 14; pointer-events: stroke; cursor: pointer; }
+.edge-temp { stroke: var(--accent); stroke-width: 2; stroke-dasharray: 5 5; opacity: 0.8; fill: none; pointer-events: none; }
 
 /* ── Node ───────────────────────────────────────────────────────────────── */
 .node {
@@ -709,6 +710,140 @@ body {
     toast('Run wiring lands in a later commit', '');
   }
 
+  // ── Edge drawing ────────────────────────────────────────────────────────
+  const NODE_WIDTH = 240;
+
+  function handlePos(nodeId, dir) {
+    const el = document.getElementById(nodeId);
+    const n = nodes.get(nodeId);
+    if (!el || !n) return { x: 0, y: 0 };
+    const h = el.offsetHeight || 200;
+    return {
+      x: n.x + (dir === 'out' ? NODE_WIDTH : 0),
+      y: n.y + h / 2,
+    };
+  }
+
+  function edgePath(x1, y1, x2, y2) {
+    const dx = Math.max(60, Math.abs(x2 - x1) * 0.5);
+    return `M ${x1} ${y1} C ${x1 + dx} ${y1}, ${x2 - dx} ${y2}, ${x2} ${y2}`;
+  }
+
+  function renderAllEdges() {
+    edgesSvg.innerHTML = '';
+    for (const edge of edges) renderEdge(edge);
+  }
+
+  function renderEdge(edge) {
+    const existing = edgesSvg.querySelector(`[data-edge-id="${edge.id}"]`);
+    const existingHit = edgesSvg.querySelector(`[data-edge-hit="${edge.id}"]`);
+    if (existing) existing.remove();
+    if (existingHit) existingHit.remove();
+
+    const a = handlePos(edge.fromId, 'out');
+    const b = handlePos(edge.toId,   'in');
+    const d = edgePath(a.x, a.y, b.x, b.y);
+
+    const hit = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    hit.setAttribute('d', d);
+    hit.setAttribute('class', 'edge-hit');
+    hit.setAttribute('data-edge-hit', edge.id);
+    hit.addEventListener('click', (e) => { e.stopPropagation(); selectEdge(edge.id); });
+    edgesSvg.appendChild(hit);
+
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    path.setAttribute('d', d);
+    path.setAttribute('class', 'edge' + (edge.selected ? ' selected' : ''));
+    path.setAttribute('data-edge-id', edge.id);
+    path.addEventListener('click', (e) => { e.stopPropagation(); selectEdge(edge.id); });
+    edgesSvg.appendChild(path);
+  }
+
+  function updateEdgesFor(nodeId) {
+    for (const edge of edges) {
+      if (edge.fromId === nodeId || edge.toId === nodeId) renderEdge(edge);
+    }
+  }
+
+  function selectEdge(id) {
+    clearSelection();
+    for (const e of edges) e.selected = (e.id === id);
+    renderAllEdges();
+    toast('Edge selected — press Delete to remove');
+  }
+
+  function deleteSelectedEdges() {
+    let removed = 0;
+    for (let i = edges.length - 1; i >= 0; i--) {
+      if (edges[i].selected) { edges.splice(i, 1); removed++; }
+    }
+    if (removed) { renderAllEdges(); toast(`${removed} edge(s) deleted`); }
+    return removed;
+  }
+
+  function canConnect(fromId, toId) {
+    if (fromId === toId) return false;
+    if (!NODE_SPECS[nodes.get(fromId).type].hasOut) return false;
+    if (!NODE_SPECS[nodes.get(toId).type].hasIn) return false;
+    for (const e of edges) if (e.fromId === fromId && e.toId === toId) return false;
+    return true;
+  }
+
+  function addEdge(fromId, toId) {
+    if (!canConnect(fromId, toId)) { toast('Cannot connect these nodes', 'error'); return; }
+    edges.push({ id: 'e' + Math.random().toString(36).slice(2, 8), fromId, toId, selected: false });
+    renderAllEdges();
+  }
+
+  // ── Handle drag (create edges) ──────────────────────────────────────────
+  let edgeDrag = null;
+
+  canvas.addEventListener('pointerdown', (e) => {
+    const handle = e.target.closest('.handle');
+    if (!handle) return;
+    if (handle.dataset.dir !== 'out') return; // Only drag from outputs
+    e.stopPropagation();
+    e.preventDefault();
+    const fromId = handle.dataset.node;
+    edgeDrag = { fromId };
+    handle.classList.add('connecting');
+    canvasWrap.setPointerCapture?.(e.pointerId);
+  });
+
+  canvasWrap.addEventListener('pointermove', (e) => {
+    if (!edgeDrag) return;
+    const a = handlePos(edgeDrag.fromId, 'out');
+    const w = screenToWorld(e.clientX, e.clientY);
+    let tempPath = edgesSvg.querySelector('.edge-temp');
+    if (!tempPath) {
+      tempPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      tempPath.setAttribute('class', 'edge-temp');
+      edgesSvg.appendChild(tempPath);
+    }
+    tempPath.setAttribute('d', edgePath(a.x, a.y, w.x, w.y));
+  });
+
+  canvasWrap.addEventListener('pointerup', (e) => {
+    if (!edgeDrag) return;
+    const el = document.elementFromPoint(e.clientX, e.clientY);
+    const target = el?.closest?.('.handle');
+    if (target && target.dataset.dir === 'in') {
+      addEdge(edgeDrag.fromId, target.dataset.node);
+    }
+    document.querySelectorAll('.handle.connecting').forEach(h => h.classList.remove('connecting'));
+    edgesSvg.querySelector('.edge-temp')?.remove();
+    edgeDrag = null;
+  });
+
+  // Cancel edge drag on Escape
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && edgeDrag) {
+      document.querySelectorAll('.handle.connecting').forEach(h => h.classList.remove('connecting'));
+      edgesSvg.querySelector('.edge-temp')?.remove();
+      edgeDrag = null;
+    }
+  });
+
   // ── Selection ───────────────────────────────────────────────────────────
   function setSelected(id, value) {
     const el = document.getElementById(id);
@@ -743,18 +878,28 @@ body {
   function deleteNode(id) {
     const el = document.getElementById(id);
     if (el) el.remove();
+    let edgeRemoved = false;
     for (let i = edges.length - 1; i >= 0; i--) {
-      if (edges[i].fromId === id || edges[i].toId === id) edges.splice(i, 1);
+      if (edges[i].fromId === id || edges[i].toId === id) {
+        edges.splice(i, 1);
+        edgeRemoved = true;
+      }
     }
+    if (edgeRemoved) renderAllEdges();
     nodes.delete(id);
     selected.delete(id);
     updateSelInfo();
   }
 
   function deleteSelected() {
-    if (selected.size === 0) return;
+    const removedEdges = deleteSelectedEdges();
+    if (selected.size === 0) {
+      if (!removedEdges) return;
+      return;
+    }
+    const n = selected.size;
     for (const id of [...selected]) deleteNode(id);
-    toast(`${selected.size || ''} node(s) deleted`);
+    toast(`${n} node(s) deleted`);
   }
 
   // ── Node interactions: click, shift-click, drag ─────────────────────────
@@ -799,6 +944,7 @@ body {
       n.y = g.origY + dy;
       const el = document.getElementById(g.id);
       if (el) { el.style.left = n.x + 'px'; el.style.top = n.y + 'px'; }
+      updateEdgesFor(g.id);
     }
   });
   canvas.addEventListener('pointerup',   () => { dragState = null; });
