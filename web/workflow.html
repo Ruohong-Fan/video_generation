@@ -1,0 +1,494 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Jimeng Workflow</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg: #0a0a0f;
+  --surface: #14141c;
+  --surface2: #1c1c28;
+  --surface3: #24243a;
+  --border: #2a2a3e;
+  --accent: #7c6af7;
+  --accent2: #a78bfa;
+  --text: #e8e8f0;
+  --muted: #7a7a94;
+  --success: #4ade80;
+  --warning: #fbbf24;
+  --error: #f87171;
+  --grid: #1a1a25;
+}
+
+html, body { height: 100%; overflow: hidden; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  user-select: none;
+}
+
+/* ── Top bar ────────────────────────────────────────────────────────────── */
+.topbar {
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  height: 52px;
+  background: rgba(20,20,28,0.85);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 0 20px;
+  z-index: 100;
+}
+.logo { font-size: 1.05rem; font-weight: 700; letter-spacing: -0.02em; }
+.logo span { color: var(--accent2); }
+.topbar-right { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+
+.chip {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  padding: 5px 12px;
+  font-size: 0.78rem;
+  color: var(--muted);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.chip.accent { color: var(--accent2); border-color: var(--accent); background: rgba(124,106,247,0.1); }
+.chip .dot {
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: var(--success);
+  animation: pulse 2s infinite;
+}
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+
+.btn {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  padding: 6px 12px;
+  font-size: 0.82rem;
+  cursor: pointer;
+  transition: all 0.15s;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.btn:hover { background: var(--surface3); border-color: var(--accent); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.btn.primary:hover { background: var(--accent2); }
+.btn.danger:hover { border-color: var(--error); color: var(--error); }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* ── Left toolbar ───────────────────────────────────────────────────────── */
+.toolbar {
+  position: fixed;
+  top: 72px;
+  left: 20px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  z-index: 90;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+}
+.tool-btn {
+  background: transparent;
+  border: none;
+  border-radius: 8px;
+  color: var(--muted);
+  width: 40px;
+  height: 40px;
+  cursor: pointer;
+  font-size: 1.2rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s;
+  position: relative;
+}
+.tool-btn:hover { background: var(--surface2); color: var(--text); }
+.tool-btn.active { background: var(--accent); color: #fff; }
+
+.tool-btn[data-tooltip]::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  left: calc(100% + 8px);
+  top: 50%;
+  transform: translateY(-50%);
+  background: var(--surface3);
+  color: var(--text);
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s;
+}
+.tool-btn:hover[data-tooltip]::after { opacity: 1; }
+
+.tool-sep { height: 1px; background: var(--border); margin: 4px 2px; }
+
+/* ── Canvas ─────────────────────────────────────────────────────────────── */
+.canvas-wrap {
+  position: fixed;
+  top: 52px;
+  left: 0; right: 0; bottom: 0;
+  overflow: hidden;
+  cursor: grab;
+  background:
+    radial-gradient(circle at 1px 1px, var(--grid) 1px, transparent 0)
+    0 0 / 24px 24px;
+}
+.canvas-wrap.panning { cursor: grabbing; }
+.canvas {
+  position: absolute;
+  top: 0; left: 0;
+  width: 100%;
+  height: 100%;
+  transform-origin: 0 0;
+}
+
+/* SVG layer for edges */
+.edges {
+  position: absolute;
+  top: 0; left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  overflow: visible;
+}
+.edge { fill: none; stroke: var(--muted); stroke-width: 2; opacity: 0.55; transition: stroke 0.15s, opacity 0.15s; }
+.edge.active { stroke: var(--accent2); opacity: 1; stroke-width: 2.5; }
+.edge-temp { stroke: var(--accent); stroke-width: 2; stroke-dasharray: 5 5; opacity: 0.8; }
+
+/* ── Node ───────────────────────────────────────────────────────────────── */
+.node {
+  position: absolute;
+  background: var(--surface);
+  border: 1.5px solid var(--border);
+  border-radius: 12px;
+  width: 240px;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+  transition: border-color 0.15s, box-shadow 0.15s;
+  cursor: move;
+  user-select: none;
+}
+.node.selected {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(124,106,247,0.3), 0 4px 20px rgba(0,0,0,0.5);
+}
+.node.running { border-color: var(--warning); }
+.node.done { border-color: var(--success); }
+.node.error { border-color: var(--error); }
+
+.node-header {
+  padding: 10px 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+.node-icon {
+  font-size: 1rem;
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--surface3);
+  flex-shrink: 0;
+}
+.node-title { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.node-status {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--muted);
+  flex-shrink: 0;
+}
+.node.queued .node-status, .node.running .node-status {
+  background: var(--warning);
+  animation: pulse 1.2s infinite;
+}
+.node.done .node-status { background: var(--success); }
+.node.error .node-status { background: var(--error); }
+
+.node-body { padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; }
+.node-body textarea,
+.node-body input,
+.node-body select {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  font-size: 0.78rem;
+  padding: 6px 8px;
+  font-family: inherit;
+  outline: none;
+  width: 100%;
+}
+.node-body textarea { resize: none; min-height: 56px; }
+.node-body textarea:focus, .node-body input:focus, .node-body select:focus { border-color: var(--accent); }
+.node-row { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.node-label { font-size: 0.68rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; font-weight: 600; }
+
+.node-preview {
+  border-radius: 6px;
+  overflow: hidden;
+  background: #000;
+  max-height: 180px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.node-preview img, .node-preview video {
+  width: 100%;
+  max-height: 180px;
+  object-fit: contain;
+  display: block;
+}
+.node-preview.empty {
+  height: 80px;
+  background: var(--surface2);
+  color: var(--muted);
+  font-size: 0.78rem;
+  border: 1px dashed var(--border);
+}
+
+.node-footer {
+  padding: 8px 12px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+.node-run {
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-size: 0.72rem;
+  cursor: pointer;
+  font-weight: 600;
+  transition: background 0.15s;
+}
+.node-run:hover { background: var(--accent2); }
+.node-run:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* Node handles (for connections) */
+.handle {
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--surface3);
+  border: 2px solid var(--muted);
+  top: 50%;
+  transform: translateY(-50%);
+  cursor: crosshair;
+  transition: all 0.15s;
+  z-index: 5;
+}
+.handle:hover, .handle.connecting { background: var(--accent); border-color: var(--accent2); transform: translateY(-50%) scale(1.3); }
+.handle.in { left: -8px; }
+.handle.out { right: -8px; }
+
+/* ── Bottom run bar ─────────────────────────────────────────────────────── */
+.runbar {
+  position: fixed;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 8px 12px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  z-index: 90;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+}
+.runbar .info {
+  font-size: 0.78rem;
+  color: var(--muted);
+  padding: 0 6px;
+}
+
+/* ── Selection box ──────────────────────────────────────────────────────── */
+.sel-box {
+  position: absolute;
+  border: 1px solid var(--accent);
+  background: rgba(124,106,247,0.08);
+  pointer-events: none;
+  z-index: 50;
+}
+
+/* ── Add node menu ──────────────────────────────────────────────────────── */
+.add-menu {
+  position: fixed;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 6px;
+  z-index: 200;
+  box-shadow: 0 8px 30px rgba(0,0,0,0.6);
+  min-width: 200px;
+  display: none;
+}
+.add-menu.open { display: flex; flex-direction: column; gap: 2px; }
+.add-menu-item {
+  padding: 8px 12px;
+  font-size: 0.85rem;
+  cursor: pointer;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  transition: background 0.1s;
+}
+.add-menu-item:hover { background: var(--surface2); }
+.add-menu-item .icon { font-size: 1rem; width: 22px; text-align: center; }
+.add-menu-item .sub { font-size: 0.72rem; color: var(--muted); }
+
+/* ── Status toast ───────────────────────────────────────────────────────── */
+.toast {
+  position: fixed;
+  top: 70px;
+  right: 20px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 14px;
+  font-size: 0.82rem;
+  z-index: 300;
+  animation: slideIn 0.2s ease;
+}
+.toast.error { border-color: var(--error); color: var(--error); }
+.toast.success { border-color: var(--success); color: var(--success); }
+@keyframes slideIn { from{opacity:0;transform:translateX(20px)} to{opacity:1;transform:none} }
+
+/* ── Scrollbars (for textareas within nodes) ────────────────────────────── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--muted); }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="logo">Jimeng <span>Workflow</span></div>
+  <a class="chip" href="/" style="text-decoration:none">← Classic UI</a>
+  <div class="topbar-right">
+    <div class="chip"><div class="dot"></div><span id="credits-text">Loading…</span></div>
+    <div class="chip" id="save-status">Saved</div>
+    <button class="btn danger" id="btn-clear-all">Clear canvas</button>
+  </div>
+</div>
+
+<div class="toolbar">
+  <button class="tool-btn" id="btn-add" data-tooltip="Add node">＋</button>
+  <div class="tool-sep"></div>
+  <button class="tool-btn" id="btn-fit" data-tooltip="Fit to view">⛶</button>
+  <button class="tool-btn" id="btn-center" data-tooltip="Center (0,0)">⊙</button>
+</div>
+
+<div class="canvas-wrap" id="canvas-wrap">
+  <svg class="edges" id="edges"></svg>
+  <div class="canvas" id="canvas"></div>
+</div>
+
+<div class="add-menu" id="add-menu">
+  <div class="add-menu-item" data-node-type="script">
+    <span class="icon">📝</span>
+    <div><div>Script / Prompt</div><div class="sub">Text notes or prompt composition</div></div>
+  </div>
+  <div class="add-menu-item" data-node-type="text2image">
+    <span class="icon">🖼️</span>
+    <div><div>Text → Image</div><div class="sub">Generate an image from a prompt</div></div>
+  </div>
+  <div class="add-menu-item" data-node-type="text2video">
+    <span class="icon">🎬</span>
+    <div><div>Text → Video</div><div class="sub">Generate a video from a prompt</div></div>
+  </div>
+  <div class="add-menu-item" data-node-type="image2video">
+    <span class="icon">🎞️</span>
+    <div><div>Image → Video</div><div class="sub">Animate an image</div></div>
+  </div>
+  <div class="add-menu-item" data-node-type="image2image">
+    <span class="icon">🎨</span>
+    <div><div>Image → Image</div><div class="sub">Transform / restyle an image</div></div>
+  </div>
+  <div class="add-menu-item" data-node-type="audio">
+    <span class="icon">🎵</span>
+    <div><div>Audio (upload)</div><div class="sub">Attach an audio clip</div></div>
+  </div>
+</div>
+
+<div class="runbar">
+  <button class="btn" id="btn-run-selected">▶ Run Selected</button>
+  <button class="btn primary" id="btn-run-all">▶▶ Run All</button>
+  <div class="info" id="sel-info">0 nodes · 0 selected</div>
+</div>
+
+<script>
+  // Commit 1 shell: structure only. Behavior ships in subsequent commits.
+  // Minimal init so the page looks alive until the graph engine lands.
+
+  // Credits fetch (reuse simple endpoint)
+  (async () => {
+    try {
+      const r = await fetch('/api/credits');
+      const d = await r.json();
+      document.getElementById('credits-text').textContent =
+        d.ok ? d.output.replace(/\n/g, ' ').slice(0, 50) : 'Login required';
+    } catch {
+      document.getElementById('credits-text').textContent = 'Server offline';
+    }
+  })();
+
+  // Placeholder handlers so buttons are not silently broken
+  function notImpl(name) {
+    return () => console.log(`[todo] ${name} — lands in a later commit`);
+  }
+  document.getElementById('btn-add').addEventListener('click', (e) => {
+    const menu = document.getElementById('add-menu');
+    const r = e.currentTarget.getBoundingClientRect();
+    menu.style.left = (r.right + 8) + 'px';
+    menu.style.top = r.top + 'px';
+    menu.classList.toggle('open');
+  });
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('#add-menu') && !e.target.closest('#btn-add')) {
+      document.getElementById('add-menu').classList.remove('open');
+    }
+  });
+  document.getElementById('btn-fit').addEventListener('click', notImpl('fit'));
+  document.getElementById('btn-center').addEventListener('click', notImpl('center'));
+  document.getElementById('btn-run-selected').addEventListener('click', notImpl('run selected'));
+  document.getElementById('btn-run-all').addEventListener('click', notImpl('run all'));
+  document.getElementById('btn-clear-all').addEventListener('click', notImpl('clear canvas'));
+</script>
+</body>
+</html>

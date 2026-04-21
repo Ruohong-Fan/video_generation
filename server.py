@@ -153,6 +153,11 @@ def index():
     return send_from_directory("web", "index.html")
 
 
+@app.get("/workflow")
+def workflow_view():
+    return send_from_directory("web", "workflow.html")
+
+
 @app.get("/uploads/<path:filename>")
 def uploaded_file(filename):
     return send_from_directory(UPLOAD_DIR, filename)
