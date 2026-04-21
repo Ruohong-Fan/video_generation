@@ -399,7 +399,7 @@ body {
 <body>
 
 <div class="topbar">
-  <div class="logo">Jimeng <span>Workflow</span></div>
+  <div class="logo">饼冰<span>科技</span></div>
   <div class="topbar-right">
     <div class="chip"><div class="dot"></div><span id="credits-text">Loading…</span></div>
     <div class="chip" id="save-status">Saved</div>
@@ -530,6 +530,7 @@ body {
       queueIdx: null,
       error: null,
       uploadUrl: null,
+      uploadPath: null,
     };
     nodes.set(id, node);
     renderNode(node);
@@ -590,6 +591,7 @@ body {
         const d = await resp.json();
         if (d.ok) {
           node.uploadUrl = d.url;
+          node.uploadPath = d.path || null;
           node.result = { url: d.url, kind: node.type === 'audio' ? 'audio' : 'image' };
           renderNode(node);
         } else {
@@ -776,20 +778,22 @@ body {
   function collectInputs(node) {
     const up = upstreamNodes(node.id);
     let prompt = node.prompt || '';
-    let imageUrl = null;
+    let imageRef = null;
     for (const u of up) {
       if (u.type === 'script' && u.prompt && !prompt) prompt = u.prompt;
-      if (u.result?.url && u.result.kind === 'image' && !imageUrl) imageUrl = u.result.url;
+      if (u.result?.url && u.result.kind === 'image' && !imageRef) imageRef = u.result.url;
+      if (!imageRef && u.uploadPath) imageRef = u.uploadPath;
     }
-    if (!imageUrl && node.uploadUrl) imageUrl = node.uploadUrl;
-    return { prompt, imageUrl };
+    if (!imageRef && node.uploadPath) imageRef = node.uploadPath;
+    if (!imageRef && node.uploadUrl) imageRef = node.uploadUrl;
+    return { prompt, imageRef };
   }
 
   // Nodes that don't need to call an API — they provide data to downstream
   const PASSIVE_TYPES = new Set(['script', 'audio']);
 
   async function startTask(node) {
-    const { prompt, imageUrl } = collectInputs(node);
+    const { prompt, imageRef } = collectInputs(node);
     let endpoint, body;
 
     if (node.type === 'text2image') {
@@ -807,21 +811,19 @@ body {
         model_version: node.params.modelVersion || '',
       };
     } else if (node.type === 'image2video') {
-      if (!imageUrl) throw new Error('image required (connect an image node or upload)');
+      if (!imageRef) throw new Error('image required (connect an image node or upload)');
       endpoint = '/api/image2video';
-      const origin = window.location.origin;
       body = {
-        image_url: imageUrl.startsWith('http') ? imageUrl : origin + imageUrl,
+        image: imageRef,
         prompt,
         duration: node.params.duration,
         model_version: node.params.modelVersion || '',
       };
     } else if (node.type === 'image2image') {
-      if (!imageUrl) throw new Error('image required (connect an image node or upload)');
+      if (!imageRef) throw new Error('image required (connect an image node or upload)');
       if (!prompt) throw new Error('prompt required');
       endpoint = '/api/image2image';
-      const origin = window.location.origin;
-      body = { image_url: imageUrl.startsWith('http') ? imageUrl : origin + imageUrl, prompt, ratio: node.params.ratio };
+      body = { image: imageRef, prompt, ratio: node.params.ratio };
     } else {
       throw new Error('Unsupported node type: ' + node.type);
     }
@@ -1382,7 +1384,7 @@ body {
         id: n.id, type: n.type, x: n.x, y: n.y,
         prompt: n.prompt, params: n.params,
         status: n.status === 'running' || n.status === 'queued' ? 'idle' : n.status,
-        result: n.result, uploadUrl: n.uploadUrl,
+        result: n.result, uploadUrl: n.uploadUrl, uploadPath: n.uploadPath,
       })),
       edges: edges.map(e => ({ id: e.id, fromId: e.fromId, toId: e.toId })),
       view: { x: view.x, y: view.y, scale: view.scale },
@@ -1440,6 +1442,7 @@ body {
             queueIdx: n.queueIdx ?? null,
             error: n.error || null,
             uploadUrl: n.uploadUrl || null,
+            uploadPath: n.uploadPath || null,
           });
           renderNode(nodes.get(n.id));
         }

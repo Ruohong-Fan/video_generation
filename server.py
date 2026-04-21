@@ -362,7 +362,18 @@ def _resolve_image_input(request) -> str | None:
         return None
 
     data = request.get_json(silent=True) or {}
-    return data.get("image_url") or data.get("image") or None
+    image_ref = data.get("image_url") or data.get("image") or None
+    if not image_ref:
+        return None
+
+    parsed = urlparse(str(image_ref))
+    upload_path = parsed.path if parsed.scheme in {"http", "https"} else str(image_ref)
+    if upload_path.startswith("/uploads/"):
+        local_path = UPLOAD_DIR / upload_path.removeprefix("/uploads/")
+        if local_path.exists():
+            return str(local_path)
+
+    return str(image_ref)
 
 
 def _get_param(request, key: str, default=""):
