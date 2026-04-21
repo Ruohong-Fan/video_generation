@@ -705,9 +705,184 @@ body {
     return '';
   }
 
-  // Stub: real implementation lands in Commit 5
-  function runNode(id) {
-    toast('Run wiring lands in a later commit', '');
+  // ── Execution ───────────────────────────────────────────────────────────
+  function setNodeStatus(id, status, extra = {}) {
+    const n = nodes.get(id);
+    if (!n) return;
+    n.status = status;
+    Object.assign(n, extra);
+    const el = document.getElementById(id);
+    if (el) {
+      el.className = 'node ' + status + (selected.has(id) ? ' selected' : '');
+      const badge = el.querySelector('.node-id');
+      if (badge) badge.textContent = status;
+    }
+  }
+
+  function upstreamNodes(id) {
+    return edges.filter(e => e.toId === id).map(e => nodes.get(e.fromId)).filter(Boolean);
+  }
+
+  function collectInputs(node) {
+    const up = upstreamNodes(node.id);
+    let prompt = node.prompt || '';
+    let imageUrl = null;
+    for (const u of up) {
+      if (u.type === 'script' && u.prompt && !prompt) prompt = u.prompt;
+      if (u.result?.url && u.result.kind === 'image' && !imageUrl) imageUrl = u.result.url;
+    }
+    if (!imageUrl && node.uploadUrl) imageUrl = node.uploadUrl;
+    return { prompt, imageUrl };
+  }
+
+  // Nodes that don't need to call an API — they provide data to downstream
+  const PASSIVE_TYPES = new Set(['script', 'audio']);
+
+  async function startTask(node) {
+    const { prompt, imageUrl } = collectInputs(node);
+    let endpoint, body;
+
+    if (node.type === 'text2image') {
+      if (!prompt) throw new Error('prompt required (connect a Script or type one)');
+      endpoint = '/api/text2image';
+      body = { prompt, ratio: node.params.ratio, resolution: node.params.resolution };
+    } else if (node.type === 'text2video') {
+      if (!prompt) throw new Error('prompt required (connect a Script or type one)');
+      endpoint = '/api/text2video';
+      body = { prompt, duration: node.params.duration, ratio: node.params.ratio, resolution: node.params.resolution };
+    } else if (node.type === 'image2video') {
+      if (!imageUrl) throw new Error('image required (connect an image node or upload)');
+      endpoint = '/api/image2video';
+      const origin = window.location.origin;
+      body = { image_url: imageUrl.startsWith('http') ? imageUrl : origin + imageUrl, prompt, duration: node.params.duration };
+    } else if (node.type === 'image2image') {
+      if (!imageUrl) throw new Error('image required (connect an image node or upload)');
+      if (!prompt) throw new Error('prompt required');
+      endpoint = '/api/image2image';
+      const origin = window.location.origin;
+      body = { image_url: imageUrl.startsWith('http') ? imageUrl : origin + imageUrl, prompt, ratio: node.params.ratio };
+    } else {
+      throw new Error('Unsupported node type: ' + node.type);
+    }
+
+    const resp = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const data = await resp.json();
+    if (!data.ok) throw new Error(data.error || 'Submit failed');
+    return data.task_id;
+  }
+
+  function extractOutputUrl(task) {
+    const r = task?.result;
+    if (!r || typeof r !== 'object') return null;
+    if (r.url) return r.url;
+    if (r.data?.url) return r.data.url;
+    if (r.local_path) return r.local_path;
+    if (Array.isArray(r.urls) && r.urls[0]) return r.urls[0];
+    if (Array.isArray(r.data) && r.data[0]?.url) return r.data[0].url;
+    if (r.item_list && Array.isArray(r.item_list) && r.item_list[0]) {
+      const it = r.item_list[0];
+      return it.video?.url || it.image?.url || it.url || null;
+    }
+    return null;
+  }
+
+  async function pollUntilDone(taskId, nodeId) {
+    const deadline = Date.now() + 30 * 60 * 1000;
+    while (Date.now() < deadline) {
+      await new Promise(r => setTimeout(r, 3000));
+      const resp = await fetch('/api/task/' + taskId);
+      if (!resp.ok) throw new Error('Task lookup failed');
+      const t = await resp.json();
+      if (t.status === 'done')  return t;
+      if (t.status === 'error') throw new Error(t.error || 'Task errored');
+      const n = nodes.get(nodeId);
+      if (n && t.queue_idx != null) {
+        const el = document.getElementById(nodeId);
+        const badge = el?.querySelector('.node-id');
+        if (badge) badge.textContent = `queued #${t.queue_idx}`;
+      }
+    }
+    throw new Error('Timed out');
+  }
+
+  async function runNode(id) {
+    const node = nodes.get(id);
+    if (!node) return;
+    if (PASSIVE_TYPES.has(node.type)) {
+      toast('Script/Audio nodes provide data to downstream — no run needed');
+      return;
+    }
+    if (node.status === 'running' || node.status === 'queued') {
+      toast('Already running', '');
+      return;
+    }
+    try {
+      setNodeStatus(id, 'queued');
+      const taskId = await startTask(node);
+      node.taskId = taskId;
+      setNodeStatus(id, 'running');
+      const task = await pollUntilDone(taskId, id);
+      const url = extractOutputUrl(task);
+      const kind = (node.type === 'text2video' || node.type === 'image2video') ? 'video' : 'image';
+      node.result = url ? { url, kind } : null;
+      setNodeStatus(id, 'done');
+      renderNode(node);
+      rewireNode(id);
+      updateEdgesFor(id);
+      toast(`${node.type} done`, 'success');
+    } catch (err) {
+      setNodeStatus(id, 'error');
+      toast(`${node.type}: ${err.message}`, 'error');
+    }
+  }
+
+  // Re-attach drag/click handlers that renderNode wires up
+  function rewireNode(id) {
+    // renderNode already re-wires when called. This helper is for clarity.
+  }
+
+  function topoSort(ids) {
+    const set = new Set(ids);
+    const inDeg = new Map();
+    for (const id of ids) inDeg.set(id, 0);
+    for (const e of edges) {
+      if (set.has(e.fromId) && set.has(e.toId)) {
+        inDeg.set(e.toId, (inDeg.get(e.toId) || 0) + 1);
+      }
+    }
+    const queue = [...ids].filter(id => inDeg.get(id) === 0);
+    const out = [];
+    while (queue.length) {
+      const id = queue.shift();
+      out.push(id);
+      for (const e of edges) {
+        if (e.fromId === id && set.has(e.toId)) {
+          inDeg.set(e.toId, inDeg.get(e.toId) - 1);
+          if (inDeg.get(e.toId) === 0) queue.push(e.toId);
+        }
+      }
+    }
+    return out.length === ids.length ? out : null;
+  }
+
+  async function runGraph(ids) {
+    const order = topoSort(ids);
+    if (!order) { toast('Cycle detected — cannot run', 'error'); return; }
+    const runnable = order.filter(id => !PASSIVE_TYPES.has(nodes.get(id).type));
+    if (!runnable.length) { toast('Nothing runnable selected'); return; }
+    toast(`Running ${runnable.length} node(s)…`);
+    for (const id of order) {
+      if (PASSIVE_TYPES.has(nodes.get(id).type)) continue;
+      await runNode(id);
+      if (nodes.get(id).status === 'error') {
+        toast('Halted — upstream node errored', 'error');
+        return;
+      }
+    }
   }
 
   // ── Edge drawing ────────────────────────────────────────────────────────
@@ -1094,11 +1269,15 @@ body {
     updateSelInfo();
   });
 
-  // ── Stub buttons (real versions land in later commits) ──────────────────
-  document.getElementById('btn-run-selected').addEventListener('click', () =>
-    toast('Execution lands in a later commit'));
-  document.getElementById('btn-run-all').addEventListener('click', () =>
-    toast('Execution lands in a later commit'));
+  // ── Run buttons ─────────────────────────────────────────────────────────
+  document.getElementById('btn-run-selected').addEventListener('click', () => {
+    if (!selected.size) { toast('Select nodes first (click or drag a box)'); return; }
+    runGraph([...selected]);
+  });
+  document.getElementById('btn-run-all').addEventListener('click', () => {
+    if (!nodes.size) { toast('Canvas is empty'); return; }
+    runGraph([...nodes.keys()]);
+  });
 
   // ── Credits ─────────────────────────────────────────────────────────────
   (async () => {
