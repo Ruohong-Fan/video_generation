@@ -816,6 +816,14 @@ body {
       const it = r.data.item_list[0];
       return it.video?.url || it.image?.url || it.url || null;
     }
+    if (r.result_json?.videos?.[0]?.video_url) return r.result_json.videos[0].video_url;
+    if (r.result_json?.videos?.[0]?.url) return r.result_json.videos[0].url;
+    if (r.result_json?.images?.[0]?.image_url) return r.result_json.images[0].image_url;
+    if (r.result_json?.images?.[0]?.url) return r.result_json.images[0].url;
+    if (r.data?.result_json?.videos?.[0]?.video_url) return r.data.result_json.videos[0].video_url;
+    if (r.data?.result_json?.videos?.[0]?.url) return r.data.result_json.videos[0].url;
+    if (r.data?.result_json?.images?.[0]?.image_url) return r.data.result_json.images[0].image_url;
+    if (r.data?.result_json?.images?.[0]?.url) return r.data.result_json.images[0].url;
     return null;
   }
 
