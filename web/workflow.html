@@ -992,17 +992,39 @@ body {
   async function runGraph(ids) {
     const order = topoSort(ids);
     if (!order) { toast('Cycle detected — cannot run', 'error'); return; }
-    const runnable = order.filter(id => !PASSIVE_TYPES.has(nodes.get(id).type));
-    if (!runnable.length) { toast('Nothing runnable selected'); return; }
-    toast(`Running ${runnable.length} node(s)…`);
-    for (const id of order) {
-      if (PASSIVE_TYPES.has(nodes.get(id).type)) continue;
-      await runNode(id);
-      if (nodes.get(id).status === 'error') {
-        toast('Halted — upstream node errored', 'error');
-        return;
-      }
+    const runnableSet = new Set(order.filter(id => !PASSIVE_TYPES.has(nodes.get(id)?.type)));
+    if (!runnableSet.size) { toast('Nothing runnable selected'); return; }
+    toast(`Running ${runnableSet.size} node(s)…`);
+
+    // For each runnable node, find which OTHER runnable nodes it depends on (direct upstream edges within selection)
+    const upstreamDeps = new Map(); // id -> [upstream id, ...]
+    for (const id of runnableSet) {
+      upstreamDeps.set(id, edges.filter(e => e.toId === id && runnableSet.has(e.fromId)).map(e => e.fromId));
     }
+
+    // One promise per runnable node; resolve when that node finishes (success or error)
+    const promises = new Map();
+
+    function launchNode(id) {
+      if (promises.has(id)) return promises.get(id);
+      const p = (async () => {
+        // Wait for all upstream runnable deps first
+        const ups = upstreamDeps.get(id);
+        if (ups.length) await Promise.all(ups.map(uid => launchNode(uid)));
+        // Skip if any direct upstream errored
+        const upstreamFailed = ups.some(uid => nodes.get(uid)?.status === 'error');
+        if (upstreamFailed) {
+          setNodeStatus(id, 'error', { error: 'Skipped — upstream node failed' });
+          return;
+        }
+        await runNode(id);
+      })();
+      promises.set(id, p);
+      return p;
+    }
+
+    // Launch all — each one will self-suspend until its deps resolve
+    await Promise.all([...runnableSet].map(id => launchNode(id)));
   }
 
   // ── Edge drawing ────────────────────────────────────────────────────────
