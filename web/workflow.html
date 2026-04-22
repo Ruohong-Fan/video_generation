@@ -586,7 +586,7 @@ body {
         duration: '5',
         ratio: '16:9',
         resolution: type.endsWith('video') ? '720P' : '2k',
-        modelVersion: '',
+        modelVersion: 'seedance2.0',
       },
       status: 'idle',
       result: null,   // { url, kind }
@@ -776,7 +776,7 @@ body {
         <div><div class="node-label">Mode</div>
           <select data-field="modelVersion">
             <option value="seedance2.0fast"${node.params.modelVersion==='seedance2.0fast'?' selected':''}>Non-VIP Fast</option>
-            <option value=""${!node.params.modelVersion?' selected':''}>Non-VIP</option>
+            <option value="seedance2.0"${node.params.modelVersion==='seedance2.0'?' selected':''}>Non-VIP</option>
             <option value="seedance2.0fast_vip"${node.params.modelVersion==='seedance2.0fast_vip'?' selected':''}>VIP Fast</option>
             <option value="seedance2.0_vip"${node.params.modelVersion==='seedance2.0_vip'?' selected':''}>VIP</option>
           </select></div>
@@ -797,7 +797,7 @@ body {
         <div><div class="node-label">Mode</div>
           <select data-field="modelVersion">
             <option value="seedance2.0fast"${node.params.modelVersion==='seedance2.0fast'?' selected':''}>Non-VIP Fast</option>
-            <option value=""${!node.params.modelVersion?' selected':''}>Non-VIP</option>
+            <option value="seedance2.0"${node.params.modelVersion==='seedance2.0'?' selected':''}>Non-VIP</option>
             <option value="seedance2.0fast_vip"${node.params.modelVersion==='seedance2.0fast_vip'?' selected':''}>VIP Fast</option>
             <option value="seedance2.0_vip"${node.params.modelVersion==='seedance2.0_vip'?' selected':''}>VIP</option>
           </select></div>
@@ -861,7 +861,7 @@ body {
         duration: node.params.duration,
         ratio: node.params.ratio,
         resolution: node.params.resolution,
-        model_version: node.params.modelVersion || '',
+        model_version: node.params.modelVersion,
       };
     } else if (node.type === 'image2video') {
       if (!imageRef) throw new Error('image required (connect an image node or upload)');
@@ -870,7 +870,7 @@ body {
         image: imageRef,
         prompt,
         duration: node.params.duration,
-        model_version: node.params.modelVersion || '',
+        model_version: node.params.modelVersion,
       };
     } else if (node.type === 'image2image') {
       if (!imageRef) throw new Error('image required (connect an image node or upload)');
@@ -1527,7 +1527,7 @@ body {
               duration: n.params?.duration || '5',
               ratio: n.params?.ratio || '16:9',
               resolution: n.params?.resolution || (n.type && n.type.endsWith('video') ? '720P' : '2k'),
-              modelVersion: n.params?.modelVersion || '',
+              modelVersion: n.params?.modelVersion || 'seedance2.0',
             },
             status: n.status || 'idle',
             result: n.result || null,
