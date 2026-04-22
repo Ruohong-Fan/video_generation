@@ -394,13 +394,38 @@ def _resolve_image_input(request) -> str | None:
         return None
 
     parsed = urlparse(str(image_ref))
-    upload_path = parsed.path if parsed.scheme in {"http", "https"} else str(image_ref)
-    if upload_path.startswith("/uploads/"):
-        local_path = UPLOAD_DIR / upload_path.removeprefix("/uploads/")
-        if local_path.exists():
-            return str(local_path)
 
-    return str(image_ref)
+    # Already a local path
+    if not parsed.scheme or parsed.scheme not in {"http", "https"}:
+        return str(image_ref)
+
+    # Local uploads URL served by this app
+    if parsed.path.startswith("/uploads/"):
+        local = UPLOAD_DIR / parsed.path.removeprefix("/uploads/")
+        if local.exists():
+            return str(local)
+
+    # Remote URL (e.g. CDN result from a previous node): download locally
+    return _download_image(str(image_ref))
+
+
+def _download_image(url: str) -> str:
+    """Download a remote image URL into uploads dir; return local path (or url on failure)."""
+    try:
+        parsed = urlparse(url)
+        suffix = Path(parsed.path).suffix
+        if not suffix or len(suffix) > 6:
+            suffix = ".jpg"
+        local = UPLOAD_DIR / f"dl_{uuid.uuid4()}{suffix}"
+        resp = requests.get(url, timeout=60, stream=True, headers={"User-Agent": "Mozilla/5.0"})
+        resp.raise_for_status()
+        with open(local, "wb") as f:
+            for chunk in resp.iter_content(65536):
+                if chunk:
+                    f.write(chunk)
+        return str(local)
+    except Exception:
+        return url  # fall back to passing the URL directly
 
 
 def _get_param(request, key: str, default=""):

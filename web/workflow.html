@@ -286,6 +286,13 @@ body {
 .node-body textarea:focus, .node-body input:focus, .node-body select:focus { border-color: var(--accent); }
 .node-row { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
 .node-label { font-size: 0.68rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; font-weight: 600; }
+.conn-badge {
+  font-size: 0.62rem; font-weight: 600; text-transform: none; letter-spacing: 0;
+  padding: 1px 5px; border-radius: 4px; vertical-align: middle;
+  color: var(--accent2); background: rgba(124,106,247,0.12); border: 1px solid rgba(124,106,247,0.25);
+}
+.conn-badge.ok { color: var(--success); background: rgba(74,222,128,0.1); border-color: rgba(74,222,128,0.25); }
+.conn-badge.pending { color: var(--warning); background: rgba(251,191,36,0.1); border-color: rgba(251,191,36,0.2); }
 
 .node-preview {
   border-radius: 6px;
@@ -688,157 +695,120 @@ body {
   }
 
   function renderNodeBody(node) {
+    // ── Upstream connection info ───────────────────────────────────────────
+    const ups      = upstreamNodes(node.id);
+    const scriptUp = ups.find(u => u.type === 'script');
+    const imageUp  = ups.find(u => ['text2image', 'image2image'].includes(u.type));
+    // Badge appended to the "Prompt" label when a Script is connected
+    const pBadge   = scriptUp ? ' <span class="conn-badge">↑ Script</span>' : '';
+
+    // Renders the image-source section: connection indicator OR file input
+    function imageSrcHtml(label) {
+      if (imageUp) {
+        const t = esc(NODE_SPECS[imageUp.type]?.title || imageUp.type);
+        if (imageUp.result?.url) {
+          return `<div><div class="node-label">${label} <span class="conn-badge ok">✓ ${t}</span></div>
+            <div class="node-preview"><img src="${esc(mediaUrl(imageUp.result.url))}" alt="" referrerpolicy="no-referrer"/></div></div>`;
+        }
+        if (imageUp.result?.localPath) {
+          return `<div><div class="node-label">${label} <span class="conn-badge ok">✓ ${t} (local)</span></div></div>`;
+        }
+        return `<div><div class="node-label">${label} <span class="conn-badge pending">⏳ ${t} — run first</span></div></div>`;
+      }
+      return `<div><div class="node-label">${label}</div><input type="file" accept="image/*"/></div>`;
+    }
+
+    // ── Result / status HTML (unchanged) ──────────────────────────────────
     let resultHtml = '';
     if (node.result?.url) {
       const previewUrl = mediaUrl(node.result.url);
       resultHtml = (node.result.kind === 'video'
-        ? `<div class="node-preview">
-             <video controls preload="metadata" muted playsinline referrerpolicy="no-referrer">
-               <source src="${esc(previewUrl)}" type="video/mp4" />
-             </video>
-           </div>`
+        ? `<div class="node-preview"><video controls preload="metadata" muted playsinline referrerpolicy="no-referrer"><source src="${esc(previewUrl)}" type="video/mp4"/></video></div>`
         : node.result.kind === 'audio'
         ? `<div class="node-preview"><audio src="${esc(previewUrl)}" controls referrerpolicy="no-referrer" style="width:100%"></audio></div>`
-        : `<div class="node-preview"><img src="${esc(previewUrl)}" alt="" referrerpolicy="no-referrer" /></div>`);
+        : `<div class="node-preview"><img src="${esc(previewUrl)}" alt="" referrerpolicy="no-referrer"/></div>`);
     } else if (node.result?.localPath) {
-      resultHtml = `
-        <div class="node-preview empty">
-          Result saved locally
-        </div>
-        <div class="node-label">Local file</div>
-        <input value="${esc(node.result.localPath)}" readonly />
-      `;
+      resultHtml = `<div class="node-preview empty">Result saved locally</div>
+        <div class="node-label">Local file</div><input value="${esc(node.result.localPath)}" readonly/>`;
     }
 
-    const statusHtml = node.status === 'queued' || node.status === 'running'
+    const statusHtml = (node.status === 'queued' || node.status === 'running')
       ? `<div class="node-label">${node.status === 'running' ? 'Running' : 'Queued'}${node.queueIdx != null ? ` #${esc(node.queueIdx)}` : ''}</div>`
-      : node.status === 'error' && node.error
+      : (node.status === 'error' && node.error)
       ? `<div class="node-label" style="color:var(--error)">Error</div><textarea rows="3" readonly>${esc(node.error)}</textarea>`
       : '';
 
+    // ── Per-type bodies ────────────────────────────────────────────────────
     if (node.type === 'script') {
-      return `
-        <div>
-          <div class="node-label">Prompt / notes</div>
-          <textarea data-field="prompt" rows="4" placeholder="Write a prompt here…">${esc(node.prompt)}</textarea>
-        </div>
-        ${statusHtml}
-        ${resultHtml}`;
+      return `<div><div class="node-label">Prompt / notes</div>
+        <textarea data-field="prompt" rows="4" placeholder="Write a prompt here…">${esc(node.prompt)}</textarea></div>
+        ${statusHtml}${resultHtml}`;
     }
     if (node.type === 'audio') {
-      return `
-        <div>
-          <div class="node-label">Audio file</div>
-          <input type="file" accept="audio/*" />
-          ${resultHtml}
-        </div>
-        ${statusHtml}`;
+      return `<div><div class="node-label">Audio file</div><input type="file" accept="audio/*"/>
+        ${resultHtml}</div>${statusHtml}`;
     }
     if (node.type === 'text2image') {
-      return `
-        <div>
-          <div class="node-label">Prompt</div>
-          <textarea data-field="prompt" rows="3" placeholder="A misty mountain at dawn…">${esc(node.prompt)}</textarea>
-        </div>
+      const pp = scriptUp?.prompt ? esc(scriptUp.prompt.slice(0, 80)) : 'A misty mountain at dawn…';
+      return `<div><div class="node-label">Prompt${pBadge}</div>
+        <textarea data-field="prompt" rows="3" placeholder="${pp}">${esc(node.prompt)}</textarea></div>
         <div class="node-row">
-          <div>
-            <div class="node-label">Ratio</div>
-            <select data-field="ratio">
-              ${['16:9','1:1','9:16','4:3','3:4'].map(r => `<option value="${r}" ${node.params.ratio===r?'selected':''}>${r}</option>`).join('')}
-            </select>
-          </div>
-          <div>
-            <div class="node-label">Resolution</div>
-            <select data-field="resolution">
-              ${['1k','2k','4k'].map(r => `<option value="${r}" ${node.params.resolution===r?'selected':''}>${r.toUpperCase()}</option>`).join('')}
-            </select>
-          </div>
+          <div><div class="node-label">Ratio</div>
+            <select data-field="ratio">${['16:9','1:1','9:16','4:3','3:4'].map(r=>`<option value="${r}"${node.params.ratio===r?' selected':''}>${r}</option>`).join('')}</select></div>
+          <div><div class="node-label">Resolution</div>
+            <select data-field="resolution">${['1k','2k','4k'].map(r=>`<option value="${r}"${node.params.resolution===r?' selected':''}>${r.toUpperCase()}</option>`).join('')}</select></div>
         </div>
-        ${statusHtml}
-        ${resultHtml}`;
+        ${statusHtml}${resultHtml}`;
     }
     if (node.type === 'text2video') {
-      return `
-        <div>
-          <div class="node-label">Prompt</div>
-          <textarea data-field="prompt" rows="3" placeholder="Camera pushes in…">${esc(node.prompt)}</textarea>
-        </div>
+      const pp = scriptUp?.prompt ? esc(scriptUp.prompt.slice(0, 80)) : 'Camera pushes in…';
+      return `<div><div class="node-label">Prompt${pBadge}</div>
+        <textarea data-field="prompt" rows="3" placeholder="${pp}">${esc(node.prompt)}</textarea></div>
         <div class="node-row">
-          <div>
-            <div class="node-label">Duration</div>
+          <div><div class="node-label">Duration</div>
             <select data-field="duration">
-              <option value="5" ${node.params.duration==='5'?'selected':''}>5s</option>
-              <option value="10" ${node.params.duration==='10'?'selected':''}>10s</option>
-            </select>
-          </div>
-          <div>
-            <div class="node-label">Ratio</div>
-            <select data-field="ratio">
-              ${['16:9','9:16','1:1'].map(r => `<option value="${r}" ${node.params.ratio===r?'selected':''}>${r}</option>`).join('')}
-            </select>
-          </div>
+              <option value="5"${node.params.duration==='5'?' selected':''}>5s</option>
+              <option value="10"${node.params.duration==='10'?' selected':''}>10s</option>
+            </select></div>
+          <div><div class="node-label">Ratio</div>
+            <select data-field="ratio">${['16:9','9:16','1:1'].map(r=>`<option value="${r}"${node.params.ratio===r?' selected':''}>${r}</option>`).join('')}</select></div>
         </div>
-        <div>
-          <div class="node-label">Mode</div>
+        <div><div class="node-label">Mode</div>
           <select data-field="modelVersion">
-            <option value="seedance2.0fast" ${node.params.modelVersion==='seedance2.0fast'?'selected':''}>Non-VIP Fast</option>
-            <option value="" ${!node.params.modelVersion ? 'selected' : ''}>Non-VIP</option>
-            <option value="seedance2.0fast_vip" ${node.params.modelVersion==='seedance2.0fast_vip'?'selected':''}>VIP Fast</option>
-            <option value="seedance2.0_vip" ${node.params.modelVersion==='seedance2.0_vip'?'selected':''}>VIP</option>
-          </select>
-        </div>
-        <div>
-          <div class="node-label">Resolution</div>
-          <select data-field="resolution">
-            ${['480P','720P','1080P'].map(r => `<option value="${r}" ${node.params.resolution===r?'selected':''}>${r}</option>`).join('')}
-          </select>
-        </div>
-        ${statusHtml}
-        ${resultHtml}`;
+            <option value="seedance2.0fast"${node.params.modelVersion==='seedance2.0fast'?' selected':''}>Non-VIP Fast</option>
+            <option value=""${!node.params.modelVersion?' selected':''}>Non-VIP</option>
+            <option value="seedance2.0fast_vip"${node.params.modelVersion==='seedance2.0fast_vip'?' selected':''}>VIP Fast</option>
+            <option value="seedance2.0_vip"${node.params.modelVersion==='seedance2.0_vip'?' selected':''}>VIP</option>
+          </select></div>
+        <div><div class="node-label">Resolution</div>
+          <select data-field="resolution">${['480P','720P','1080P'].map(r=>`<option value="${r}"${node.params.resolution===r?' selected':''}>${r}</option>`).join('')}</select></div>
+        ${statusHtml}${resultHtml}`;
     }
     if (node.type === 'image2video') {
-      return `
-        <div>
-          <div class="node-label">Motion prompt</div>
-          <textarea data-field="prompt" rows="2" placeholder="Camera pans right…">${esc(node.prompt)}</textarea>
-        </div>
-        <div class="node-row">
-          <div>
-            <div class="node-label">Duration</div>
-            <select data-field="duration">
-              <option value="5" ${node.params.duration==='5'?'selected':''}>5s</option>
-              <option value="10" ${node.params.duration==='10'?'selected':''}>10s</option>
-            </select>
-          </div>
-          <div>
-            <div class="node-label">Source</div>
-            <input type="file" accept="image/*" />
-          </div>
-        </div>
-        <div>
-          <div class="node-label">Mode</div>
+      const pp = scriptUp?.prompt ? esc(scriptUp.prompt.slice(0, 80)) : 'Camera pans right…';
+      return `<div><div class="node-label">Motion prompt${pBadge}</div>
+        <textarea data-field="prompt" rows="2" placeholder="${pp}">${esc(node.prompt)}</textarea></div>
+        <div><div class="node-label">Duration</div>
+          <select data-field="duration">
+            <option value="5"${node.params.duration==='5'?' selected':''}>5s</option>
+            <option value="10"${node.params.duration==='10'?' selected':''}>10s</option>
+          </select></div>
+        ${imageSrcHtml('Source image')}
+        <div><div class="node-label">Mode</div>
           <select data-field="modelVersion">
-            <option value="seedance2.0fast" ${node.params.modelVersion==='seedance2.0fast'?'selected':''}>Non-VIP Fast</option>
-            <option value="" ${!node.params.modelVersion ? 'selected' : ''}>Non-VIP</option>
-            <option value="seedance2.0fast_vip" ${node.params.modelVersion==='seedance2.0fast_vip'?'selected':''}>VIP Fast</option>
-            <option value="seedance2.0_vip" ${node.params.modelVersion==='seedance2.0_vip'?'selected':''}>VIP</option>
-          </select>
-        </div>
-        ${statusHtml}
-        ${resultHtml}`;
+            <option value="seedance2.0fast"${node.params.modelVersion==='seedance2.0fast'?' selected':''}>Non-VIP Fast</option>
+            <option value=""${!node.params.modelVersion?' selected':''}>Non-VIP</option>
+            <option value="seedance2.0fast_vip"${node.params.modelVersion==='seedance2.0fast_vip'?' selected':''}>VIP Fast</option>
+            <option value="seedance2.0_vip"${node.params.modelVersion==='seedance2.0_vip'?' selected':''}>VIP</option>
+          </select></div>
+        ${statusHtml}${resultHtml}`;
     }
     if (node.type === 'image2image') {
-      return `
-        <div>
-          <div class="node-label">Transform prompt</div>
-          <textarea data-field="prompt" rows="2" placeholder="Oil painting style…">${esc(node.prompt)}</textarea>
-        </div>
-        <div>
-          <div class="node-label">Source (optional if connected)</div>
-          <input type="file" accept="image/*" />
-        </div>
-        ${statusHtml}
-        ${resultHtml}`;
+      const pp = scriptUp?.prompt ? esc(scriptUp.prompt.slice(0, 80)) : 'Oil painting style…';
+      return `<div><div class="node-label">Transform prompt${pBadge}</div>
+        <textarea data-field="prompt" rows="2" placeholder="${pp}">${esc(node.prompt)}</textarea></div>
+        ${imageSrcHtml('Source image')}
+        ${statusHtml}${resultHtml}`;
     }
     return '';
   }
@@ -863,11 +833,12 @@ body {
     let imageRef = null;
     for (const u of up) {
       if (u.type === 'script' && u.prompt && !prompt) prompt = u.prompt;
-      if (u.result?.url && u.result.kind === 'image' && !imageRef) imageRef = u.result.url;
+      // Prefer localPath (already on server) over remote CDN URL to avoid download latency
+      if (!imageRef && u.result?.kind === 'image') imageRef = u.result.localPath || u.result.url || null;
       if (!imageRef && u.uploadPath) imageRef = u.uploadPath;
     }
     if (!imageRef && node.uploadPath) imageRef = node.uploadPath;
-    if (!imageRef && node.uploadUrl) imageRef = node.uploadUrl;
+    if (!imageRef && node.uploadUrl)  imageRef = node.uploadUrl;
     return { prompt, imageRef };
   }
 
@@ -1128,11 +1099,16 @@ body {
   }
 
   function deleteSelectedEdges() {
+    const affected = new Set();
     let removed = 0;
     for (let i = edges.length - 1; i >= 0; i--) {
-      if (edges[i].selected) { edges.splice(i, 1); removed++; }
+      if (edges[i].selected) { affected.add(edges[i].toId); edges.splice(i, 1); removed++; }
     }
-    if (removed) { renderAllEdges(); toast(`${removed} edge(s) deleted`); }
+    if (removed) {
+      renderAllEdges();
+      for (const id of affected) { const n = nodes.get(id); if (n) renderNode(n); }
+      toast(`${removed} edge(s) deleted`);
+    }
     return removed;
   }
 
@@ -1148,6 +1124,7 @@ body {
     if (!canConnect(fromId, toId)) { toast('Cannot connect these nodes', 'error'); return; }
     edges.push({ id: 'e' + Math.random().toString(36).slice(2, 8), fromId, toId, selected: false });
     renderAllEdges();
+    const n = nodes.get(toId); if (n) renderNode(n);
   }
 
   // ── Handle drag (create edges) ──────────────────────────────────────────
@@ -1236,16 +1213,16 @@ body {
   function deleteNode(id) {
     const el = document.getElementById(id);
     if (el) el.remove();
+    const downstream = new Set();
     let edgeRemoved = false;
     for (let i = edges.length - 1; i >= 0; i--) {
-      if (edges[i].fromId === id || edges[i].toId === id) {
-        edges.splice(i, 1);
-        edgeRemoved = true;
-      }
+      if (edges[i].fromId === id) { downstream.add(edges[i].toId); edges.splice(i, 1); edgeRemoved = true; }
+      else if (edges[i].toId === id) { edges.splice(i, 1); edgeRemoved = true; }
     }
-    if (edgeRemoved) renderAllEdges();
     nodes.delete(id);
     selected.delete(id);
+    if (edgeRemoved) renderAllEdges();
+    for (const did of downstream) { const n = nodes.get(did); if (n) renderNode(n); }
     updateSelInfo();
   }
 
@@ -1570,6 +1547,9 @@ body {
           }
         }
         renderAllEdges();
+        // Re-render downstream nodes now that edges are known (shows connection indicators)
+        const downstream = new Set(edges.map(e => e.toId));
+        for (const id of downstream) { const n = nodes.get(id); if (n) renderNode(n); }
       }
       if (wf.view) {
         view.x = wf.view.x ?? 0;
