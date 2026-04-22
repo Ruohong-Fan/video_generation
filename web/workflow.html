@@ -48,6 +48,28 @@ body {
 .logo { font-size: 1.05rem; font-weight: 700; letter-spacing: -0.02em; }
 .logo span { color: var(--accent2); }
 .topbar-right { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+.back-btn {
+  color: var(--muted);
+  text-decoration: none;
+  font-size: 1.35rem;
+  line-height: 1;
+  padding: 4px 7px;
+  border-radius: 6px;
+  transition: color 0.15s, background 0.15s;
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+.back-btn:hover { color: var(--text); background: var(--surface2); }
+.topbar-sep { width: 1px; height: 18px; background: var(--border); flex-shrink: 0; }
+.topbar-project {
+  font-size: 0.86rem;
+  color: var(--muted);
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
 .chip {
   background: var(--surface2);
@@ -415,7 +437,10 @@ body {
 <body>
 
 <div class="topbar">
+  <a href="/" class="back-btn" title="All projects">‹</a>
+  <div class="topbar-sep"></div>
   <div class="logo">饼冰<span>科技</span></div>
+  <span class="topbar-project" id="topbar-project"></span>
   <div class="topbar-right">
     <div class="chip"><div class="dot"></div><span id="credits-text">Loading…</span></div>
     <div class="chip" id="save-status">Saved</div>
@@ -472,6 +497,19 @@ body {
 </div>
 
 <script>
+  // ── Project context ──────────────────────────────────────────────────────
+  const _urlParams = new URLSearchParams(location.search);
+  const projectId  = _urlParams.get('project');
+  const WORKFLOW_API = projectId
+    ? '/api/projects/' + encodeURIComponent(projectId) + '/workflow'
+    : '/api/workflow';
+  if (projectId) {
+    fetch('/api/projects/' + encodeURIComponent(projectId))
+      .then(r => r.json())
+      .then(d => { if (d.ok) document.getElementById('topbar-project').textContent = d.name; })
+      .catch(() => {});
+  }
+
   // ── State ────────────────────────────────────────────────────────────────
   const nodes = new Map();   // id -> node
   const edges = [];          // { id, fromId, toId }
@@ -1475,7 +1513,7 @@ body {
     clearTimeout(saveTimer);
     saveTimer = setTimeout(async () => {
       try {
-        const resp = await fetch('/api/workflow', {
+        const resp = await fetch(WORKFLOW_API, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(serialize()),
@@ -1499,7 +1537,7 @@ body {
   async function loadWorkflow() {
     loading = true;
     try {
-      const resp = await fetch('/api/workflow');
+      const resp = await fetch(WORKFLOW_API);
       const d = await resp.json();
       const wf = d.workflow || {};
       if (wf.nodes && typeof wf.nodes === 'object') {

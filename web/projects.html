@@ -1,0 +1,538 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Jimeng — Projects</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg: #0a0a0f;
+  --surface: #14141c;
+  --surface2: #1c1c28;
+  --surface3: #24243a;
+  --border: #2a2a3e;
+  --accent: #7c6af7;
+  --accent2: #a78bfa;
+  --text: #e8e8f0;
+  --muted: #7a7a94;
+  --success: #4ade80;
+  --error: #f87171;
+}
+
+html { height: 100%; }
+body {
+  min-height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  overflow-y: auto;
+}
+
+/* ── Topbar ──────────────────────────────────────────────────────────────── */
+.topbar {
+  position: sticky;
+  top: 0;
+  height: 56px;
+  background: rgba(20,20,28,0.92);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  padding: 0 28px;
+  gap: 12px;
+  z-index: 100;
+}
+.logo { font-size: 1.05rem; font-weight: 700; letter-spacing: -0.02em; }
+.logo span { color: var(--accent2); }
+.topbar-sep { width: 1px; height: 18px; background: var(--border); }
+.topbar-title { font-size: 0.85rem; color: var(--muted); }
+.topbar-right { margin-left: auto; }
+
+/* ── Buttons ─────────────────────────────────────────────────────────────── */
+.btn {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  padding: 7px 14px;
+  font-size: 0.83rem;
+  cursor: pointer;
+  transition: all 0.15s;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: inherit;
+}
+.btn:hover { background: var(--surface3); border-color: var(--accent); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.btn.primary:hover { background: var(--accent2); border-color: var(--accent2); }
+.btn.danger:hover { border-color: var(--error); color: var(--error); background: rgba(248,113,113,0.07); }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* ── Main ────────────────────────────────────────────────────────────────── */
+.main {
+  max-width: 1160px;
+  margin: 0 auto;
+  padding: 36px 28px 80px;
+}
+
+.section-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 24px;
+}
+.section-title { font-size: 1.05rem; font-weight: 600; }
+.section-count {
+  font-size: 0.76rem;
+  color: var(--muted);
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  padding: 2px 10px;
+}
+
+/* ── Project grid ────────────────────────────────────────────────────────── */
+.project-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  gap: 16px;
+}
+
+/* ── Project card ────────────────────────────────────────────────────────── */
+.project-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+  cursor: pointer;
+  position: relative;
+  transition: border-color 0.15s, box-shadow 0.15s, transform 0.15s;
+  user-select: none;
+}
+.project-card:hover {
+  border-color: var(--accent);
+  box-shadow: 0 8px 32px rgba(0,0,0,0.55);
+  transform: translateY(-2px);
+}
+
+.card-banner {
+  height: 104px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.card-initial {
+  font-size: 2.8rem;
+  font-weight: 800;
+  color: rgba(255,255,255,0.88);
+  text-shadow: 0 2px 10px rgba(0,0,0,0.35);
+  letter-spacing: -0.03em;
+}
+.card-body {
+  padding: 12px 14px 14px;
+}
+.card-name {
+  font-size: 0.88rem;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-bottom: 5px;
+}
+.card-meta {
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+
+.card-menu-btn {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  background: rgba(0,0,0,0.38);
+  border: none;
+  color: rgba(255,255,255,0.82);
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  font-size: 1.05rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 0.15s, background 0.15s;
+  line-height: 1;
+}
+.project-card:hover .card-menu-btn { opacity: 1; }
+.card-menu-btn:hover { background: rgba(0,0,0,0.65); color: #fff; }
+
+/* ── Empty state ─────────────────────────────────────────────────────────── */
+.empty-state {
+  text-align: center;
+  padding: 96px 20px;
+}
+.empty-icon { font-size: 3.2rem; margin-bottom: 18px; }
+.empty-state h2 { font-size: 1.25rem; font-weight: 600; margin-bottom: 10px; }
+.empty-state p {
+  font-size: 0.875rem;
+  color: var(--muted);
+  max-width: 340px;
+  margin: 0 auto 28px;
+  line-height: 1.6;
+}
+
+/* ── Modal ───────────────────────────────────────────────────────────────── */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.68);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 300;
+}
+.modal {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 28px;
+  width: 420px;
+  max-width: calc(100vw - 40px);
+  box-shadow: 0 24px 64px rgba(0,0,0,0.7);
+}
+.modal h3 { font-size: 1.05rem; font-weight: 600; margin-bottom: 20px; }
+.modal-field { margin-bottom: 20px; }
+.modal-field label {
+  display: block;
+  font-size: 0.72rem;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+.modal-field input {
+  width: 100%;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  font-size: 0.9rem;
+  padding: 10px 12px;
+  font-family: inherit;
+  outline: none;
+  transition: border-color 0.15s;
+}
+.modal-field input:focus { border-color: var(--accent); }
+.modal-actions { display: flex; gap: 10px; justify-content: flex-end; }
+
+/* ── Context menu ────────────────────────────────────────────────────────── */
+.ctx-menu {
+  position: fixed;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 6px;
+  min-width: 140px;
+  z-index: 400;
+  box-shadow: 0 10px 36px rgba(0,0,0,0.65);
+}
+.ctx-item {
+  padding: 8px 12px;
+  font-size: 0.84rem;
+  cursor: pointer;
+  border-radius: 6px;
+  transition: background 0.1s;
+}
+.ctx-item:hover { background: var(--surface2); }
+.ctx-item.danger { color: var(--error); }
+.ctx-item.danger:hover { background: rgba(248,113,113,0.08); }
+
+/* ── Toast ───────────────────────────────────────────────────────────────── */
+.toast {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 16px;
+  font-size: 0.82rem;
+  z-index: 500;
+  pointer-events: none;
+  animation: slideUp 0.2s ease;
+}
+.toast.error { border-color: var(--error); color: var(--error); }
+.toast.success { border-color: var(--success); color: var(--success); }
+@keyframes slideUp { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:none} }
+
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--muted); }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="logo">饼冰<span>科技</span></div>
+  <div class="topbar-sep"></div>
+  <span class="topbar-title">Video Projects</span>
+  <div class="topbar-right">
+    <button class="btn primary" id="btn-new">＋ New Project</button>
+  </div>
+</div>
+
+<main class="main">
+  <div class="section-header">
+    <span class="section-title">All projects</span>
+    <span class="section-count" id="project-count">0</span>
+  </div>
+  <div id="project-grid" class="project-grid"></div>
+  <div id="empty-state" class="empty-state" style="display:none">
+    <div class="empty-icon">🎬</div>
+    <h2>No projects yet</h2>
+    <p>Create your first project to start building video generation workflows.</p>
+    <button class="btn primary" id="btn-new-empty">＋ Create First Project</button>
+  </div>
+</main>
+
+<!-- Modal -->
+<div class="modal-overlay" id="modal-overlay" style="display:none">
+  <div class="modal">
+    <h3 id="modal-title">New Project</h3>
+    <div class="modal-field">
+      <label for="modal-name">Project name</label>
+      <input type="text" id="modal-name" placeholder="e.g. Product launch video" maxlength="80" autocomplete="off" />
+    </div>
+    <div class="modal-actions">
+      <button class="btn" id="modal-cancel">Cancel</button>
+      <button class="btn primary" id="modal-ok">Create</button>
+    </div>
+  </div>
+</div>
+
+<!-- Context menu -->
+<div class="ctx-menu" id="ctx-menu" style="display:none">
+  <div class="ctx-item" id="ctx-rename">Rename</div>
+  <div class="ctx-item danger" id="ctx-delete">Delete</div>
+</div>
+
+<script>
+  const GRADIENTS = [
+    ['#7c6af7','#a78bfa'],
+    ['#3b82f6','#06b6d4'],
+    ['#10b981','#34d399'],
+    ['#f59e0b','#fb923c'],
+    ['#ef4444','#f97316'],
+    ['#8b5cf6','#d946ef'],
+    ['#0ea5e9','#38bdf8'],
+    ['#84cc16','#22c55e'],
+  ];
+
+  function cardGradient(id) {
+    let h = 0;
+    for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0;
+    const [a, b] = GRADIENTS[h % GRADIENTS.length];
+    return `linear-gradient(135deg, ${a}, ${b})`;
+  }
+
+  function timeAgo(ts) {
+    if (!ts) return '';
+    const s = Date.now() / 1000 - ts;
+    if (s < 60)     return 'just now';
+    if (s < 3600)   return `${Math.floor(s / 60)}m ago`;
+    if (s < 86400)  return `${Math.floor(s / 3600)}h ago`;
+    if (s < 604800) return `${Math.floor(s / 86400)}d ago`;
+    return new Date(ts * 1000).toLocaleDateString();
+  }
+
+  const esc = s => String(s ?? '')
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+
+  function toast(msg, kind = '') {
+    const t = document.createElement('div');
+    t.className = 'toast ' + kind;
+    t.textContent = msg;
+    document.body.appendChild(t);
+    setTimeout(() => t.remove(), 2600);
+  }
+
+  // ── Project list ──────────────────────────────────────────────────────────
+  let projects = {};
+
+  async function loadProjects() {
+    try {
+      const d = await fetch('/api/projects').then(r => r.json());
+      if (!d.ok) throw new Error(d.error);
+      projects = d.projects || {};
+      renderGrid();
+    } catch (e) {
+      toast('Failed to load projects: ' + e.message, 'error');
+    }
+  }
+
+  function renderGrid() {
+    const grid  = document.getElementById('project-grid');
+    const empty = document.getElementById('empty-state');
+    const count = document.getElementById('project-count');
+
+    const entries = Object.entries(projects).sort(
+      ([,a],[,b]) => (b.updated_at || b.created_at || 0) - (a.updated_at || a.created_at || 0)
+    );
+
+    count.textContent = entries.length;
+    grid.innerHTML = '';
+
+    if (!entries.length) { empty.style.display = 'block'; return; }
+    empty.style.display = 'none';
+
+    for (const [id, project] of entries) grid.appendChild(makeCard(id, project));
+  }
+
+  function makeCard(id, project) {
+    const card = document.createElement('div');
+    card.className = 'project-card';
+    card.dataset.id = id;
+
+    const initial  = (project.name || '?')[0].toUpperCase();
+    const gradient = cardGradient(id);
+    const ts       = project.updated_at || project.created_at;
+
+    card.innerHTML = `
+      <div class="card-banner" style="background:${gradient}">
+        <div class="card-initial">${esc(initial)}</div>
+      </div>
+      <div class="card-body">
+        <div class="card-name">${esc(project.name)}</div>
+        <div class="card-meta">${ts ? 'Modified ' + timeAgo(ts) : 'Just created'}</div>
+      </div>
+      <button class="card-menu-btn" title="Options">⋯</button>
+    `;
+
+    card.addEventListener('click', (e) => {
+      if (e.target.closest('.card-menu-btn')) return;
+      location.href = '/workflow?project=' + encodeURIComponent(id);
+    });
+
+    card.querySelector('.card-menu-btn').addEventListener('click', (e) => {
+      e.stopPropagation();
+      openCtxMenu(id, e.currentTarget);
+    });
+
+    return card;
+  }
+
+  // ── Context menu ──────────────────────────────────────────────────────────
+  const ctxMenu = document.getElementById('ctx-menu');
+  let ctxId = null;
+
+  function openCtxMenu(id, btn) {
+    ctxId = id;
+    const r = btn.getBoundingClientRect();
+    const x = Math.min(r.right, window.innerWidth - 152);
+    ctxMenu.style.top  = (r.bottom + 6) + 'px';
+    ctxMenu.style.left = x + 'px';
+    ctxMenu.style.display = 'block';
+  }
+
+  document.addEventListener('click', () => { ctxMenu.style.display = 'none'; });
+  ctxMenu.addEventListener('click', e => e.stopPropagation());
+
+  document.getElementById('ctx-rename').addEventListener('click', () => {
+    ctxMenu.style.display = 'none';
+    if (!ctxId || !projects[ctxId]) return;
+    openModal('rename', ctxId, projects[ctxId].name);
+  });
+
+  document.getElementById('ctx-delete').addEventListener('click', async () => {
+    ctxMenu.style.display = 'none';
+    if (!ctxId || !projects[ctxId]) return;
+    const name = projects[ctxId].name;
+    if (!confirm(`Delete "${name}"? This cannot be undone.`)) return;
+    try {
+      const d = await fetch('/api/projects/' + encodeURIComponent(ctxId), { method: 'DELETE' }).then(r => r.json());
+      if (!d.ok) throw new Error(d.error);
+      delete projects[ctxId];
+      renderGrid();
+      toast('Project deleted');
+    } catch (e) {
+      toast('Delete failed: ' + e.message, 'error');
+    }
+  });
+
+  // ── Modal ─────────────────────────────────────────────────────────────────
+  const modalOverlay = document.getElementById('modal-overlay');
+  let modalMode = 'create';
+  let modalProjectId = null;
+
+  function openModal(mode, id = null, name = '') {
+    modalMode = mode;
+    modalProjectId = id;
+    document.getElementById('modal-title').textContent = mode === 'create' ? 'New Project' : 'Rename Project';
+    document.getElementById('modal-ok').textContent    = mode === 'create' ? 'Create' : 'Save';
+    document.getElementById('modal-name').value = name;
+    modalOverlay.style.display = 'flex';
+    setTimeout(() => {
+      const inp = document.getElementById('modal-name');
+      inp.focus(); inp.select();
+    }, 40);
+  }
+
+  function closeModal() {
+    modalOverlay.style.display = 'none';
+    document.getElementById('modal-name').value = '';
+  }
+
+  async function submitModal() {
+    const name = document.getElementById('modal-name').value.trim();
+    if (!name) { document.getElementById('modal-name').focus(); return; }
+    const okBtn = document.getElementById('modal-ok');
+    okBtn.disabled = true;
+    try {
+      if (modalMode === 'create') {
+        const d = await fetch('/api/projects', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({name}),
+        }).then(r => r.json());
+        if (!d.ok) throw new Error(d.error || 'Create failed');
+        closeModal();
+        location.href = '/workflow?project=' + encodeURIComponent(d.id);
+      } else {
+        const d = await fetch('/api/projects/' + encodeURIComponent(modalProjectId), {
+          method: 'PUT',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({name}),
+        }).then(r => r.json());
+        if (!d.ok) throw new Error(d.error || 'Rename failed');
+        projects[modalProjectId].name = name;
+        closeModal();
+        renderGrid();
+        toast('Renamed to "' + name + '"', 'success');
+      }
+    } catch (e) {
+      toast(e.message, 'error');
+    } finally {
+      okBtn.disabled = false;
+    }
+  }
+
+  document.getElementById('btn-new').addEventListener('click', () => openModal('create'));
+  document.getElementById('btn-new-empty').addEventListener('click', () => openModal('create'));
+  document.getElementById('modal-cancel').addEventListener('click', closeModal);
+  document.getElementById('modal-ok').addEventListener('click', submitModal);
+  document.getElementById('modal-name').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') submitModal();
+    if (e.key === 'Escape') closeModal();
+  });
+  modalOverlay.addEventListener('click', (e) => { if (e.target === modalOverlay) closeModal(); });
+
+  loadProjects();
+</script>
+</body>
+</html>

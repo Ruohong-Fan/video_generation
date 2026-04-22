@@ -28,12 +28,19 @@ UPLOAD_DIR.mkdir(exist_ok=True)
 
 TASKS_FILE = Path("tasks.json")
 WORKFLOW_FILE = Path("workflow.json")
+PROJECTS_FILE = Path("projects.json")
+WORKFLOWS_DIR = Path("workflows")
+WORKFLOWS_DIR.mkdir(exist_ok=True)
 POLL_INTERVAL = int(os.environ.get("POLL_INTERVAL_SECONDS", "15"))
 POLL_TIMEOUT = int(os.environ.get("POLL_TIMEOUT_SECONDS", "21600"))  # 6 hours; <=0 disables timeout
 
 # task_id -> {status, label, result, error, created_at}
 tasks: dict[str, dict] = {}
 _tasks_lock = threading.Lock()
+
+# project_id -> {name, description, created_at, updated_at}
+projects: dict[str, dict] = {}
+_projects_lock = threading.Lock()
 
 
 # ── Persistence ───────────────────────────────────────────────────────────────
@@ -62,6 +69,26 @@ def load_tasks():
 
 
 load_tasks()
+
+
+def _save_projects():
+    with _projects_lock:
+        try:
+            PROJECTS_FILE.write_text(json.dumps(projects, indent=2))
+        except Exception:
+            pass
+
+
+def _load_projects():
+    global projects
+    if PROJECTS_FILE.exists():
+        try:
+            projects = json.loads(PROJECTS_FILE.read_text())
+        except Exception:
+            projects = {}
+
+
+_load_projects()
 
 
 # ── CLI helper ────────────────────────────────────────────────────────────────
@@ -208,7 +235,7 @@ def _start_task(cmd: list[str], label: str) -> dict:
 
 @app.get("/")
 def index():
-    return send_from_directory("web", "workflow.html")
+    return send_from_directory("web", "projects.html")
 
 
 @app.get("/workflow")
@@ -480,6 +507,94 @@ def multiframe2video():
     if prompt:
         cmd.append(f"--prompt={prompt}")
     return jsonify(_start_task(cmd, f"multiframe2video: {first_frame.filename} → {last_frame.filename}"))
+
+
+# ── API: Projects ─────────────────────────────────────────────────────────────
+
+@app.get("/api/projects")
+def list_projects():
+    return jsonify({"ok": True, "projects": projects})
+
+
+@app.post("/api/projects")
+def create_project():
+    data = request.get_json(force=True)
+    name = (data.get("name") or "").strip()
+    if not name:
+        return jsonify({"ok": False, "error": "name is required"}), 400
+    pid = str(uuid.uuid4())
+    now = time.time()
+    projects[pid] = {
+        "name": name,
+        "description": data.get("description", ""),
+        "created_at": now,
+        "updated_at": now,
+    }
+    _save_projects()
+    return jsonify({"ok": True, "id": pid, **projects[pid]})
+
+
+@app.get("/api/projects/<pid>")
+def get_project(pid: str):
+    p = projects.get(pid)
+    if not p:
+        return jsonify({"ok": False, "error": "Project not found"}), 404
+    return jsonify({"ok": True, "id": pid, **p})
+
+
+@app.put("/api/projects/<pid>")
+def update_project(pid: str):
+    p = projects.get(pid)
+    if not p:
+        return jsonify({"ok": False, "error": "Project not found"}), 404
+    data = request.get_json(force=True)
+    name = (data.get("name") or "").strip()
+    if name:
+        p["name"] = name
+    if "description" in data:
+        p["description"] = data["description"]
+    p["updated_at"] = time.time()
+    _save_projects()
+    return jsonify({"ok": True, "id": pid, **p})
+
+
+@app.delete("/api/projects/<pid>")
+def delete_project(pid: str):
+    if pid not in projects:
+        return jsonify({"ok": False, "error": "Project not found"}), 404
+    projects.pop(pid)
+    _save_projects()
+    wf_path = WORKFLOWS_DIR / f"{pid}.json"
+    if wf_path.exists():
+        wf_path.unlink()
+    return jsonify({"ok": True})
+
+
+@app.get("/api/projects/<pid>/workflow")
+def get_project_workflow(pid: str):
+    if pid not in projects:
+        return jsonify({"ok": False, "error": "Project not found"}), 404
+    wf_path = WORKFLOWS_DIR / f"{pid}.json"
+    if wf_path.exists():
+        try:
+            return jsonify({"ok": True, "workflow": json.loads(wf_path.read_text())})
+        except Exception:
+            pass
+    return jsonify({"ok": True, "workflow": {"nodes": {}, "edges": []}})
+
+
+@app.put("/api/projects/<pid>/workflow")
+def save_project_workflow(pid: str):
+    if pid not in projects:
+        return jsonify({"ok": False, "error": "Project not found"}), 404
+    data = request.get_json(force=True)
+    try:
+        (WORKFLOWS_DIR / f"{pid}.json").write_text(json.dumps(data, indent=2))
+        projects[pid]["updated_at"] = time.time()
+        _save_projects()
+        return jsonify({"ok": True})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
 
 
 if __name__ == "__main__":
