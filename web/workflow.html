@@ -153,6 +153,8 @@ body {
     0 0 / 24px 24px;
 }
 .canvas-wrap.panning { cursor: grabbing; }
+.canvas-wrap.mode-select { cursor: crosshair; }
+.canvas-wrap.mode-select.panning { cursor: grabbing; }
 .canvas {
   position: absolute;
   top: 0; left: 0;
@@ -423,6 +425,9 @@ body {
 
 <div class="toolbar">
   <button class="tool-btn" id="btn-add" data-tooltip="Add node">＋</button>
+  <div class="tool-sep"></div>
+  <button class="tool-btn active" id="btn-tool-pan" data-tooltip="Pan (H)">✋</button>
+  <button class="tool-btn" id="btn-tool-select" data-tooltip="Select (V)">⬚</button>
   <div class="tool-sep"></div>
   <button class="tool-btn" id="btn-fit" data-tooltip="Fit to view">⛶</button>
   <button class="tool-btn" id="btn-center" data-tooltip="Center (0,0)">⊙</button>
@@ -1243,49 +1248,57 @@ body {
   canvas.addEventListener('pointerup',   () => { dragState = null; });
   canvas.addEventListener('pointercancel', () => { dragState = null; });
 
+  // ── Tool mode ────────────────────────────────────────────────────────────
+  let canvasTool = 'pan'; // 'pan' | 'select'
+
+  function setTool(tool) {
+    canvasTool = tool;
+    document.getElementById('btn-tool-pan').classList.toggle('active', tool === 'pan');
+    document.getElementById('btn-tool-select').classList.toggle('active', tool === 'select');
+    canvasWrap.classList.toggle('mode-select', tool === 'select');
+  }
+
+  document.getElementById('btn-tool-pan').addEventListener('click', () => setTool('pan'));
+  document.getElementById('btn-tool-select').addEventListener('click', () => setTool('select'));
+
   // ── Canvas panning + box-selection ──────────────────────────────────────
   let panState = null;
   let selBoxState = null;
   let selBoxEl = null;
-  let spaceDown = false;
+  let selBoxMoved = false;
 
   window.addEventListener('keydown', (e) => {
-    if (e.code === 'Space' && document.activeElement.tagName !== 'TEXTAREA'
-        && document.activeElement.tagName !== 'INPUT') {
-      spaceDown = true;
-      canvasWrap.style.cursor = 'grab';
-      e.preventDefault();
-    }
-    if ((e.key === 'Delete' || e.key === 'Backspace')
-        && document.activeElement.tagName !== 'TEXTAREA'
-        && document.activeElement.tagName !== 'INPUT') {
-      deleteSelected();
-    }
+    const active = document.activeElement.tagName;
+    if (active === 'TEXTAREA' || active === 'INPUT') return;
+    if (e.code === 'Space') { e.preventDefault(); } // prevent page scroll
+    if (e.key === 'h' || e.key === 'H') setTool('pan');
+    if (e.key === 'v' || e.key === 'V') setTool('select');
+    if (e.key === 'Delete' || e.key === 'Backspace') deleteSelected();
     if (e.key === 'Escape') clearSelection();
-  });
-  window.addEventListener('keyup', (e) => {
-    if (e.code === 'Space') { spaceDown = false; canvasWrap.style.cursor = ''; }
   });
 
   canvasWrap.addEventListener('pointerdown', (e) => {
     if (e.target.closest('.node')) return;
-    if (e.target.closest('svg')) return; // let SVG path (edge) clicks pass to their own handlers
+    if (e.target.closest('svg')) return; // let edge-path clicks reach their handlers
     if (e.button === 2) return;
 
-    // Shift+drag → box-select
-    if (e.shiftKey) {
-      const start = screenToWorld(e.clientX, e.clientY);
-      selBoxState = { sx: start.x, sy: start.y };
-      selBoxEl = document.createElement('div');
-      selBoxEl.className = 'sel-box';
-      canvas.appendChild(selBoxEl);
+    // Middle-click always pans regardless of mode
+    const wantPan = canvasTool === 'pan' || e.button === 1;
+
+    if (wantPan) {
+      panState = { startX: e.clientX, startY: e.clientY, origX: view.x, origY: view.y, moved: false };
+      canvasWrap.classList.add('panning');
       canvasWrap.setPointerCapture?.(e.pointerId);
       return;
     }
 
-    // Default: pan (left-drag, middle-click, or space+drag)
-    panState = { startX: e.clientX, startY: e.clientY, origX: view.x, origY: view.y, moved: false };
-    canvasWrap.classList.add('panning');
+    // Select mode: drag to draw a selection box
+    const start = screenToWorld(e.clientX, e.clientY);
+    selBoxState = { sx: start.x, sy: start.y };
+    selBoxMoved = false;
+    selBoxEl = document.createElement('div');
+    selBoxEl.className = 'sel-box';
+    canvas.appendChild(selBoxEl);
     canvasWrap.setPointerCapture?.(e.pointerId);
   });
 
@@ -1305,20 +1318,23 @@ body {
       const to = Math.min(selBoxState.sy, cur.y);
       const w  = Math.abs(cur.x - selBoxState.sx);
       const h  = Math.abs(cur.y - selBoxState.sy);
-      selBoxEl.style.left = lo + 'px';
-      selBoxEl.style.top  = to + 'px';
-      selBoxEl.style.width  = w + 'px';
-      selBoxEl.style.height = h + 'px';
+      if (w + h > 4) selBoxMoved = true;
+      selBoxEl.style.left   = lo + 'px';
+      selBoxEl.style.top    = to + 'px';
+      selBoxEl.style.width  = w  + 'px';
+      selBoxEl.style.height = h  + 'px';
       selectInRect(selBoxState.sx, selBoxState.sy, cur.x, cur.y);
     }
   });
 
   canvasWrap.addEventListener('pointerup', () => {
-    if (panState && !panState.moved) clearSelection(); // click on empty = deselect all
+    if (panState && !panState.moved) clearSelection(); // click on empty canvas = deselect
     panState = null;
     canvasWrap.classList.remove('panning');
     if (selBoxEl) { selBoxEl.remove(); selBoxEl = null; }
+    if (selBoxState && !selBoxMoved) clearSelection(); // click without drag in select mode = deselect
     selBoxState = null;
+    selBoxMoved = false;
   });
 
   // ── Canvas zoom (wheel) ─────────────────────────────────────────────────
