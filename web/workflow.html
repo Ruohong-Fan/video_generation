@@ -198,7 +198,7 @@ body {
 .canvas-wrap {
   position: fixed;
   top: 52px;
-  left: 260px; right: 0; bottom: 0;
+  left: 260px; right: 280px; bottom: 0;
   overflow: hidden;
   cursor: grab;
   background:
@@ -299,23 +299,11 @@ body {
 .node.done .node-status { background: var(--success); }
 .node.error .node-status { background: var(--error); }
 
-.node-body { padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; }
-.node-body textarea,
-.node-body input,
-.node-body select {
-  background: var(--surface2);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  color: var(--text);
-  font-size: 0.78rem;
-  padding: 6px 8px;
-  font-family: inherit;
-  outline: none;
-  width: 100%;
+.node-body { padding: 0; }
+.node-prompt-preview {
+  font-size: 11px; color: var(--fg-2); line-height: 1.5; padding: 8px 10px;
+  white-space: pre-wrap; word-break: break-word; max-height: 80px; overflow: hidden;
 }
-.node-body textarea { resize: none; min-height: 56px; }
-.node-body textarea:focus, .node-body input:focus, .node-body select:focus { border-color: var(--accent); }
-.node-row { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
 .node-label { font-size: 0.68rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; font-weight: 600; }
 .conn-badge {
   font-size: 0.62rem; font-weight: 600; text-transform: none; letter-spacing: 0;
@@ -348,28 +336,13 @@ body {
   border: 1px dashed var(--border);
 }
 
-.node-footer {
-  padding: 8px 12px;
-  border-top: 1px solid var(--border);
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 8px;
-  font-size: 0.72rem;
-  color: var(--muted);
-}
 .node-run {
-  background: var(--accent);
-  color: #fff;
-  border: none;
-  border-radius: 6px;
-  padding: 4px 10px;
-  font-size: 0.72rem;
-  cursor: pointer;
-  font-weight: 600;
-  transition: background 0.15s;
+  background: var(--amber); color: oklch(0.18 0.03 65);
+  border: none; border-radius: 5px; padding: 2px 8px;
+  font-size: 0.7rem; cursor: pointer; font-weight: 700;
+  transition: background 0.12s; flex-shrink: 0;
 }
-.node-run:hover { background: var(--accent2); }
+.node-run:hover { background: oklch(0.82 0.15 72); }
 .node-run:disabled { opacity: 0.5; cursor: not-allowed; }
 
 /* Node handles (for connections) */
@@ -539,6 +512,65 @@ body {
   transition: background 0.1s;
 }
 .file-link:hover { background: oklch(0.78 0.145 70 / 0.18); }
+
+/* ── Right inspector panel ──────────────────────────────────────────────── */
+.side-right {
+  position: fixed; top: 52px; right: 0;
+  width: 280px; bottom: 0;
+  background: var(--bg-1); border-left: 1px solid var(--line);
+  display: flex; flex-direction: column;
+  z-index: 80; font-family: var(--type-ui); overflow: hidden;
+}
+#inspector-content { flex: 1; display: flex; flex-direction: column; min-height: 0; overflow-y: auto; }
+.insp-empty {
+  flex: 1; display: flex; flex-direction: column; align-items: center;
+  justify-content: center; gap: 8px;
+  color: var(--fg-3); font-size: 12px; text-align: center; padding: 24px; line-height: 1.7;
+}
+.insp-header {
+  display: flex; align-items: center; gap: 8px;
+  padding: 12px 14px; border-bottom: 1px solid var(--line); flex-shrink: 0;
+}
+.insp-icon { font-size: 15px; }
+.insp-title { flex: 1; font-size: 13px; font-weight: 600; color: var(--fg-0); }
+.insp-run-btn {
+  padding: 4px 12px; border-radius: 6px; border: none; cursor: pointer;
+  background: var(--amber); color: oklch(0.18 0.03 65);
+  font-size: 12px; font-weight: 600; font-family: var(--type-ui);
+  transition: background 0.12s;
+}
+.insp-run-btn:hover { background: oklch(0.82 0.15 72); }
+.insp-run-btn:disabled { background: var(--bg-3); color: var(--fg-3); cursor: not-allowed; }
+.insp-body { padding: 14px; display: flex; flex-direction: column; gap: 14px; overflow-y: auto; flex: 1; }
+.insp-field { display: flex; flex-direction: column; gap: 5px; }
+.insp-label {
+  font-family: var(--type-mono); font-size: 10px;
+  text-transform: uppercase; letter-spacing: 0.1em; color: var(--fg-3);
+}
+.insp-textarea {
+  background: var(--bg-2); border: 1px solid var(--line); border-radius: 6px;
+  color: var(--fg-0); font-size: 12px; padding: 8px; line-height: 1.5;
+  font-family: var(--type-ui); outline: none; width: 100%; resize: vertical; min-height: 90px;
+}
+.insp-textarea:focus { border-color: var(--amber-dim); }
+.insp-select {
+  background: var(--bg-2); border: 1px solid var(--line); border-radius: 6px;
+  color: var(--fg-0); font-size: 12px; padding: 7px 8px; width: 100%;
+  outline: none; font-family: var(--type-ui);
+}
+.insp-select:focus { border-color: var(--amber-dim); }
+.insp-file { font-size: 11px; color: var(--fg-2); padding: 4px 0; cursor: pointer; }
+.insp-preview {
+  border-radius: 6px; overflow: hidden; background: var(--bg-0);
+  max-height: 150px; display: flex; align-items: center; justify-content: center;
+}
+.insp-preview img, .insp-preview video { width: 100%; max-height: 150px; object-fit: contain; display: block; }
+.insp-status {
+  font-size: 11px; padding: 7px 10px; border-radius: 6px;
+  background: var(--bg-2); color: var(--fg-2); line-height: 1.4;
+}
+.insp-status.error { color: var(--err); background: oklch(0.70 0.18 25 / 0.1); }
+.insp-run-count { font-size: 10px; color: var(--fg-3); font-family: var(--type-mono); text-align: right; }
 </style>
 </head>
 <body>
@@ -654,6 +686,15 @@ body {
 </div>
 
 
+<div class="side-right">
+  <div id="inspector-content">
+    <div class="insp-empty">
+      <div style="font-size:28px;opacity:0.4">⬡</div>
+      <div>Select a node to<br>edit its settings</div>
+    </div>
+  </div>
+</div>
+
 <script>
   // ── Project context ──────────────────────────────────────────────────────
   const _urlParams = new URLSearchParams(location.search);
@@ -735,6 +776,7 @@ body {
       }
     }
     updateMinimap();
+    updateInspector();
   }
 
   // ── Node creation ───────────────────────────────────────────────────────
@@ -752,7 +794,7 @@ body {
         modelVersion: 'seedance2.0',
       },
       status: 'idle',
-      result: null,   // { url, kind }
+      results: [],    // [{ url, kind, localPath, ts }] — newest last
       taskId: null,
       queueIdx: null,
       error: null,
@@ -768,16 +810,13 @@ body {
   function renderNode(node) {
     const existing = document.getElementById(node.id);
     if (existing) existing.remove();
-
     const spec = NODE_SPECS[node.type];
     const el = document.createElement('div');
     el.className = `node ${node.status}${selected.has(node.id) ? ' selected' : ''}`;
     el.id = node.id;
     el.style.left = node.x + 'px';
     el.style.top  = node.y + 'px';
-
-    const bodyHtml = renderNodeBody(node);
-
+    const isPassive = PASSIVE_TYPES.has(node.type);
     el.innerHTML = `
       ${spec.hasIn  ? '<div class="handle in"  data-node="'+node.id+'" data-dir="in"></div>'  : ''}
       ${spec.hasOut ? '<div class="handle out" data-node="'+node.id+'" data-dir="out"></div>' : ''}
@@ -785,196 +824,36 @@ body {
         <div class="node-icon">${spec.icon}</div>
         <div class="node-title">${esc(spec.title)}</div>
         <div class="node-status"></div>
+        ${!isPassive ? '<button class="node-run" data-action="run" title="Run">▶</button>' : ''}
       </div>
-      <div class="node-body">${bodyHtml}</div>
-      <div class="node-footer">
-        <span class="node-id">${node.status}</span>
-        <button class="node-run" data-action="run">▶ Run</button>
-      </div>
+      <div class="node-body">${renderNodeBody(node)}</div>
     `;
     canvas.appendChild(el);
-
-    // Wire up field changes
-    el.querySelectorAll('[data-field]').forEach(input => {
-      input.addEventListener('input', (e) => {
-        const field = e.target.dataset.field;
-        const val = e.target.value;
-        if (field === 'prompt') node.prompt = val;
-        else node.params[field] = val;
-      });
-      // Stop drag when interacting with inputs
-      input.addEventListener('pointerdown', e => e.stopPropagation());
-    });
-
-    // Upload handling for audio/image-input nodes
-    const fileInput = el.querySelector('input[type=file]');
-    if (fileInput) {
-      fileInput.addEventListener('change', async (e) => {
-        const f = e.target.files[0];
-        if (!f) return;
-        const fd = new FormData();
-        fd.append('file', f);
-        const resp = await fetch('/api/upload', { method: 'POST', body: fd });
-        const d = await resp.json();
-        if (d.ok) {
-          node.uploadUrl = d.url;
-          node.uploadPath = d.path || null;
-          node.result = { url: d.url, kind: node.type === 'audio' ? 'audio' : 'image' };
-          renderNode(node);
-          if (document.getElementById('panel-files')?.style.display !== 'none') renderFilesPanel();
-        } else {
-          toast('Upload failed', 'error');
-        }
-      });
-    }
-
-    // Run button
     el.querySelector('[data-action=run]')?.addEventListener('pointerdown', e => e.stopPropagation());
     el.querySelector('[data-action=run]')?.addEventListener('click', () => runNode(node.id));
   }
 
-  // Inject/replace the preview section inside an already-rendered node
-  function updateNodePreview(id) {
-    const node = nodes.get(id);
-    const el = document.getElementById(id);
-    if (!node || !el) return;
-
-    // Remove any existing preview
-    el.querySelectorAll('.node-preview').forEach(p => p.remove());
-    if (!node.result?.url) return;
-
-    const preview = document.createElement('div');
-    preview.className = 'node-preview';
-    if (node.result.kind === 'video') {
-      preview.innerHTML = `<video src="${esc(node.result.url)}" controls muted loop playsinline></video>`;
-    } else if (node.result.kind === 'audio') {
-      preview.innerHTML = `<audio src="${esc(node.result.url)}" controls style="width:100%"></audio>`;
-    } else {
-      preview.innerHTML = `<img src="${esc(node.result.url)}" alt=""/>`;
-    }
-
-    // Place it at the bottom of .node-body, above the footer
-    const body = el.querySelector('.node-body');
-    if (body) body.appendChild(preview);
-  }
-
   function renderNodeBody(node) {
-    // ── Upstream connection info ───────────────────────────────────────────
-    const ups      = upstreamNodes(node.id);
-    const scriptUp = ups.find(u => u.type === 'script');
-    const imageUp  = ups.find(u => ['text2image', 'image2image'].includes(u.type));
-    // Badge appended to the "Prompt" label when a Script is connected
-    const pBadge   = scriptUp ? ' <span class="conn-badge">↑ Script</span>' : '';
+    const last = node.results?.[node.results.length - 1];
 
-    // Renders the image-source section: connection indicator OR file input
-    function imageSrcHtml(label) {
-      if (imageUp) {
-        const t = esc(NODE_SPECS[imageUp.type]?.title || imageUp.type);
-        if (imageUp.result?.url) {
-          return `<div><div class="node-label">${label} <span class="conn-badge ok">✓ ${t}</span></div>
-            <div class="node-preview"><img src="${esc(mediaUrl(imageUp.result.url))}" alt="" referrerpolicy="no-referrer"/></div></div>`;
-        }
-        if (imageUp.result?.localPath) {
-          return `<div><div class="node-label">${label} <span class="conn-badge ok">✓ ${t} (local)</span></div></div>`;
-        }
-        return `<div><div class="node-label">${label} <span class="conn-badge pending">⏳ ${t} — run first</span></div></div>`;
-      }
-      return `<div><div class="node-label">${label}</div><input type="file" accept="image/*"/></div>`;
-    }
-
-    // ── Result / status HTML (unchanged) ──────────────────────────────────
-    let resultHtml = '';
-    if (node.result?.url) {
-      const previewUrl = mediaUrl(node.result.url);
-      resultHtml = (node.result.kind === 'video'
-        ? `<div class="node-preview"><video controls preload="metadata" muted playsinline referrerpolicy="no-referrer"><source src="${esc(previewUrl)}" type="video/mp4"/></video></div>`
-        : node.result.kind === 'audio'
-        ? `<div class="node-preview"><audio src="${esc(previewUrl)}" controls referrerpolicy="no-referrer" style="width:100%"></audio></div>`
-        : `<div class="node-preview"><img src="${esc(previewUrl)}" alt="" referrerpolicy="no-referrer"/></div>`);
-    } else if (node.result?.localPath) {
-      resultHtml = `<div class="node-preview empty">Result saved locally</div>
-        <div class="node-label">Local file</div><input value="${esc(node.result.localPath)}" readonly/>`;
-    }
-
-    const statusHtml = (node.status === 'queued' || node.status === 'running')
-      ? `<div class="node-label">${node.status === 'running' ? 'Running' : 'Queued'}${node.queueIdx != null ? ` #${esc(node.queueIdx)}` : ''}</div>`
-      : (node.status === 'error' && node.error)
-      ? `<div class="node-label" style="color:var(--error)">Error</div><textarea rows="3" readonly>${esc(node.error)}</textarea>`
-      : '';
-
-    // ── Per-type bodies ────────────────────────────────────────────────────
     if (node.type === 'script') {
-      return `<div><div class="node-label">Prompt / notes</div>
-        <textarea data-field="prompt" rows="4" placeholder="Write a prompt here…">${esc(node.prompt)}</textarea></div>
-        ${statusHtml}${resultHtml}`;
+      if (node.prompt) return `<div class="node-prompt-preview">${esc(node.prompt.slice(0, 200))}</div>`;
+      return `<div class="node-preview empty">No prompt — edit in inspector</div>`;
     }
     if (node.type === 'audio') {
-      return `<div><div class="node-label">Audio file</div><input type="file" accept="audio/*"/>
-        ${resultHtml}</div>${statusHtml}`;
+      if (node.uploadUrl) return `<div class="node-preview"><audio src="${esc(mediaUrl(node.uploadUrl))}" controls style="width:100%;padding:8px 10px;box-sizing:border-box"></audio></div>`;
+      return `<div class="node-preview empty">No audio — upload in inspector</div>`;
     }
-    if (node.type === 'text2image') {
-      const pp = scriptUp?.prompt ? esc(scriptUp.prompt.slice(0, 80)) : 'A misty mountain at dawn…';
-      return `<div><div class="node-label">Prompt${pBadge}</div>
-        <textarea data-field="prompt" rows="3" placeholder="${pp}">${esc(node.prompt)}</textarea></div>
-        <div class="node-row">
-          <div><div class="node-label">Ratio</div>
-            <select data-field="ratio">${['16:9','1:1','9:16','4:3','3:4'].map(r=>`<option value="${r}"${node.params.ratio===r?' selected':''}>${r}</option>`).join('')}</select></div>
-          <div><div class="node-label">Resolution</div>
-            <select data-field="resolution">${['1k','2k','4k'].map(r=>`<option value="${r}"${node.params.resolution===r?' selected':''}>${r.toUpperCase()}</option>`).join('')}</select></div>
-        </div>
-        ${statusHtml}${resultHtml}`;
+    if (last?.url) {
+      const u = mediaUrl(last.url);
+      if (last.kind === 'video') return `<div class="node-preview"><video controls preload="metadata" muted playsinline referrerpolicy="no-referrer"><source src="${esc(u)}" type="video/mp4"/></video></div>`;
+      return `<div class="node-preview"><img src="${esc(u)}" alt="" referrerpolicy="no-referrer"/></div>`;
     }
-    if (node.type === 'text2video') {
-      const pp = scriptUp?.prompt ? esc(scriptUp.prompt.slice(0, 80)) : 'Camera pushes in…';
-      return `<div><div class="node-label">Prompt${pBadge}</div>
-        <textarea data-field="prompt" rows="3" placeholder="${pp}">${esc(node.prompt)}</textarea></div>
-        <div class="node-row">
-          <div><div class="node-label">Duration</div>
-            <select data-field="duration">
-              <option value="5"${node.params.duration==='5'?' selected':''}>5s</option>
-              <option value="10"${node.params.duration==='10'?' selected':''}>10s</option>
-            </select></div>
-          <div><div class="node-label">Ratio</div>
-            <select data-field="ratio">${['16:9','9:16','1:1'].map(r=>`<option value="${r}"${node.params.ratio===r?' selected':''}>${r}</option>`).join('')}</select></div>
-        </div>
-        <div><div class="node-label">Mode</div>
-          <select data-field="modelVersion">
-            <option value="seedance2.0fast"${node.params.modelVersion==='seedance2.0fast'?' selected':''}>Non-VIP Fast</option>
-            <option value="seedance2.0"${node.params.modelVersion==='seedance2.0'?' selected':''}>Non-VIP</option>
-            <option value="seedance2.0fast_vip"${node.params.modelVersion==='seedance2.0fast_vip'?' selected':''}>VIP Fast</option>
-            <option value="seedance2.0_vip"${node.params.modelVersion==='seedance2.0_vip'?' selected':''}>VIP</option>
-          </select></div>
-        <div><div class="node-label">Resolution</div>
-          <select data-field="resolution">${['480P','720P','1080P'].map(r=>`<option value="${r}"${node.params.resolution===r?' selected':''}>${r}</option>`).join('')}</select></div>
-        ${statusHtml}${resultHtml}`;
+    if (['image2video','image2image'].includes(node.type) && node.uploadUrl) {
+      return `<div class="node-preview"><img src="${esc(mediaUrl(node.uploadUrl))}" alt="" referrerpolicy="no-referrer"/></div>`;
     }
-    if (node.type === 'image2video') {
-      const pp = scriptUp?.prompt ? esc(scriptUp.prompt.slice(0, 80)) : 'Camera pans right…';
-      return `<div><div class="node-label">Motion prompt${pBadge}</div>
-        <textarea data-field="prompt" rows="2" placeholder="${pp}">${esc(node.prompt)}</textarea></div>
-        <div><div class="node-label">Duration</div>
-          <select data-field="duration">
-            <option value="5"${node.params.duration==='5'?' selected':''}>5s</option>
-            <option value="10"${node.params.duration==='10'?' selected':''}>10s</option>
-          </select></div>
-        ${imageSrcHtml('Source image')}
-        <div><div class="node-label">Mode</div>
-          <select data-field="modelVersion">
-            <option value="seedance2.0fast"${node.params.modelVersion==='seedance2.0fast'?' selected':''}>Non-VIP Fast</option>
-            <option value="seedance2.0"${node.params.modelVersion==='seedance2.0'?' selected':''}>Non-VIP</option>
-            <option value="seedance2.0fast_vip"${node.params.modelVersion==='seedance2.0fast_vip'?' selected':''}>VIP Fast</option>
-            <option value="seedance2.0_vip"${node.params.modelVersion==='seedance2.0_vip'?' selected':''}>VIP</option>
-          </select></div>
-        ${statusHtml}${resultHtml}`;
-    }
-    if (node.type === 'image2image') {
-      const pp = scriptUp?.prompt ? esc(scriptUp.prompt.slice(0, 80)) : 'Oil painting style…';
-      return `<div><div class="node-label">Transform prompt${pBadge}</div>
-        <textarea data-field="prompt" rows="2" placeholder="${pp}">${esc(node.prompt)}</textarea></div>
-        ${imageSrcHtml('Source image')}
-        ${statusHtml}${resultHtml}`;
-    }
-    return '';
+    const msg = { running:'⟳ Generating…', queued:'⏳ Queued…', error:'⚠ Error — see inspector' };
+    return `<div class="node-preview empty">${msg[node.status] || 'No output yet'}</div>`;
   }
 
   // ── Execution ───────────────────────────────────────────────────────────
@@ -986,6 +865,7 @@ body {
     renderNode(n);
     updateEdgesFor(id);
     if (document.getElementById('panel-files')?.style.display !== 'none') renderFilesPanel();
+    if (selected.has(id)) renderInspector(id);
   }
 
   function upstreamNodes(id) {
@@ -998,8 +878,8 @@ body {
     let imageRef = null;
     for (const u of up) {
       if (u.type === 'script' && u.prompt && !prompt) prompt = u.prompt;
-      // Prefer localPath (already on server) over remote CDN URL to avoid download latency
-      if (!imageRef && u.result?.kind === 'image') imageRef = u.result.localPath || u.result.url || null;
+      const uLast = u.results?.[u.results.length - 1];
+      if (!imageRef && uLast?.kind === 'image') imageRef = uLast.localPath || uLast.url || null;
       if (!imageRef && u.uploadPath) imageRef = u.uploadPath;
     }
     if (!imageRef && node.uploadPath) imageRef = node.uploadPath;
@@ -1127,11 +1007,9 @@ body {
       const url = extractOutputUrl(task);
       const kind = (node.type === 'text2video' || node.type === 'image2video') ? 'video' : 'image';
       const localPath = task?.result?.data?.local_path || task?.result?.local_path || null;
-      setNodeStatus(id, 'done', {
-        result: (url || localPath) ? { url, kind, localPath } : null,
-        error: null,
-        queueIdx: null,
-      });
+      const newResults = [...(node.results || [])];
+      if (url || localPath) newResults.push({ url, kind, localPath, ts: Date.now() });
+      setNodeStatus(id, 'done', { results: newResults, error: null, queueIdx: null });
       toast(`${node.type} done`, 'success');
     } catch (err) {
       setNodeStatus(id, 'error', { error: err.message, queueIdx: null });
@@ -1627,7 +1505,7 @@ body {
         id: n.id, type: n.type, x: n.x, y: n.y,
         prompt: n.prompt, params: n.params,
         status: n.status === 'running' || n.status === 'queued' ? 'idle' : n.status,
-        result: n.result, uploadUrl: n.uploadUrl, uploadPath: n.uploadPath,
+        results: n.results || [], uploadUrl: n.uploadUrl, uploadPath: n.uploadPath,
       })),
       edges: edges.map(e => ({ id: e.id, fromId: e.fromId, toId: e.toId })),
       view: { x: view.x, y: view.y, scale: view.scale },
@@ -1680,7 +1558,7 @@ body {
               modelVersion: n.params?.modelVersion || 'seedance2.0',
             },
             status: n.status || 'idle',
-            result: n.result || null,
+            results: Array.isArray(n.results) ? n.results : (n.result ? [n.result] : []),
             taskId: null,
             queueIdx: n.queueIdx ?? null,
             error: n.error || null,
@@ -1806,43 +1684,40 @@ body {
     const panel = document.getElementById('panel-files');
     if (!panel) return;
 
+    // Collect all outputs (every run) newest-first, then uploads
     const outputs = [];
     const uploads = [];
     for (const n of nodes.values()) {
       const label = NODE_SPECS[n.type]?.title || n.type;
-      if (n.result?.url) {
-        outputs.push({ n, label, url: n.result.url, kind: n.result.kind });
-      } else if (n.uploadUrl) {
-        uploads.push({ n, label, url: n.uploadUrl, kind: n.type === 'audio' ? 'audio' : 'image' });
+      for (const r of [...(n.results || [])].reverse()) {
+        if (r?.url) outputs.push({ label, url: r.url, kind: r.kind, ts: r.ts });
       }
+      if (n.uploadUrl) uploads.push({ label, url: n.uploadUrl, kind: n.type === 'audio' ? 'audio' : 'image' });
     }
 
     if (outputs.length === 0 && uploads.length === 0) {
-      panel.innerHTML = '<div class="side-empty">No files yet.<br>Run nodes to generate outputs,<br>or upload files via image/audio nodes.</div>';
+      panel.innerHTML = '<div class="side-empty">No files yet.<br>Run nodes to generate outputs,<br>or upload via image/audio nodes.</div>';
       return;
     }
 
-    function thumbHtml(url, kind) {
-      const proxied = mediaUrl(url);
-      if (kind === 'video') return `<video src="${esc(proxied)}" muted preload="metadata" referrerpolicy="no-referrer"></video>`;
+    const thumb = (url, kind) => {
+      const p = esc(mediaUrl(url));
+      if (kind === 'video') return `<video src="${p}" muted preload="metadata" referrerpolicy="no-referrer"></video>`;
       if (kind === 'audio') return '🎵';
-      return `<img src="${esc(proxied)}" alt="" referrerpolicy="no-referrer"/>`;
-    }
-
-    function ext(url) {
-      try { return new URL(url).pathname.split('.').pop().split('?')[0].toLowerCase().slice(0,4); } catch { return ''; }
-    }
+      return `<img src="${p}" alt="" referrerpolicy="no-referrer"/>`;
+    };
+    const fmtTs = ts => { try { return ts ? new Date(ts).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}) : ''; } catch { return ''; } };
 
     let html = '';
     if (outputs.length) {
       html += '<div class="side-section-title">Outputs</div>';
       for (const f of outputs) {
-        const e = ext(f.url);
+        const t = fmtTs(f.ts);
         html += `<div class="file-item">
-          <div class="file-thumb">${thumbHtml(f.url, f.kind)}</div>
+          <div class="file-thumb">${thumb(f.url, f.kind)}</div>
           <div class="file-info">
             <div class="file-name">${esc(f.label)}</div>
-            <div class="file-sub">${e ? e.toUpperCase() + ' · ' : ''}${f.kind}</div>
+            <div class="file-sub">${f.kind}${t ? ' · ' + t : ''}</div>
             <div class="file-actions">
               <a class="file-link" href="${esc(mediaUrl(f.url))}" target="_blank" download>↓ download</a>
               <a class="file-link" href="${esc(mediaUrl(f.url))}" target="_blank">↗ open</a>
@@ -1855,7 +1730,7 @@ body {
       html += '<div class="side-section-title">Uploads</div>';
       for (const f of uploads) {
         html += `<div class="file-item">
-          <div class="file-thumb">${thumbHtml(f.url, f.kind)}</div>
+          <div class="file-thumb">${thumb(f.url, f.kind)}</div>
           <div class="file-info">
             <div class="file-name">${esc(f.label)}</div>
             <div class="file-sub">${f.kind}</div>
@@ -1871,6 +1746,164 @@ body {
     const center = screenToWorld(rect.left + rect.width / 2, rect.top + rect.height / 2);
     createNode(type, center.x - 120 + Math.random() * 40, center.y - 60 + Math.random() * 40);
   }
+
+  // ── Inspector panel ─────────────────────────────────────────────────────
+  function updateInspector() {
+    const id = selected.size === 1 ? [...selected][0] : null;
+    renderInspector(id);
+  }
+
+  function renderInspector(nodeId) {
+    const panel = document.getElementById('inspector-content');
+    if (!panel) return;
+
+    if (!nodeId || !nodes.has(nodeId)) {
+      panel.innerHTML = `<div class="insp-empty"><div style="font-size:28px;opacity:0.4">⬡</div><div>Select a node to<br>edit its settings</div></div>`;
+      return;
+    }
+
+    const node = nodes.get(nodeId);
+    const spec = NODE_SPECS[node.type];
+    const ups = upstreamNodes(node.id);
+    const scriptUp = ups.find(u => u.type === 'script');
+    const imageUp  = ups.find(u => ['text2image','image2image'].includes(u.type));
+    const isPassive = PASSIVE_TYPES.has(node.type);
+
+    const sel = (opts, cur) => opts.map(([v,l]) =>
+      `<option value="${v}"${cur===v?' selected':''}>${l}</option>`).join('');
+
+    let f = '';
+
+    // Prompt
+    if (['script','text2image','text2video','image2video','image2image'].includes(node.type)) {
+      const pBadge = scriptUp ? ` <span class="conn-badge">↑ Script</span>` : '';
+      const ph = { script:'Write your prompt or notes…', text2image:'A misty mountain at dawn…',
+        text2video:'Camera pushes in slowly…', image2video:'Camera pans right gently…',
+        image2image:'Oil painting style…' }[node.type] || '';
+      f += `<div class="insp-field">
+        <div class="insp-label">Prompt${pBadge}</div>
+        <textarea class="insp-textarea" data-field="prompt" rows="6" placeholder="${esc(ph)}">${esc(node.prompt)}</textarea>
+      </div>`;
+    }
+
+    // Duration
+    if (['text2video','image2video'].includes(node.type)) {
+      f += `<div class="insp-field"><div class="insp-label">Duration</div>
+        <select class="insp-select" data-field="duration">
+          ${sel([['5','5 seconds'],['10','10 seconds']], node.params.duration)}
+        </select></div>`;
+    }
+
+    // Ratio
+    if (['text2image','text2video','image2video'].includes(node.type)) {
+      const ratios = node.type === 'text2image' ? ['16:9','1:1','9:16','4:3','3:4'] : ['16:9','9:16','1:1'];
+      f += `<div class="insp-field"><div class="insp-label">Aspect ratio</div>
+        <select class="insp-select" data-field="ratio">
+          ${ratios.map(r=>`<option value="${r}"${node.params.ratio===r?' selected':''}>${r}</option>`).join('')}
+        </select></div>`;
+    }
+
+    // Resolution
+    if (node.type === 'text2image') {
+      f += `<div class="insp-field"><div class="insp-label">Resolution</div>
+        <select class="insp-select" data-field="resolution">
+          ${sel([['1k','1K'],['2k','2K'],['4k','4K']], node.params.resolution)}
+        </select></div>`;
+    }
+    if (['text2video','image2video'].includes(node.type)) {
+      f += `<div class="insp-field"><div class="insp-label">Resolution</div>
+        <select class="insp-select" data-field="resolution">
+          ${sel([['480P','480P'],['720P','720P'],['1080P','1080P']], node.params.resolution)}
+        </select></div>`;
+    }
+
+    // Model
+    if (['text2video','image2video'].includes(node.type)) {
+      f += `<div class="insp-field"><div class="insp-label">Model</div>
+        <select class="insp-select" data-field="modelVersion">
+          ${sel([['seedance2.0fast','Non-VIP Fast'],['seedance2.0','Non-VIP'],
+            ['seedance2.0fast_vip','VIP Fast'],['seedance2.0_vip','VIP']], node.params.modelVersion)}
+        </select></div>`;
+    }
+
+    // Image source
+    if (['image2video','image2image'].includes(node.type)) {
+      if (imageUp) {
+        const t = esc(NODE_SPECS[imageUp.type]?.title || imageUp.type);
+        const imgLast = imageUp.results?.[imageUp.results.length - 1];
+        if (imgLast?.url) {
+          f += `<div class="insp-field"><div class="insp-label">Source image <span class="conn-badge ok">✓ ${t}</span></div>
+            <div class="insp-preview"><img src="${esc(mediaUrl(imgLast.url))}" alt="" referrerpolicy="no-referrer"/></div></div>`;
+        } else {
+          f += `<div class="insp-field"><div class="insp-label">Source image <span class="conn-badge pending">⏳ ${t} — run first</span></div></div>`;
+        }
+      } else {
+        const prev = node.uploadUrl ? `<div class="insp-preview"><img src="${esc(mediaUrl(node.uploadUrl))}" alt="" referrerpolicy="no-referrer"/></div>` : '';
+        f += `<div class="insp-field"><div class="insp-label">Source image</div>${prev}
+          <input class="insp-file" type="file" accept="image/*" data-upload/></div>`;
+      }
+    }
+
+    // Audio upload
+    if (node.type === 'audio') {
+      const prev = node.uploadUrl ? `<audio src="${esc(mediaUrl(node.uploadUrl))}" controls style="width:100%;margin-bottom:6px"></audio>` : '';
+      f += `<div class="insp-field"><div class="insp-label">Audio file</div>${prev}
+        <input class="insp-file" type="file" accept="audio/*" data-upload/></div>`;
+    }
+
+    // Status / run info
+    let statusHtml = '';
+    if (node.status === 'running') statusHtml = `<div class="insp-status">⟳ Running…</div>`;
+    else if (node.status === 'queued') statusHtml = `<div class="insp-status">⏳ Queued${node.queueIdx != null ? ' #'+node.queueIdx : ''}…</div>`;
+    else if (node.status === 'error' && node.error) statusHtml = `<div class="insp-status error">⚠ ${esc(node.error)}</div>`;
+
+    const rc = node.results?.length || 0;
+    const rcHtml = rc ? `<div class="insp-run-count">${rc} run${rc===1?'':'s'} · ${rc} output${rc===1?'':'s'} in Files</div>` : '';
+
+    panel.innerHTML = `
+      <div class="insp-header">
+        <span class="insp-icon">${spec.icon}</span>
+        <span class="insp-title">${esc(spec.title)}</span>
+        ${!isPassive ? `<button class="insp-run-btn" data-action="insp-run">▶ Run</button>` : ''}
+      </div>
+      <div class="insp-body">
+        ${f}
+        ${statusHtml}
+        ${rcHtml}
+      </div>`;
+
+    // Wire field changes → node data
+    panel.querySelectorAll('[data-field]').forEach(el => {
+      el.addEventListener('input', e => {
+        const field = e.target.dataset.field;
+        if (field === 'prompt') { node.prompt = e.target.value; renderNode(node); }
+        else node.params[field] = e.target.value;
+      });
+    });
+
+    // Run button
+    panel.querySelector('[data-action=insp-run]')?.addEventListener('click', () => runNode(node.id));
+
+    // File upload
+    panel.querySelectorAll('[data-upload]').forEach(input => {
+      input.addEventListener('change', async e => {
+        const f = e.target.files[0];
+        if (!f) return;
+        const fd = new FormData(); fd.append('file', f);
+        toast('Uploading…');
+        const resp = await fetch('/api/upload', { method: 'POST', body: fd });
+        const d = await resp.json();
+        if (d.ok) {
+          node.uploadUrl = d.url; node.uploadPath = d.path || null;
+          renderNode(node); renderInspector(node.id);
+          if (document.getElementById('panel-files')?.style.display !== 'none') renderFilesPanel();
+        } else { toast('Upload failed', 'error'); }
+      });
+    });
+  }
+
+  // Wire inspector inputs → save
+  document.getElementById('inspector-content')?.addEventListener('input', scheduleSave);
 </script>
 </body>
 </html>
