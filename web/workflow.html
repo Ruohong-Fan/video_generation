@@ -511,6 +511,34 @@ body {
 .tree-item:hover { background: var(--bg-2); color: var(--fg-0); }
 .tree-item.active { background: oklch(0.78 0.145 70 / 0.12); color: var(--amber); }
 .tree-item-icon { width: 16px; text-align: center; }
+.side-empty { font-size: 11px; color: var(--fg-3); text-align: center; padding: 24px 8px; line-height: 1.5; }
+.file-item {
+  display: flex; align-items: flex-start; gap: 8px;
+  padding: 8px; border-radius: 6px; margin-bottom: 2px;
+  border: 1px solid transparent; cursor: default;
+  transition: background 0.1s;
+}
+.file-item:hover { background: var(--bg-2); border-color: var(--line); }
+.file-thumb {
+  width: 40px; height: 40px; flex-shrink: 0; border-radius: 5px;
+  background: var(--bg-3); border: 1px solid var(--line);
+  overflow: hidden; display: flex; align-items: center; justify-content: center;
+  font-size: 18px;
+}
+.file-thumb img, .file-thumb video {
+  width: 100%; height: 100%; object-fit: cover; display: block;
+}
+.file-info { flex: 1; min-width: 0; }
+.file-name { font-size: 11px; font-weight: 500; color: var(--fg-0); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.file-sub { font-size: 10px; color: var(--fg-3); margin-top: 2px; font-family: var(--type-mono); }
+.file-actions { display: flex; gap: 4px; margin-top: 4px; }
+.file-link {
+  font-size: 10px; color: var(--amber); text-decoration: none;
+  padding: 1px 6px; border-radius: 3px; border: 1px solid var(--amber-dim);
+  background: oklch(0.78 0.145 70 / 0.08);
+  transition: background 0.1s;
+}
+.file-link:hover { background: oklch(0.78 0.145 70 / 0.18); }
 </style>
 </head>
 <body>
@@ -574,14 +602,7 @@ body {
         </button>
       </div>
     </div>
-    <div id="panel-files" style="display:none">
-      <div class="side-section-title">Project files</div>
-      <div class="tree">
-        <div class="tree-item active"><span class="tree-item-icon">📋</span>Current workflow</div>
-        <div class="tree-item"><span class="tree-item-icon">📁</span>outputs/</div>
-        <div class="tree-item"><span class="tree-item-icon">📁</span>uploads/</div>
-      </div>
-    </div>
+    <div id="panel-files" style="display:none"></div>
   </div>
 </div>
 
@@ -800,6 +821,7 @@ body {
           node.uploadPath = d.path || null;
           node.result = { url: d.url, kind: node.type === 'audio' ? 'audio' : 'image' };
           renderNode(node);
+          if (document.getElementById('panel-files')?.style.display !== 'none') renderFilesPanel();
         } else {
           toast('Upload failed', 'error');
         }
@@ -963,6 +985,7 @@ body {
     Object.assign(n, extra);
     renderNode(n);
     updateEdgesFor(id);
+    if (document.getElementById('panel-files')?.style.display !== 'none') renderFilesPanel();
   }
 
   function upstreamNodes(id) {
@@ -1776,6 +1799,71 @@ body {
     document.getElementById('tab-files').classList.toggle('active', tab === 'files');
     document.getElementById('panel-library').style.display = tab === 'library' ? '' : 'none';
     document.getElementById('panel-files').style.display   = tab === 'files'   ? '' : 'none';
+    if (tab === 'files') renderFilesPanel();
+  }
+
+  function renderFilesPanel() {
+    const panel = document.getElementById('panel-files');
+    if (!panel) return;
+
+    const outputs = [];
+    const uploads = [];
+    for (const n of nodes.values()) {
+      const label = NODE_SPECS[n.type]?.title || n.type;
+      if (n.result?.url) {
+        outputs.push({ n, label, url: n.result.url, kind: n.result.kind });
+      } else if (n.uploadUrl) {
+        uploads.push({ n, label, url: n.uploadUrl, kind: n.type === 'audio' ? 'audio' : 'image' });
+      }
+    }
+
+    if (outputs.length === 0 && uploads.length === 0) {
+      panel.innerHTML = '<div class="side-empty">No files yet.<br>Run nodes to generate outputs,<br>or upload files via image/audio nodes.</div>';
+      return;
+    }
+
+    function thumbHtml(url, kind) {
+      const proxied = mediaUrl(url);
+      if (kind === 'video') return `<video src="${esc(proxied)}" muted preload="metadata" referrerpolicy="no-referrer"></video>`;
+      if (kind === 'audio') return '🎵';
+      return `<img src="${esc(proxied)}" alt="" referrerpolicy="no-referrer"/>`;
+    }
+
+    function ext(url) {
+      try { return new URL(url).pathname.split('.').pop().split('?')[0].toLowerCase().slice(0,4); } catch { return ''; }
+    }
+
+    let html = '';
+    if (outputs.length) {
+      html += '<div class="side-section-title">Outputs</div>';
+      for (const f of outputs) {
+        const e = ext(f.url);
+        html += `<div class="file-item">
+          <div class="file-thumb">${thumbHtml(f.url, f.kind)}</div>
+          <div class="file-info">
+            <div class="file-name">${esc(f.label)}</div>
+            <div class="file-sub">${e ? e.toUpperCase() + ' · ' : ''}${f.kind}</div>
+            <div class="file-actions">
+              <a class="file-link" href="${esc(mediaUrl(f.url))}" target="_blank" download>↓ download</a>
+              <a class="file-link" href="${esc(mediaUrl(f.url))}" target="_blank">↗ open</a>
+            </div>
+          </div>
+        </div>`;
+      }
+    }
+    if (uploads.length) {
+      html += '<div class="side-section-title">Uploads</div>';
+      for (const f of uploads) {
+        html += `<div class="file-item">
+          <div class="file-thumb">${thumbHtml(f.url, f.kind)}</div>
+          <div class="file-info">
+            <div class="file-name">${esc(f.label)}</div>
+            <div class="file-sub">${f.kind}</div>
+          </div>
+        </div>`;
+      }
+    }
+    panel.innerHTML = html;
   }
 
   function addNodeFromLibrary(type) {
