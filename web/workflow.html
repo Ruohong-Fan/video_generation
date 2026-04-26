@@ -1456,6 +1456,7 @@ body {
   canvasWrap.addEventListener('pointerdown', (e) => {
     if (e.target.closest('.node')) return;
     if (e.target.closest('svg')) return; // let edge-path clicks reach their handlers
+    if (e.target.closest('.canvas-overlay')) return; // let overlay controls handle their own events
     if (e.button === 2) return;
 
     // Middle-click always pans regardless of mode
@@ -1721,35 +1722,47 @@ body {
     inner.innerHTML = '';
     if (nodes.size === 0) return;
 
+    // Node bounds in world space
     let minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity;
     for (const n of nodes.values()) {
       minX = Math.min(minX, n.x); minY = Math.min(minY, n.y);
       maxX = Math.max(maxX, n.x + 240); maxY = Math.max(maxY, n.y + 260);
     }
-    minX -= 40; minY -= 40; maxX += 40; maxY += 40;
+
+    // Viewport bounds in world space
+    const wrap = canvasWrap.getBoundingClientRect();
+    const tl = screenToWorld(wrap.left, wrap.top);
+    const br = screenToWorld(wrap.right, wrap.bottom);
+
+    // Expand world extent to always include the viewport so the rect is visible
+    minX = Math.min(minX, tl.x) - 40;
+    minY = Math.min(minY, tl.y) - 40;
+    maxX = Math.max(maxX, br.x) + 40;
+    maxY = Math.max(maxY, br.y) + 40;
+
     const worldW = maxX - minX || 1;
     const worldH = maxY - minY || 1;
     const mw = inner.offsetWidth  || 150;
     const mh = inner.offsetHeight || 90;
     const scale = Math.min(mw / worldW, mh / worldH);
+    // Center content within the minimap
+    const ox = (mw - worldW * scale) / 2;
+    const oy = (mh - worldH * scale) / 2;
 
     for (const n of nodes.values()) {
       const d = document.createElement('div');
       d.className = 'minimap-node' + (selected.has(n.id) ? ' selected' : '');
-      d.style.left   = ((n.x - minX) * scale) + 'px';
-      d.style.top    = ((n.y - minY) * scale) + 'px';
+      d.style.left   = (ox + (n.x - minX) * scale) + 'px';
+      d.style.top    = (oy + (n.y - minY) * scale) + 'px';
       d.style.width  = Math.max(4, 240 * scale) + 'px';
       d.style.height = Math.max(3, 80  * scale) + 'px';
       inner.appendChild(d);
     }
 
-    const wrap = canvasWrap.getBoundingClientRect();
-    const tl = screenToWorld(wrap.left, wrap.top);
-    const br = screenToWorld(wrap.right, wrap.bottom);
     const vp = document.createElement('div');
     vp.className = 'minimap-viewport';
-    vp.style.left   = ((tl.x - minX) * scale) + 'px';
-    vp.style.top    = ((tl.y - minY) * scale) + 'px';
+    vp.style.left   = (ox + (tl.x - minX) * scale) + 'px';
+    vp.style.top    = (oy + (tl.y - minY) * scale) + 'px';
     vp.style.width  = Math.max(4, (br.x - tl.x) * scale) + 'px';
     vp.style.height = Math.max(4, (br.y - tl.y) * scale) + 'px';
     inner.appendChild(vp);
