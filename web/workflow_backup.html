@@ -114,7 +114,7 @@ body {
 .toolbar {
   position: fixed;
   top: 72px;
-  left: 278px;
+  left: 20px;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 12px;
@@ -167,7 +167,7 @@ body {
 .canvas-wrap {
   position: fixed;
   top: 52px;
-  left: 260px; right: 0; bottom: 0;
+  left: 0; right: 0; bottom: 0;
   overflow: hidden;
   cursor: grab;
   background:
@@ -439,68 +439,6 @@ body {
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--muted); }
-
-/* ── Left sidebar panel ─────────────────────────────────────────────────── */
-.side-left {
-  position: fixed;
-  top: 52px; left: 0;
-  width: 260px; bottom: 0;
-  background: var(--surface);
-  border-right: 1px solid var(--border);
-  display: flex; flex-direction: column;
-  z-index: 80;
-}
-.side-tabs {
-  display: flex;
-  border-bottom: 1px solid var(--border);
-  padding: 0 8px; gap: 2px; flex-shrink: 0;
-}
-.side-tab {
-  padding: 10px 10px 9px;
-  font-size: 0.72rem; font-weight: 600;
-  color: var(--muted);
-  letter-spacing: 0.04em; text-transform: uppercase;
-  border: none; border-bottom: 2px solid transparent;
-  margin-bottom: -1px; background: none; cursor: pointer;
-  transition: color 0.12s;
-}
-.side-tab:hover { color: var(--text); }
-.side-tab.active { color: var(--text); border-bottom-color: var(--accent); }
-.side-body { flex: 1; overflow-y: auto; padding: 12px; }
-.side-section-title {
-  font-size: 0.65rem; text-transform: uppercase;
-  letter-spacing: 0.1em; color: var(--muted);
-  margin: 14px 4px 8px; font-weight: 600;
-}
-.side-section-title:first-child { margin-top: 0; }
-.lib-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-.lib-card {
-  display: flex; flex-direction: column;
-  align-items: flex-start; gap: 6px;
-  padding: 10px;
-  background: var(--surface2); border: 1px solid var(--border);
-  border-radius: 8px; cursor: pointer;
-  transition: border-color 0.12s, background 0.12s;
-  text-align: left; width: 100%;
-}
-.lib-card:hover { border-color: var(--accent); background: var(--surface3); }
-.lib-card-icon {
-  width: 26px; height: 26px;
-  display: grid; place-items: center;
-  border-radius: 6px; background: rgba(124,106,247,0.12);
-  color: var(--accent2); font-size: 0.9rem;
-}
-.lib-card-name { font-size: 0.78rem; font-weight: 600; color: var(--text); }
-.lib-card-desc { font-size: 0.68rem; color: var(--muted); line-height: 1.35; }
-.tree { display: flex; flex-direction: column; gap: 1px; }
-.tree-item {
-  display: flex; align-items: center; gap: 6px;
-  padding: 5px 6px; border-radius: 4px;
-  font-size: 0.78rem; color: var(--muted); cursor: pointer;
-}
-.tree-item:hover { background: var(--surface2); color: var(--text); }
-.tree-item.active { background: rgba(124,106,247,0.12); color: var(--accent2); }
-.tree-item-icon { width: 16px; text-align: center; }
 </style>
 </head>
 <body>
@@ -514,52 +452,6 @@ body {
     <div class="chip"><div class="dot"></div><span id="credits-text">Loading…</span></div>
     <div class="chip" id="save-status">Saved</div>
     <button class="btn danger" id="btn-clear-all">Clear canvas</button>
-  </div>
-</div>
-
-<div class="side-left">
-  <div class="side-tabs">
-    <button class="side-tab active" id="tab-library" onclick="switchSideTab('library')">Library</button>
-    <button class="side-tab" id="tab-files" onclick="switchSideTab('files')">Files</button>
-  </div>
-  <div class="side-body">
-    <div id="panel-library">
-      <div class="side-section-title">Add nodes</div>
-      <div class="lib-grid">
-        <button class="lib-card" onclick="addNodeFromLibrary('script')">
-          <div class="lib-card-icon">📝</div>
-          <div><div class="lib-card-name">Script</div><div class="lib-card-desc">Prompt or notes</div></div>
-        </button>
-        <button class="lib-card" onclick="addNodeFromLibrary('text2image')">
-          <div class="lib-card-icon">🖼️</div>
-          <div><div class="lib-card-name">Text→Image</div><div class="lib-card-desc">Generate image</div></div>
-        </button>
-        <button class="lib-card" onclick="addNodeFromLibrary('text2video')">
-          <div class="lib-card-icon">🎬</div>
-          <div><div class="lib-card-name">Text→Video</div><div class="lib-card-desc">Generate video</div></div>
-        </button>
-        <button class="lib-card" onclick="addNodeFromLibrary('image2video')">
-          <div class="lib-card-icon">🎞️</div>
-          <div><div class="lib-card-name">Image→Video</div><div class="lib-card-desc">Animate image</div></div>
-        </button>
-        <button class="lib-card" onclick="addNodeFromLibrary('image2image')">
-          <div class="lib-card-icon">🎨</div>
-          <div><div class="lib-card-name">Image→Image</div><div class="lib-card-desc">Transform image</div></div>
-        </button>
-        <button class="lib-card" onclick="addNodeFromLibrary('audio')">
-          <div class="lib-card-icon">🎵</div>
-          <div><div class="lib-card-name">Audio</div><div class="lib-card-desc">Upload audio clip</div></div>
-        </button>
-      </div>
-    </div>
-    <div id="panel-files" style="display:none">
-      <div class="side-section-title">Project files</div>
-      <div class="tree">
-        <div class="tree-item active"><span class="tree-item-icon">📋</span>Current workflow</div>
-        <div class="tree-item"><span class="tree-item-icon">📁</span>outputs/</div>
-        <div class="tree-item"><span class="tree-item-icon">📁</span>uploads/</div>
-      </div>
-    </div>
   </div>
 </div>
 
@@ -1676,20 +1568,6 @@ body {
   loadWorkflow();
 
   updateSelInfo();
-
-  // ── Left panel tab switching ────────────────────────────────────────────
-  function switchSideTab(tab) {
-    document.getElementById('tab-library').classList.toggle('active', tab === 'library');
-    document.getElementById('tab-files').classList.toggle('active', tab === 'files');
-    document.getElementById('panel-library').style.display = tab === 'library' ? '' : 'none';
-    document.getElementById('panel-files').style.display   = tab === 'files'   ? '' : 'none';
-  }
-
-  function addNodeFromLibrary(type) {
-    const rect = canvasWrap.getBoundingClientRect();
-    const center = screenToWorld(rect.left + rect.width / 2, rect.top + rect.height / 2);
-    createNode(type, center.x - 120 + Math.random() * 40, center.y - 60 + Math.random() * 40);
-  }
 </script>
 </body>
 </html>
