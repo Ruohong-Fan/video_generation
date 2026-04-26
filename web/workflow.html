@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Reel · Workflow</title>
+<title>饼冰科技</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -145,58 +145,54 @@ body {
 }
 @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
 
-/* ── Left toolbar ───────────────────────────────────────────────────────── */
-.toolbar {
-  position: fixed;
-  top: 72px;
-  left: 278px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 8px;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  z-index: 90;
-  box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+/* ── Canvas overlays ────────────────────────────────────────────────────── */
+.canvas-overlay {
+  position: absolute; inset: 0; z-index: 5; pointer-events: none;
 }
-.tool-btn {
-  background: transparent;
-  border: none;
-  border-radius: 8px;
-  color: var(--muted);
-  width: 40px;
-  height: 40px;
-  cursor: pointer;
-  font-size: 1.2rem;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: all 0.15s;
-  position: relative;
+.canvas-overlay > * { pointer-events: auto; }
+.canvas-help {
+  position: absolute; top: 12px; right: 12px;
+  display: flex; align-items: center; gap: 2px;
+  padding: 5px 10px; background: var(--bg-1); border: 1px solid var(--line);
+  border-radius: 8px; font-family: var(--type-mono); font-size: 10px; color: var(--fg-3);
+  user-select: none;
 }
-.tool-btn:hover { background: var(--surface2); color: var(--text); }
-.tool-btn.active { background: var(--accent); color: #fff; }
-
-.tool-btn[data-tooltip]::after {
-  content: attr(data-tooltip);
-  position: absolute;
-  left: calc(100% + 8px);
-  top: 50%;
-  transform: translateY(-50%);
-  background: var(--surface3);
-  color: var(--text);
-  padding: 4px 10px;
-  border-radius: 6px;
-  font-size: 0.75rem;
+.canvas-help .kbd {
+  color: var(--fg-1); background: var(--bg-2); padding: 1px 5px;
+  border-radius: 3px; border: 1px solid var(--line); margin: 0 2px;
+}
+.zoom-ctl {
+  position: absolute; bottom: 16px; left: 16px;
+  display: flex; align-items: center;
+  background: var(--bg-1); border: 1px solid var(--line);
+  border-radius: 8px; overflow: hidden;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+}
+.zoom-ctl button {
+  padding: 5px 9px; color: var(--fg-1); background: transparent;
+  border: none; border-right: 1px solid var(--line);
+  cursor: pointer; font-size: 14px; line-height: 1;
+  font-family: var(--type-ui); transition: background 0.12s, color 0.12s;
+}
+.zoom-ctl button:last-child { border-right: none; }
+.zoom-ctl button:hover { background: var(--bg-2); color: var(--fg-0); }
+.zoom-val {
+  min-width: 46px; text-align: center;
+  font-family: var(--type-mono); font-size: 11px; color: var(--fg-2);
+  padding: 5px 8px; border-right: 1px solid var(--line);
   white-space: nowrap;
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 0.15s;
 }
-.tool-btn:hover[data-tooltip]::after { opacity: 1; }
-
-.tool-sep { height: 1px; background: var(--border); margin: 4px 2px; }
+.minimap {
+  position: absolute; bottom: 16px; right: 16px;
+  width: 160px; height: 100px;
+  background: var(--bg-1); border: 1px solid var(--line);
+  border-radius: 8px; padding: 5px; overflow: hidden;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+}
+.minimap-inner { position: relative; width: 100%; height: 100%; background: var(--bg-0); border-radius: 4px; overflow: hidden; }
+.minimap-node { position: absolute; background: var(--fg-3); border-radius: 1px; min-width: 2px; min-height: 2px; }
+.minimap-node.selected { background: var(--amber); }
+.minimap-viewport { position: absolute; border: 1px solid var(--amber); background: oklch(0.78 0.145 70 / 0.1); pointer-events: none; }
 
 /* ── Canvas ─────────────────────────────────────────────────────────────── */
 .canvas-wrap {
@@ -554,6 +550,7 @@ body {
     <span class="topbar-project" id="topbar-project">Workflow</span>
   </div>
   <div class="topbar-spacer"></div>
+  <div class="toggle-chip off" id="node-count">0 nodes</div>
   <div class="toggle-chip off"><span class="dot"></span><span id="credits-text">Loading…</span></div>
   <div class="toggle-chip off" id="save-status">Saved</div>
   <div class="topbar-run-group">
@@ -609,19 +606,26 @@ body {
   </div>
 </div>
 
-<div class="toolbar">
-  <button class="tool-btn" id="btn-add" data-tooltip="Add node">＋</button>
-  <div class="tool-sep"></div>
-  <button class="tool-btn active" id="btn-tool-pan" data-tooltip="Pan (H)">✋</button>
-  <button class="tool-btn" id="btn-tool-select" data-tooltip="Select (V)">⬚</button>
-  <div class="tool-sep"></div>
-  <button class="tool-btn" id="btn-fit" data-tooltip="Fit to view">⛶</button>
-  <button class="tool-btn" id="btn-center" data-tooltip="Center (0,0)">⊙</button>
-</div>
-
 <div class="canvas-wrap" id="canvas-wrap">
   <div class="canvas" id="canvas"></div>
   <svg class="edges" id="edges"></svg>
+  <div class="canvas-overlay">
+    <div class="canvas-help">
+      <kbd class="kbd">H</kbd> pan
+      <kbd class="kbd" style="margin-left:6px">V</kbd> select
+      <span style="margin-left:10px"><kbd class="kbd">⇧</kbd> multi-select</span>
+      <span style="margin-left:10px"><kbd class="kbd">scroll</kbd> zoom</span>
+    </div>
+    <div class="zoom-ctl">
+      <button id="btn-zoom-out" title="Zoom out">−</button>
+      <span class="zoom-val" id="zoom-val">100%</span>
+      <button id="btn-zoom-in" title="Zoom in">+</button>
+      <button id="btn-fit" title="Fit to view (F)">⛶</button>
+    </div>
+    <div class="minimap">
+      <div class="minimap-inner" id="minimap-inner"></div>
+    </div>
+  </div>
 </div>
 
 <div class="add-menu" id="add-menu">
@@ -714,6 +718,9 @@ body {
   function applyView() {
     canvas.style.transform   = `translate(${view.x}px, ${view.y}px) scale(${view.scale})`;
     edgesSvg.style.transform = `translate(${view.x}px, ${view.y}px) scale(${view.scale})`;
+    const zv = document.getElementById('zoom-val');
+    if (zv) zv.textContent = Math.round(view.scale * 100) + '%';
+    updateMinimap();
   }
 
   function screenToWorld(sx, sy) {
@@ -726,6 +733,17 @@ body {
 
   function updateSelInfo() {
     selInfo.textContent = `${nodes.size} node${nodes.size===1?'':'s'} · ${selected.size} selected`;
+    const nc = document.getElementById('node-count');
+    if (nc) {
+      if (selected.size > 0) {
+        nc.textContent = `${selected.size} selected`;
+        nc.classList.add('on'); nc.classList.remove('off');
+      } else {
+        nc.textContent = `${nodes.size} node${nodes.size===1?'':'s'}`;
+        nc.classList.remove('on'); nc.classList.add('off');
+      }
+    }
+    updateMinimap();
   }
 
   // ── Node creation ───────────────────────────────────────────────────────
@@ -1444,13 +1462,8 @@ body {
 
   function setTool(tool) {
     canvasTool = tool;
-    document.getElementById('btn-tool-pan').classList.toggle('active', tool === 'pan');
-    document.getElementById('btn-tool-select').classList.toggle('active', tool === 'select');
     canvasWrap.classList.toggle('mode-select', tool === 'select');
   }
-
-  document.getElementById('btn-tool-pan').addEventListener('click', () => setTool('pan'));
-  document.getElementById('btn-tool-select').addEventListener('click', () => setTool('select'));
 
   // ── Canvas panning + box-selection ──────────────────────────────────────
   let panState = null;
@@ -1543,16 +1556,8 @@ body {
   }, { passive: false });
 
   // ── Add-node menu wiring ────────────────────────────────────────────────
-  document.getElementById('btn-add').addEventListener('click', (e) => {
-    const r = e.currentTarget.getBoundingClientRect();
-    addMenu.style.left = (r.right + 8) + 'px';
-    addMenu.style.top = r.top + 'px';
-    addMenu.classList.toggle('open');
-  });
   document.addEventListener('click', (e) => {
-    if (!e.target.closest('#add-menu') && !e.target.closest('#btn-add')) {
-      addMenu.classList.remove('open');
-    }
+    if (!e.target.closest('#add-menu')) addMenu.classList.remove('open');
   });
   addMenu.querySelectorAll('.add-menu-item').forEach(item => {
     item.addEventListener('click', () => {
@@ -1565,12 +1570,8 @@ body {
     });
   });
 
-  // ── Fit / Center ────────────────────────────────────────────────────────
-  document.getElementById('btn-center').addEventListener('click', () => {
-    view.x = 0; view.y = 0; view.scale = 1;
-    applyView();
-  });
-  document.getElementById('btn-fit').addEventListener('click', () => {
+  // ── Fit to view ──────────────────────────────────────────────────────────
+  function fitToView() {
     if (nodes.size === 0) return;
     let minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity;
     for (const n of nodes.values()) {
@@ -1584,7 +1585,8 @@ body {
     view.x = 40 - minX * view.scale;
     view.y = 40 - minY * view.scale;
     applyView();
-  });
+  }
+  document.getElementById('btn-fit').addEventListener('click', fitToView);
 
   // ── Clear canvas ────────────────────────────────────────────────────────
   document.getElementById('btn-clear-all').addEventListener('click', () => {
@@ -1717,6 +1719,68 @@ body {
     } finally {
       loading = false;
     }
+  }
+
+  // ── Zoom overlay controls ───────────────────────────────────────────────
+  function zoomAround(factor) {
+    const rect = canvasWrap.getBoundingClientRect();
+    const cx = rect.left + rect.width / 2;
+    const cy = rect.top  + rect.height / 2;
+    const w = screenToWorld(cx, cy);
+    view.scale = Math.min(2, Math.max(0.3, view.scale * factor));
+    view.x = cx - rect.left - w.x * view.scale;
+    view.y = cy - rect.top  - w.y * view.scale;
+    applyView();
+  }
+  document.getElementById('btn-zoom-in').addEventListener('click',  () => zoomAround(1.25));
+  document.getElementById('btn-zoom-out').addEventListener('click', () => zoomAround(0.8));
+
+  // F key → fit to view
+  window.addEventListener('keydown', (e) => {
+    const active = document.activeElement.tagName;
+    if (active === 'TEXTAREA' || active === 'INPUT') return;
+    if (e.key === 'f' || e.key === 'F') fitToView();
+  });
+
+  // ── Minimap ─────────────────────────────────────────────────────────────
+  function updateMinimap() {
+    const inner = document.getElementById('minimap-inner');
+    if (!inner) return;
+    inner.innerHTML = '';
+    if (nodes.size === 0) return;
+
+    let minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity;
+    for (const n of nodes.values()) {
+      minX = Math.min(minX, n.x); minY = Math.min(minY, n.y);
+      maxX = Math.max(maxX, n.x + 240); maxY = Math.max(maxY, n.y + 260);
+    }
+    minX -= 40; minY -= 40; maxX += 40; maxY += 40;
+    const worldW = maxX - minX || 1;
+    const worldH = maxY - minY || 1;
+    const mw = inner.offsetWidth  || 150;
+    const mh = inner.offsetHeight || 90;
+    const scale = Math.min(mw / worldW, mh / worldH);
+
+    for (const n of nodes.values()) {
+      const d = document.createElement('div');
+      d.className = 'minimap-node' + (selected.has(n.id) ? ' selected' : '');
+      d.style.left   = ((n.x - minX) * scale) + 'px';
+      d.style.top    = ((n.y - minY) * scale) + 'px';
+      d.style.width  = Math.max(4, 240 * scale) + 'px';
+      d.style.height = Math.max(3, 80  * scale) + 'px';
+      inner.appendChild(d);
+    }
+
+    const wrap = canvasWrap.getBoundingClientRect();
+    const tl = screenToWorld(wrap.left, wrap.top);
+    const br = screenToWorld(wrap.right, wrap.bottom);
+    const vp = document.createElement('div');
+    vp.className = 'minimap-viewport';
+    vp.style.left   = ((tl.x - minX) * scale) + 'px';
+    vp.style.top    = ((tl.y - minY) * scale) + 'px';
+    vp.style.width  = Math.max(4, (br.x - tl.x) * scale) + 'px';
+    vp.style.height = Math.max(4, (br.y - tl.y) * scale) + 'px';
+    inner.appendChild(vp);
   }
 
   loadWorkflow();
