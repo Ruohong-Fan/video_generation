@@ -3,24 +3,49 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Jimeng Workflow</title>
+<title>Reel · Workflow</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 :root {
-  --bg: #0a0a0f;
-  --surface: #14141c;
-  --surface2: #1c1c28;
-  --surface3: #24243a;
-  --border: #2a2a3e;
-  --accent: #7c6af7;
-  --accent2: #a78bfa;
-  --text: #e8e8f0;
-  --muted: #7a7a94;
-  --success: #4ade80;
-  --warning: #fbbf24;
-  --error: #f87171;
-  --grid: #1a1a25;
+  /* legacy canvas vars (nodes / edges still use these) */
+  --bg: #0f0e0c;
+  --surface: oklch(0.21 0.014 62);
+  --surface2: oklch(0.25 0.016 64);
+  --surface3: oklch(0.30 0.018 65);
+  --border: oklch(0.32 0.015 65 / 0.5);
+  --accent: #a07850;
+  --accent2: #c9a87c;
+  --text: oklch(0.95 0.02 85);
+  --muted: oklch(0.55 0.02 72);
+  --success: oklch(0.75 0.14 155);
+  --warning: oklch(0.80 0.15 85);
+  --error: oklch(0.70 0.18 25);
+  --grid: oklch(0.22 0.01 65);
+
+  /* Reel design vars */
+  --bg-0: oklch(0.17 0.012 60);
+  --bg-1: oklch(0.21 0.014 62);
+  --bg-2: oklch(0.25 0.016 64);
+  --bg-3: oklch(0.30 0.018 65);
+  --bg-4: oklch(0.36 0.020 66);
+  --line: oklch(0.32 0.015 65 / 0.5);
+  --line-soft: oklch(0.32 0.015 65 / 0.25);
+  --fg-0: oklch(0.95 0.02 85);
+  --fg-1: oklch(0.82 0.025 80);
+  --fg-2: oklch(0.62 0.025 75);
+  --fg-3: oklch(0.48 0.022 72);
+  --amber: oklch(0.78 0.145 70);
+  --amber-dim: oklch(0.52 0.10 68);
+  --amber-glow: oklch(0.78 0.145 70 / 0.35);
+  --ok: oklch(0.75 0.14 155);
+  --err: oklch(0.70 0.18 25);
+  --type-display: "Instrument Serif", Georgia, serif;
+  --type-ui: "Inter", system-ui, sans-serif;
+  --type-mono: "JetBrains Mono", ui-monospace, monospace;
 }
 
 html, body { height: 100%; overflow: hidden; }
@@ -36,79 +61,89 @@ body {
   position: fixed;
   top: 0; left: 0; right: 0;
   height: 52px;
-  background: rgba(20,20,28,0.85);
-  backdrop-filter: blur(10px);
-  border-bottom: 1px solid var(--border);
+  background: linear-gradient(to bottom, var(--bg-1), var(--bg-0));
+  border-bottom: 1px solid var(--line);
   display: flex;
   align-items: center;
-  gap: 14px;
-  padding: 0 20px;
+  gap: 10px;
+  padding: 0 14px;
   z-index: 100;
+  font-family: var(--type-ui);
 }
-.logo { font-size: 1.05rem; font-weight: 700; letter-spacing: -0.02em; }
-.logo span { color: var(--accent2); }
-.topbar-right { margin-left: auto; display: flex; align-items: center; gap: 10px; }
 .back-btn {
-  color: var(--muted);
+  color: var(--fg-3);
   text-decoration: none;
-  font-size: 1.35rem;
-  line-height: 1;
-  padding: 4px 7px;
+  width: 28px; height: 28px;
   border-radius: 6px;
-  transition: color 0.15s, background 0.15s;
-  display: flex;
-  align-items: center;
+  display: flex; align-items: center; justify-content: center;
+  border: 1px solid var(--line);
+  transition: color 0.12s, background 0.12s;
   flex-shrink: 0;
 }
-.back-btn:hover { color: var(--text); background: var(--surface2); }
-.topbar-sep { width: 1px; height: 18px; background: var(--border); flex-shrink: 0; }
-.topbar-project {
-  font-size: 0.86rem;
-  color: var(--muted);
-  max-width: 220px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.back-btn:hover { color: var(--fg-0); background: var(--bg-2); }
+.logo {
+  display: flex; align-items: baseline; gap: 7px;
+  padding-right: 14px;
+  border-right: 1px solid var(--line);
+  height: 100%;
+}
+.logo-mark {
+  width: 20px; height: 20px; border-radius: 50%;
+  background: conic-gradient(from 0deg, var(--amber), oklch(0.6 0.15 50), var(--amber));
+  position: relative; align-self: center;
+  box-shadow: 0 0 0 2px var(--bg-0), 0 0 0 3px var(--amber-dim);
+}
+.logo-mark::after {
+  content: ""; position: absolute; inset: 5px;
+  background: var(--bg-0); border-radius: 50%;
+}
+.logo-name { font-family: var(--type-display); font-size: 20px; letter-spacing: -0.01em; align-self: center; color: var(--fg-0); }
+.logo-sub { font-family: var(--type-mono); font-size: 9px; color: var(--fg-3); text-transform: uppercase; letter-spacing: 0.1em; align-self: center; }
+.breadcrumb { display: flex; align-items: center; gap: 6px; color: var(--fg-2); font-size: 12px; }
+.breadcrumb .sep { color: var(--fg-3); }
+.topbar-project { color: var(--fg-0); font-weight: 500; font-size: 12px; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.topbar-spacer { flex: 1; }
+.topbar-run-group {
+  display: flex; align-items: center; gap: 4px;
+  padding: 3px; background: var(--bg-1);
+  border: 1px solid var(--line); border-radius: 8px;
 }
 
-.chip {
-  background: var(--surface2);
-  border: 1px solid var(--border);
-  border-radius: 18px;
-  padding: 5px 12px;
-  font-size: 0.78rem;
-  color: var(--muted);
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
+.toggle-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px 10px; border-radius: 6px;
+  font-size: 11px; font-weight: 500;
+  color: var(--fg-2); background: var(--bg-1); border: 1px solid var(--line);
+  font-family: var(--type-mono); letter-spacing: 0.03em;
 }
-.chip.accent { color: var(--accent2); border-color: var(--accent); background: rgba(124,106,247,0.1); }
-.chip .dot {
-  width: 7px; height: 7px;
-  border-radius: 50%;
-  background: var(--success);
-  animation: pulse 2s infinite;
-}
-@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+.toggle-chip.on { color: var(--amber); border-color: var(--amber-dim); background: oklch(0.78 0.145 70 / 0.08); }
+.toggle-chip .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.toggle-chip.off .dot { background: var(--fg-3); }
 
 .btn {
-  background: var(--surface2);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  color: var(--text);
-  padding: 6px 12px;
-  font-size: 0.82rem;
-  cursor: pointer;
-  transition: all 0.15s;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 5px 10px; border-radius: 6px;
+  font-size: 12px; font-weight: 500;
+  color: var(--fg-1); background: transparent;
+  border: 1px solid transparent; cursor: pointer;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+  white-space: nowrap; font-family: var(--type-ui);
 }
-.btn:hover { background: var(--surface3); border-color: var(--accent); }
-.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
-.btn.primary:hover { background: var(--accent2); }
-.btn.danger:hover { border-color: var(--error); color: var(--error); }
+.btn:hover { background: var(--bg-2); color: var(--fg-0); }
+.btn.ghost { border-color: var(--line); }
+.btn.ghost:hover { border-color: var(--bg-4); }
+.btn.primary { background: var(--amber); color: oklch(0.18 0.03 65); font-weight: 600; border-color: transparent; }
+.btn.primary:hover { background: oklch(0.82 0.15 72); }
+.btn.primary:disabled { background: var(--bg-3); color: var(--fg-3); cursor: not-allowed; }
+.btn.danger { color: var(--err); }
+.btn.danger:hover { background: oklch(0.70 0.18 25 / 0.12); }
 .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn-kbd {
+  font-family: var(--type-mono); font-size: 10px;
+  padding: 1px 4px; background: oklch(0 0 0 / 0.25);
+  border-radius: 3px; color: var(--fg-2); margin-left: 2px;
+}
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
 
 /* ── Left toolbar ───────────────────────────────────────────────────────── */
 .toolbar {
@@ -445,76 +480,87 @@ body {
   position: fixed;
   top: 52px; left: 0;
   width: 260px; bottom: 0;
-  background: var(--surface);
-  border-right: 1px solid var(--border);
+  background: var(--bg-1);
+  border-right: 1px solid var(--line);
   display: flex; flex-direction: column;
-  z-index: 80;
+  z-index: 80; font-family: var(--type-ui);
 }
 .side-tabs {
   display: flex;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--line);
   padding: 0 8px; gap: 2px; flex-shrink: 0;
 }
 .side-tab {
   padding: 10px 10px 9px;
-  font-size: 0.72rem; font-weight: 600;
-  color: var(--muted);
+  font-size: 11px; font-weight: 500;
+  color: var(--fg-2);
   letter-spacing: 0.04em; text-transform: uppercase;
   border: none; border-bottom: 2px solid transparent;
   margin-bottom: -1px; background: none; cursor: pointer;
   transition: color 0.12s;
 }
-.side-tab:hover { color: var(--text); }
-.side-tab.active { color: var(--text); border-bottom-color: var(--accent); }
+.side-tab:hover { color: var(--fg-0); }
+.side-tab.active { color: var(--fg-0); border-bottom-color: var(--amber); }
 .side-body { flex: 1; overflow-y: auto; padding: 12px; }
+.side-body::-webkit-scrollbar { width: 6px; }
+.side-body::-webkit-scrollbar-thumb { background: var(--bg-3); border-radius: 3px; }
 .side-section-title {
-  font-size: 0.65rem; text-transform: uppercase;
-  letter-spacing: 0.1em; color: var(--muted);
-  margin: 14px 4px 8px; font-weight: 600;
+  font-family: var(--type-mono); font-size: 10px; text-transform: uppercase;
+  letter-spacing: 0.12em; color: var(--fg-3);
+  margin: 14px 4px 8px;
 }
 .side-section-title:first-child { margin-top: 0; }
 .lib-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .lib-card {
   display: flex; flex-direction: column;
-  align-items: flex-start; gap: 6px;
-  padding: 10px;
-  background: var(--surface2); border: 1px solid var(--border);
-  border-radius: 8px; cursor: pointer;
+  align-items: flex-start; gap: 6px; padding: 10px;
+  background: var(--bg-2); border: 1px solid var(--line);
+  border-radius: 10px; cursor: pointer;
   transition: border-color 0.12s, background 0.12s;
   text-align: left; width: 100%;
 }
-.lib-card:hover { border-color: var(--accent); background: var(--surface3); }
+.lib-card:hover { border-color: var(--amber-dim); background: var(--bg-3); }
 .lib-card-icon {
-  width: 26px; height: 26px;
-  display: grid; place-items: center;
-  border-radius: 6px; background: rgba(124,106,247,0.12);
-  color: var(--accent2); font-size: 0.9rem;
+  width: 28px; height: 28px; display: grid; place-items: center;
+  border-radius: 6px; background: oklch(0.78 0.145 70 / 0.12);
+  color: var(--amber); font-size: 0.9rem;
 }
-.lib-card-name { font-size: 0.78rem; font-weight: 600; color: var(--text); }
-.lib-card-desc { font-size: 0.68rem; color: var(--muted); line-height: 1.35; }
+.lib-card-name { font-size: 12px; font-weight: 600; color: var(--fg-0); }
+.lib-card-desc { font-size: 11px; color: var(--fg-2); line-height: 1.35; }
 .tree { display: flex; flex-direction: column; gap: 1px; }
 .tree-item {
   display: flex; align-items: center; gap: 6px;
   padding: 5px 6px; border-radius: 4px;
-  font-size: 0.78rem; color: var(--muted); cursor: pointer;
+  font-size: 12px; color: var(--fg-1); cursor: pointer;
 }
-.tree-item:hover { background: var(--surface2); color: var(--text); }
-.tree-item.active { background: rgba(124,106,247,0.12); color: var(--accent2); }
+.tree-item:hover { background: var(--bg-2); color: var(--fg-0); }
+.tree-item.active { background: oklch(0.78 0.145 70 / 0.12); color: var(--amber); }
 .tree-item-icon { width: 16px; text-align: center; }
 </style>
 </head>
 <body>
 
 <div class="topbar">
-  <a href="/" class="back-btn" title="All projects">‹</a>
-  <div class="topbar-sep"></div>
-  <div class="logo">饼冰<span>科技</span></div>
-  <span class="topbar-project" id="topbar-project"></span>
-  <div class="topbar-right">
-    <div class="chip"><div class="dot"></div><span id="credits-text">Loading…</span></div>
-    <div class="chip" id="save-status">Saved</div>
-    <button class="btn danger" id="btn-clear-all">Clear canvas</button>
+  <a href="/" class="back-btn" title="All projects">
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M10 3L5 8l5 5"/></svg>
+  </a>
+  <div class="logo">
+    <div class="logo-mark"></div>
+    <div class="logo-name">Reel</div>
+    <div class="logo-sub">studio</div>
   </div>
+  <div class="breadcrumb">
+    <span class="sep">/</span>
+    <span class="topbar-project" id="topbar-project">Workflow</span>
+  </div>
+  <div class="topbar-spacer"></div>
+  <div class="toggle-chip off"><span class="dot"></span><span id="credits-text">Loading…</span></div>
+  <div class="toggle-chip off" id="save-status">Saved</div>
+  <div class="topbar-run-group">
+    <button class="btn ghost" id="btn-run-selected">▶ Run selected <span class="btn-kbd">↵</span></button>
+    <button class="btn primary" id="btn-run-all">▶▶ Run all <span class="btn-kbd">⌘↵</span></button>
+  </div>
+  <button class="btn ghost" id="btn-clear-all">Clear</button>
 </div>
 
 <div class="side-left">
