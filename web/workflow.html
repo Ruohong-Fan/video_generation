@@ -390,27 +390,6 @@ body {
 .handle.in { left: -8px; }
 .handle.out { right: -8px; }
 
-/* ── Bottom run bar ─────────────────────────────────────────────────────── */
-.runbar {
-  position: fixed;
-  bottom: 20px;
-  left: 50%;
-  transform: translateX(-50%);
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 8px 12px;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  z-index: 90;
-  box-shadow: 0 4px 20px rgba(0,0,0,0.5);
-}
-.runbar .info {
-  font-size: 0.78rem;
-  color: var(--muted);
-  padding: 0 6px;
-}
 
 /* ── Selection box ──────────────────────────────────────────────────────── */
 .sel-box {
@@ -655,11 +634,6 @@ body {
   </div>
 </div>
 
-<div class="runbar">
-  <button class="btn" id="btn-run-selected">▶ Run Selected</button>
-  <button class="btn primary" id="btn-run-all">▶▶ Run All</button>
-  <div class="info" id="sel-info">0 nodes · 0 selected</div>
-</div>
 
 <script>
   // ── Project context ──────────────────────────────────────────────────────
@@ -697,7 +671,6 @@ body {
   const canvasWrap = document.getElementById('canvas-wrap');
   const edgesSvg  = document.getElementById('edges');
   const addMenu   = document.getElementById('add-menu');
-  const selInfo   = document.getElementById('sel-info');
 
   // ── Helpers ──────────────────────────────────────────────────────────────
   const uid = () => 'n' + (nextId++) + Math.random().toString(36).slice(2, 6);
@@ -732,7 +705,6 @@ body {
   }
 
   function updateSelInfo() {
-    selInfo.textContent = `${nodes.size} node${nodes.size===1?'':'s'} · ${selected.size} selected`;
     const nc = document.getElementById('node-count');
     if (nc) {
       if (selected.size > 0) {
