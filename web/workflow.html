@@ -335,6 +335,14 @@ body {
   font-size: 0.78rem;
   border: 1px dashed var(--border);
 }
+.node-output-wrap { position: relative; }
+.node-output-count {
+  position: absolute; bottom: 6px; right: 6px;
+  background: oklch(0 0 0 / 0.65); color: var(--fg-0);
+  font-family: var(--type-mono); font-size: 10px;
+  padding: 2px 7px; border-radius: 10px;
+  pointer-events: none; backdrop-filter: blur(4px);
+}
 
 .node-run {
   background: var(--amber); color: oklch(0.18 0.03 65);
@@ -834,7 +842,12 @@ body {
   }
 
   function renderNodeBody(node) {
-    const last = node.results?.[node.results.length - 1];
+    const results = node.results || [];
+    const last = results[results.length - 1];
+    const count = results.length;
+    const countBadge = count > 1
+      ? `<div class="node-output-count">${count} outputs — see Files</div>`
+      : '';
 
     if (node.type === 'script') {
       if (node.prompt) return `<div class="node-prompt-preview">${esc(node.prompt.slice(0, 200))}</div>`;
@@ -846,8 +859,10 @@ body {
     }
     if (last?.url) {
       const u = mediaUrl(last.url);
-      if (last.kind === 'video') return `<div class="node-preview"><video controls preload="metadata" muted playsinline referrerpolicy="no-referrer"><source src="${esc(u)}" type="video/mp4"/></video></div>`;
-      return `<div class="node-preview"><img src="${esc(u)}" alt="" referrerpolicy="no-referrer"/></div>`;
+      const media = last.kind === 'video'
+        ? `<video controls preload="metadata" muted playsinline referrerpolicy="no-referrer"><source src="${esc(u)}" type="video/mp4"/></video>`
+        : `<img src="${esc(u)}" alt="" referrerpolicy="no-referrer"/>`;
+      return `<div class="node-output-wrap"><div class="node-preview">${media}</div>${countBadge}</div>`;
     }
     if (['image2video','image2image'].includes(node.type) && node.uploadUrl) {
       return `<div class="node-preview"><img src="${esc(mediaUrl(node.uploadUrl))}" alt="" referrerpolicy="no-referrer"/></div>`;
@@ -1684,22 +1699,6 @@ body {
     const panel = document.getElementById('panel-files');
     if (!panel) return;
 
-    // Collect all outputs (every run) newest-first, then uploads
-    const outputs = [];
-    const uploads = [];
-    for (const n of nodes.values()) {
-      const label = NODE_SPECS[n.type]?.title || n.type;
-      for (const r of [...(n.results || [])].reverse()) {
-        if (r?.url) outputs.push({ label, url: r.url, kind: r.kind, ts: r.ts });
-      }
-      if (n.uploadUrl) uploads.push({ label, url: n.uploadUrl, kind: n.type === 'audio' ? 'audio' : 'image' });
-    }
-
-    if (outputs.length === 0 && uploads.length === 0) {
-      panel.innerHTML = '<div class="side-empty">No files yet.<br>Run nodes to generate outputs,<br>or upload via image/audio nodes.</div>';
-      return;
-    }
-
     const thumb = (url, kind) => {
       const p = esc(mediaUrl(url));
       if (kind === 'video') return `<video src="${p}" muted preload="metadata" referrerpolicy="no-referrer"></video>`;
@@ -1709,34 +1708,60 @@ body {
     const fmtTs = ts => { try { return ts ? new Date(ts).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}) : ''; } catch { return ''; } };
 
     let html = '';
-    if (outputs.length) {
-      html += '<div class="side-section-title">Outputs</div>';
-      for (const f of outputs) {
-        const t = fmtTs(f.ts);
-        html += `<div class="file-item">
-          <div class="file-thumb">${thumb(f.url, f.kind)}</div>
-          <div class="file-info">
-            <div class="file-name">${esc(f.label)}</div>
-            <div class="file-sub">${f.kind}${t ? ' · ' + t : ''}</div>
-            <div class="file-actions">
-              <a class="file-link" href="${esc(mediaUrl(f.url))}" target="_blank" download>↓ download</a>
-              <a class="file-link" href="${esc(mediaUrl(f.url))}" target="_blank">↗ open</a>
+    let totalOutputs = 0;
+    let totalUploads = 0;
+
+    for (const n of nodes.values()) {
+      const label = NODE_SPECS[n.type]?.title || n.type;
+      const results = n.results || [];
+      if (results.length) {
+        totalOutputs += results.length;
+        html += `<div class="side-section-title">${esc(label)}</div>`;
+        // Show newest first
+        for (let i = results.length - 1; i >= 0; i--) {
+          const r = results[i];
+          if (!r?.url) continue;
+          const runNum = i + 1;
+          const isLatest = i === results.length - 1;
+          const t = fmtTs(r.ts);
+          html += `<div class="file-item">
+            <div class="file-thumb">${thumb(r.url, r.kind)}</div>
+            <div class="file-info">
+              <div class="file-name">Run ${runNum}${isLatest ? ' <span style="color:var(--amber);font-size:9px">LATEST</span>' : ''}</div>
+              <div class="file-sub">${r.kind}${t ? ' · ' + t : ''}</div>
+              <div class="file-actions">
+                <a class="file-link" href="${esc(mediaUrl(r.url))}" target="_blank" download>↓ download</a>
+                <a class="file-link" href="${esc(mediaUrl(r.url))}" target="_blank">↗ open</a>
+              </div>
             </div>
+          </div>`;
+        }
+      }
+      if (n.uploadUrl) {
+        totalUploads++;
+      }
+    }
+
+    // Uploads section
+    if (totalUploads) {
+      html += '<div class="side-section-title">Uploads</div>';
+      for (const n of nodes.values()) {
+        if (!n.uploadUrl) continue;
+        const label = NODE_SPECS[n.type]?.title || n.type;
+        const kind = n.type === 'audio' ? 'audio' : 'image';
+        html += `<div class="file-item">
+          <div class="file-thumb">${thumb(n.uploadUrl, kind)}</div>
+          <div class="file-info">
+            <div class="file-name">${esc(label)}</div>
+            <div class="file-sub">${kind}</div>
           </div>
         </div>`;
       }
     }
-    if (uploads.length) {
-      html += '<div class="side-section-title">Uploads</div>';
-      for (const f of uploads) {
-        html += `<div class="file-item">
-          <div class="file-thumb">${thumb(f.url, f.kind)}</div>
-          <div class="file-info">
-            <div class="file-name">${esc(f.label)}</div>
-            <div class="file-sub">${f.kind}</div>
-          </div>
-        </div>`;
-      }
+
+    if (totalOutputs === 0 && totalUploads === 0) {
+      panel.innerHTML = '<div class="side-empty">No files yet.<br>Run nodes to generate outputs,<br>or upload via image/audio nodes.</div>';
+      return;
     }
     panel.innerHTML = html;
   }
