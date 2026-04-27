@@ -197,6 +197,7 @@ def run_task(task_id: str, cmd: list[str]):
         tasks[task_id]["result"] = result_data
         tasks[task_id]["error"] = None
         tasks[task_id].pop("queue_idx", None)
+        _cache_task_output(tasks[task_id])
     elif submit_id and _should_keep_polling(result_data, submit_id):
         tasks[task_id]["status"] = "queued"
         tasks[task_id]["result"] = last_pending_result or result_data
@@ -426,6 +427,73 @@ def _download_image(url: str) -> str:
         return str(local)
     except Exception:
         return url  # fall back to passing the URL directly
+
+
+def _extract_output_url(result_data: dict) -> str | None:
+    """Find the CDN output URL inside a completed task result (mirrors frontend extractOutputUrl)."""
+    if not isinstance(result_data, dict):
+        return None
+    r = result_data
+    d = r.get("data")
+    checks = [
+        r.get("url"), r.get("video_url"), r.get("image_url"),
+    ]
+    if isinstance(d, dict):
+        checks += [d.get("url"), d.get("video_url"), d.get("image_url")]
+    for v in checks:
+        if v and isinstance(v, str) and v.startswith("http"):
+            return v
+    # urls list
+    if isinstance(r.get("urls"), list) and r["urls"]:
+        return r["urls"][0]
+    if isinstance(d, list) and d and isinstance(d[0], dict):
+        return d[0].get("url")
+    # item_list
+    for container in (r, d if isinstance(d, dict) else {}):
+        if not isinstance(container, dict):
+            continue
+        item_list = container.get("item_list")
+        if isinstance(item_list, list) and item_list:
+            it = item_list[0]
+            if isinstance(it, dict):
+                url = (it.get("video") or {}).get("url") or (it.get("image") or {}).get("url") or it.get("url")
+                if url:
+                    return url
+    # result_json
+    for container in (r, d if isinstance(d, dict) else {}):
+        if not isinstance(container, dict):
+            continue
+        rj = container.get("result_json")
+        if isinstance(rj, dict):
+            vids = rj.get("videos", [])
+            if vids:
+                return vids[0].get("video_url") or vids[0].get("url")
+            imgs = rj.get("images", [])
+            if imgs:
+                return imgs[0].get("image_url") or imgs[0].get("url")
+    return None
+
+
+def _cache_task_output(task: dict) -> None:
+    """Download the generated output URL to uploads/ and store local_path in the result."""
+    result_data = task.get("result")
+    if not isinstance(result_data, dict):
+        return
+    # Already cached
+    if result_data.get("local_path"):
+        return
+    if isinstance(result_data.get("data"), dict) and result_data["data"].get("local_path"):
+        return
+    url = _extract_output_url(result_data)
+    if not url or not url.startswith("http"):
+        return
+    local_path = _download_image(url)
+    if local_path and not local_path.startswith("http"):
+        # Store as a URL path so the browser can load it directly
+        serve_path = "/uploads/" + Path(local_path).name
+        result_data["local_path"] = serve_path
+        if isinstance(result_data.get("data"), dict):
+            result_data["data"]["local_path"] = serve_path
 
 
 def _get_param(request, key: str, default=""):

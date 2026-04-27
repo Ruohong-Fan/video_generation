@@ -857,8 +857,8 @@ body {
       if (node.uploadUrl) return `<div class="node-preview"><audio src="${esc(mediaUrl(node.uploadUrl))}" controls style="width:100%;padding:8px 10px;box-sizing:border-box"></audio></div>`;
       return `<div class="node-preview empty">No audio — upload in inspector</div>`;
     }
-    if (last?.url) {
-      const u = mediaUrl(last.url);
+    if (last?.url || last?.localPath) {
+      const u = mediaUrl(last.localPath || last.url);
       const media = last.kind === 'video'
         ? `<video controls preload="metadata" muted playsinline referrerpolicy="no-referrer"><source src="${esc(u)}" type="video/mp4"/></video>`
         : `<img src="${esc(u)}" alt="" referrerpolicy="no-referrer"/>`;
@@ -1707,10 +1707,10 @@ body {
     const panel = document.getElementById('panel-files');
     if (!panel) return;
 
-    const thumb = (url, kind) => {
-      const p = esc(mediaUrl(url));
-      if (kind === 'video') return `<video src="${p}" muted preload="metadata" referrerpolicy="no-referrer"></video>`;
-      if (kind === 'audio') return '🎵';
+    const thumb = (r) => {
+      const p = esc(mediaUrl(r.localPath || r.url));
+      if (r.kind === 'video') return `<video src="${p}" muted preload="metadata" referrerpolicy="no-referrer"></video>`;
+      if (r.kind === 'audio') return '🎵';
       return `<img src="${p}" alt="" referrerpolicy="no-referrer"/>`;
     };
     const fmtTs = ts => { try { return ts ? new Date(ts).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}) : ''; } catch { return ''; } };
@@ -1732,14 +1732,15 @@ body {
           const runNum = i + 1;
           const isLatest = i === results.length - 1;
           const t = fmtTs(r.ts);
+          const fileHref = esc(mediaUrl(r.localPath || r.url));
           html += `<div class="file-item">
-            <div class="file-thumb">${thumb(r.url, r.kind)}</div>
+            <div class="file-thumb">${thumb(r)}</div>
             <div class="file-info">
               <div class="file-name">Run ${runNum}${isLatest ? ' <span style="color:var(--amber);font-size:9px">LATEST</span>' : ''}</div>
               <div class="file-sub">${r.kind}${t ? ' · ' + t : ''}</div>
               <div class="file-actions">
-                <a class="file-link" href="${esc(mediaUrl(r.url))}" target="_blank" download>↓ download</a>
-                <a class="file-link" href="${esc(mediaUrl(r.url))}" target="_blank">↗ open</a>
+                <a class="file-link" href="${fileHref}" target="_blank" download>↓ download</a>
+                <a class="file-link" href="${fileHref}" target="_blank">↗ open</a>
               </div>
             </div>
           </div>`;
@@ -1864,9 +1865,9 @@ body {
       if (imageUp) {
         const t = esc(NODE_SPECS[imageUp.type]?.title || imageUp.type);
         const imgLast = imageUp.results?.[imageUp.results.length - 1];
-        if (imgLast?.url) {
+        if (imgLast?.url || imgLast?.localPath) {
           f += `<div class="insp-field"><div class="insp-label">Source image <span class="conn-badge ok">✓ ${t}</span></div>
-            <div class="insp-preview"><img src="${esc(mediaUrl(imgLast.url))}" alt="" referrerpolicy="no-referrer"/></div></div>`;
+            <div class="insp-preview"><img src="${esc(mediaUrl(imgLast.localPath || imgLast.url))}" alt="" referrerpolicy="no-referrer"/></div></div>`;
         } else {
           f += `<div class="insp-field"><div class="insp-label">Source image <span class="conn-badge pending">⏳ ${t} — run first</span></div></div>`;
         }
