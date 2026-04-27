@@ -396,21 +396,22 @@ def _resolve_image_input(request) -> str | None:
 
     parsed = urlparse(str(image_ref))
 
-    # /uploads/<file> paths have no URL scheme but are NOT filesystem paths —
-    # resolve them to the actual local file before anything else.
+    # HTTP/HTTPS URLs (e.g. CDN URLs from generated images): pass directly to the
+    # CLI — dreamina supports --image=URL natively and handles the download itself.
+    # This avoids re-upload failures that occur when passing locally-cached copies.
+    if parsed.scheme in {"http", "https"}:
+        return str(image_ref)
+
+    # /uploads/<file> paths (user-uploaded files served by this app):
+    # resolve to absolute filesystem path so the CLI can read the file.
     if parsed.path.startswith("/uploads/"):
         local = UPLOAD_DIR / parsed.path.removeprefix("/uploads/")
         if local.exists():
             return str(local.resolve())
-        # File missing; fall through to try as a remote URL
         return None
 
-    # Already a filesystem path (no scheme)
-    if not parsed.scheme or parsed.scheme not in {"http", "https"}:
-        return str(image_ref)
-
-    # Remote URL (e.g. CDN result from a previous node): download locally
-    return _download_image(str(image_ref))
+    # Already a filesystem path (no scheme) — pass through as-is.
+    return str(image_ref)
 
 
 def _download_image(url: str) -> str:

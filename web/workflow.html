@@ -915,7 +915,8 @@ body {
       if (u.type === 'text' && u.prompt) prompt = u.prompt;
       const uLast = u.results?.[u.results.length - 1];
       if (uLast?.kind === 'image') {
-        const ref = uLast.localPath || uLast.url || null;
+        // Prefer original CDN URL — CLI handles it natively, avoids local re-upload issues
+        const ref = uLast.url || uLast.localPath || null;
         if (ref) imageRefs.push(ref);
       }
     }
