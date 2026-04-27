@@ -573,6 +573,22 @@ body {
   max-height: 150px; display: flex; align-items: center; justify-content: center;
 }
 .insp-preview img, .insp-preview video { width: 100%; max-height: 150px; object-fit: contain; display: block; }
+.insp-thumb-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(72px, 1fr)); gap: 6px; }
+.insp-thumb {
+  position: relative; border-radius: 5px; overflow: hidden;
+  background: var(--bg-0); aspect-ratio: 1;
+  border: 1px solid var(--bg-3);
+}
+.insp-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.insp-thumb-label {
+  position: absolute; bottom: 0; left: 0; right: 0;
+  font-size: 9px; color: #fff; background: rgba(0,0,0,0.55);
+  padding: 2px 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.insp-thumb-pending {
+  display: flex; align-items: center; justify-content: center;
+  width: 100%; height: 100%; font-size: 20px; color: var(--fg-3);
+}
 .insp-status {
   font-size: 11px; padding: 7px 10px; border-radius: 6px;
   background: var(--bg-2); color: var(--fg-2); line-height: 1.4;
@@ -878,23 +894,27 @@ body {
   function collectInputs(node) {
     const up = upstreamNodes(node.id);
     let prompt = node.prompt || '';
-    let imageRef = null;
+    const imageRefs = [];
     for (const u of up) {
       if (u.type === 'text' && u.prompt) prompt = u.prompt;
       const uLast = u.results?.[u.results.length - 1];
-      if (!imageRef && uLast?.kind === 'image') imageRef = uLast.localPath || uLast.url || null;
-      if (!imageRef && u.uploadPath) imageRef = u.uploadPath;
+      if (uLast?.kind === 'image') {
+        const ref = uLast.localPath || uLast.url || null;
+        if (ref) imageRefs.push(ref);
+      }
     }
-    if (!imageRef && node.uploadPath) imageRef = node.uploadPath;
-    if (!imageRef && node.uploadUrl)  imageRef = node.uploadUrl;
-    return { prompt, imageRef };
+    // Node's own upload appended after upstream results
+    if (node.uploadPath) imageRefs.push(node.uploadPath);
+    else if (node.uploadUrl) imageRefs.push(node.uploadUrl);
+    return { prompt, imageRefs };
   }
 
   // Nodes that don't need to call an API — they provide data to downstream
   const PASSIVE_TYPES = new Set(['text', 'audio']);
 
   async function startTask(node) {
-    const { prompt, imageRef } = collectInputs(node);
+    const { prompt, imageRefs } = collectInputs(node);
+    const imageRef = imageRefs[0] || null;
     let endpoint, body;
 
     if (node.type === 'image') {
@@ -1774,8 +1794,8 @@ body {
     const node = nodes.get(nodeId);
     const spec = NODE_SPECS[node.type];
     const ups = upstreamNodes(node.id);
-    const scriptUp = ups.find(u => u.type === 'text');
-    const imageUp  = ups.find(u => u.type === 'image');
+    const scriptUp  = ups.find(u => u.type === 'text');
+    const imageUps  = ups.filter(u => u.type === 'image');
     const isPassive = PASSIVE_TYPES.has(node.type);
 
     const sel = (opts, cur) => opts.map(([v,l]) =>
@@ -1834,21 +1854,38 @@ body {
         </select></div>`;
     }
 
-    // Image source (optional — if connected, use image→image/video; else text→image/video)
+    // Image source thumbnails (optional — upstream image nodes + own upload)
     if (node.type === 'image' || node.type === 'video') {
-      if (imageUp) {
-        const imgLast = imageUp.results?.[imageUp.results.length - 1];
+      let thumbs = '';
+      for (const iu of imageUps) {
+        const imgLast = iu.results?.[iu.results.length - 1];
         if (imgLast?.url || imgLast?.localPath) {
-          f += `<div class="insp-field"><div class="insp-label">Source image <span class="conn-badge ok">✓ Image</span></div>
-            <div class="insp-preview"><img src="${esc(mediaUrl(imgLast.localPath || imgLast.url))}" alt="" referrerpolicy="no-referrer"/></div></div>`;
+          thumbs += `<div class="insp-thumb">
+            <img src="${esc(mediaUrl(imgLast.localPath || imgLast.url))}" alt="" referrerpolicy="no-referrer"/>
+            <div class="insp-thumb-label">Image</div>
+          </div>`;
         } else {
-          f += `<div class="insp-field"><div class="insp-label">Source image <span class="conn-badge pending">⏳ Image — run first</span></div></div>`;
+          thumbs += `<div class="insp-thumb">
+            <div class="insp-thumb-pending">⏳</div>
+            <div class="insp-thumb-label">Run first</div>
+          </div>`;
         }
-      } else {
-        const prev = node.uploadUrl ? `<div class="insp-preview"><img src="${esc(mediaUrl(node.uploadUrl))}" alt="" referrerpolicy="no-referrer"/></div>` : '';
-        f += `<div class="insp-field"><div class="insp-label">Source image <span style="opacity:0.5;font-size:10px">(optional)</span></div>${prev}
-          <input class="insp-file" type="file" accept="image/*" data-upload/></div>`;
       }
+      if (node.uploadUrl) {
+        thumbs += `<div class="insp-thumb">
+          <img src="${esc(mediaUrl(node.uploadUrl))}" alt="" referrerpolicy="no-referrer"/>
+          <div class="insp-thumb-label">Upload</div>
+        </div>`;
+      }
+      const grid = thumbs ? `<div class="insp-thumb-grid">${thumbs}</div>` : '';
+      const badge = imageUps.length > 0
+        ? ` <span class="conn-badge ok">✓ ${imageUps.length}</span>`
+        : ` <span style="opacity:0.5;font-size:10px">(optional)</span>`;
+      f += `<div class="insp-field">
+        <div class="insp-label">Source images${badge}</div>
+        ${grid}
+        <input class="insp-file" type="file" accept="image/*" data-upload/>
+      </div>`;
     }
 
     // Audio upload
