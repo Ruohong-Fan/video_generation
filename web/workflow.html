@@ -872,7 +872,7 @@ body {
       return `<div class="node-preview empty">No audio — upload in inspector</div>`;
     }
     if (last?.url || last?.localPath) {
-      const u = mediaUrl(last.localPath || last.url);
+      const u = mediaUrl(last.servePath || last.url);
       const media = last.kind === 'video'
         ? `<video controls preload="metadata" muted playsinline referrerpolicy="no-referrer"><source src="${esc(u)}" type="video/mp4"/></video>`
         : `<img src="${esc(u)}" alt="" referrerpolicy="no-referrer"/>`;
@@ -1036,9 +1036,12 @@ body {
       const task = await pollUntilDone(taskId, id);
       const url = extractOutputUrl(task);
       const kind = node.type === 'video' ? 'video' : 'image';
+      // localPath = CLI's own saved file (for passing back to CLI as --image input)
+      // servePath = server-downloaded /uploads/ copy (for browser display)
       const localPath = task?.result?.data?.local_path || task?.result?.local_path || null;
+      const servePath = task?.result?.data?.serve_path || task?.result?.serve_path || null;
       const newResults = [...(node.results || [])];
-      if (url || localPath) newResults.push({ url, kind, localPath, ts: Date.now() });
+      if (url || localPath || servePath) newResults.push({ url, kind, localPath, servePath, ts: Date.now() });
       setNodeStatus(id, 'done', { results: newResults, error: null, queueIdx: null });
       toast(`${node.type} done`, 'success');
     } catch (err) {
@@ -1628,12 +1631,14 @@ body {
     repairResults();
   }
 
-  // After loading, download any CDN results that have no localPath yet (parallel)
+  // After loading, download any CDN results that have no servePath yet (parallel)
   async function repairResults() {
     const repairs = [];
     for (const node of nodes.values()) {
       for (const r of (node.results || [])) {
-        if (!r.localPath && r.url && r.url.startsWith('http')) {
+        // Need a servePath for browser display; url must be a CDN http URL
+        const needsRepair = !r.servePath && r.url && r.url.startsWith('http');
+        if (needsRepair) {
           repairs.push(
             fetch('/api/download_url', {
               method: 'POST',
@@ -1642,7 +1647,7 @@ body {
             })
             .then(res => res.json())
             .then(d => {
-              if (d.ok && d.localPath) { r.localPath = d.localPath; return node; }
+              if (d.ok && d.localPath) { r.servePath = d.localPath; return node; }
             })
             .catch(() => null)
           );
@@ -1752,7 +1757,7 @@ body {
     if (!panel) return;
 
     const thumb = (r) => {
-      const p = esc(mediaUrl(r.localPath || r.url));
+      const p = esc(mediaUrl(r.servePath || r.url));
       if (r.kind === 'video') return `<video src="${p}" muted preload="metadata" referrerpolicy="no-referrer" onerror="markMediaExpired(this)"></video>`;
       if (r.kind === 'audio') return '🎵';
       return `<img src="${p}" alt="" referrerpolicy="no-referrer" onerror="markMediaExpired(this)"/>`;
@@ -1776,7 +1781,7 @@ body {
           const runNum = i + 1;
           const isLatest = i === results.length - 1;
           const t = fmtTs(r.ts);
-          const fileHref = esc(mediaUrl(r.localPath || r.url));
+          const fileHref = esc(mediaUrl(r.servePath || r.url));
           html += `<div class="file-item">
             <div class="file-thumb">${thumb(r)}</div>
             <div class="file-info">
@@ -1908,9 +1913,9 @@ body {
       let thumbs = '';
       for (const iu of imageUps) {
         const imgLast = iu.results?.[iu.results.length - 1];
-        if (imgLast?.url || imgLast?.localPath) {
+        if (imgLast?.servePath || imgLast?.url) {
           thumbs += `<div class="insp-thumb">
-            <img src="${esc(mediaUrl(imgLast.localPath || imgLast.url))}" alt="" referrerpolicy="no-referrer"/>
+            <img src="${esc(mediaUrl(imgLast.servePath || imgLast.url))}" alt="" referrerpolicy="no-referrer"/>
             <div class="insp-thumb-label">Image</div>
           </div>`;
         } else {

@@ -477,25 +477,26 @@ def _extract_output_url(result_data: dict) -> str | None:
 
 
 def _cache_task_output(task: dict) -> None:
-    """Download the generated output URL to uploads/ and store local_path in the result."""
+    """Download the generated output to uploads/ for browser display (serve_path).
+    Never overwrites local_path — that is the CLI's own saved file and must stay
+    intact so it can be re-used as input to subsequent CLI commands."""
     result_data = task.get("result")
     if not isinstance(result_data, dict):
         return
-    # Already cached
-    if result_data.get("local_path"):
+    # Already have a browser-accessible copy
+    if result_data.get("serve_path"):
         return
-    if isinstance(result_data.get("data"), dict) and result_data["data"].get("local_path"):
+    if isinstance(result_data.get("data"), dict) and result_data["data"].get("serve_path"):
         return
     url = _extract_output_url(result_data)
     if not url or not url.startswith("http"):
         return
-    local_path = _download_image(url)
-    if local_path and not local_path.startswith("http"):
-        # Store as a URL path so the browser can load it directly
-        serve_path = "/uploads/" + Path(local_path).name
-        result_data["local_path"] = serve_path
+    downloaded = _download_image(url)
+    if downloaded and not downloaded.startswith("http"):
+        serve_path = "/uploads/" + Path(downloaded).name
+        result_data["serve_path"] = serve_path
         if isinstance(result_data.get("data"), dict):
-            result_data["data"]["local_path"] = serve_path
+            result_data["data"]["serve_path"] = serve_path
 
 
 def _get_param(request, key: str, default=""):
