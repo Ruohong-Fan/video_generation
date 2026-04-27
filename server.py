@@ -396,15 +396,18 @@ def _resolve_image_input(request) -> str | None:
 
     parsed = urlparse(str(image_ref))
 
-    # Already a local path
-    if not parsed.scheme or parsed.scheme not in {"http", "https"}:
-        return str(image_ref)
-
-    # Local uploads URL served by this app
+    # /uploads/<file> paths have no URL scheme but are NOT filesystem paths —
+    # resolve them to the actual local file before anything else.
     if parsed.path.startswith("/uploads/"):
         local = UPLOAD_DIR / parsed.path.removeprefix("/uploads/")
         if local.exists():
-            return str(local)
+            return str(local.resolve())
+        # File missing; fall through to try as a remote URL
+        return None
+
+    # Already a filesystem path (no scheme)
+    if not parsed.scheme or parsed.scheme not in {"http", "https"}:
+        return str(image_ref)
 
     # Remote URL (e.g. CDN result from a previous node): download locally
     return _download_image(str(image_ref))
