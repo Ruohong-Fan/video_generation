@@ -589,6 +589,12 @@ body {
   display: flex; align-items: center; justify-content: center;
   width: 100%; height: 100%; font-size: 20px; color: var(--fg-3);
 }
+.file-thumb-expired {
+  display: flex; align-items: center; justify-content: center; flex-direction: column;
+  width: 100%; height: 100%; gap: 4px;
+  font-size: 10px; color: var(--fg-3); text-align: center; padding: 4px;
+}
+.file-thumb-expired svg { opacity: 0.4; }
 .insp-status {
   font-size: 11px; padding: 7px 10px; border-radius: 6px;
   background: var(--bg-2); color: var(--fg-2); line-height: 1.4;
@@ -745,6 +751,16 @@ body {
   const mediaUrl = (url) => (url && /^https?:\/\//i.test(url))
     ? `/api/media_proxy?url=${encodeURIComponent(url)}`
     : (url || '');
+
+  function markMediaExpired(el) {
+    const wrap = el.closest('.file-thumb') || el.parentElement;
+    if (wrap) wrap.innerHTML = `<div class="file-thumb-expired">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+        <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/>
+        <circle cx="12" cy="16" r="0.5" fill="currentColor"/>
+      </svg>
+      <span>Expired</span></div>`;
+  }
 
   function toast(msg, kind='') {
     const t = document.createElement('div');
@@ -1609,6 +1625,39 @@ body {
     } finally {
       loading = false;
     }
+    repairResults();
+  }
+
+  // After loading, download any CDN results that have no localPath yet (parallel)
+  async function repairResults() {
+    const repairs = [];
+    for (const node of nodes.values()) {
+      for (const r of (node.results || [])) {
+        if (!r.localPath && r.url && r.url.startsWith('http')) {
+          repairs.push(
+            fetch('/api/download_url', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ url: r.url }),
+            })
+            .then(res => res.json())
+            .then(d => {
+              if (d.ok && d.localPath) { r.localPath = d.localPath; return node; }
+            })
+            .catch(() => null)
+          );
+        }
+      }
+    }
+    if (!repairs.length) return;
+    const changed = new Set((await Promise.all(repairs)).filter(Boolean));
+    if (!changed.size) return;
+    for (const node of changed) {
+      renderNode(node);
+      if (selected.has(node.id)) renderInspector(node.id);
+    }
+    if (document.getElementById('panel-files')?.style.display !== 'none') renderFilesPanel();
+    scheduleSave();
   }
 
   // ── Zoom overlay controls ───────────────────────────────────────────────
@@ -1704,9 +1753,9 @@ body {
 
     const thumb = (r) => {
       const p = esc(mediaUrl(r.localPath || r.url));
-      if (r.kind === 'video') return `<video src="${p}" muted preload="metadata" referrerpolicy="no-referrer"></video>`;
+      if (r.kind === 'video') return `<video src="${p}" muted preload="metadata" referrerpolicy="no-referrer" onerror="markMediaExpired(this)"></video>`;
       if (r.kind === 'audio') return '🎵';
-      return `<img src="${p}" alt="" referrerpolicy="no-referrer"/>`;
+      return `<img src="${p}" alt="" referrerpolicy="no-referrer" onerror="markMediaExpired(this)"/>`;
     };
     const fmtTs = ts => { try { return ts ? new Date(ts).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}) : ''; } catch { return ''; } };
 

@@ -503,6 +503,20 @@ def _get_param(request, key: str, default=""):
     return data.get(key, default)
 
 
+@app.post("/api/download_url")
+def download_url_endpoint():
+    """Download a remote URL to uploads/ and return a stable local path."""
+    data = request.get_json(force=True)
+    url = (data.get("url") or "").strip()
+    if not url.startswith("http"):
+        return jsonify({"ok": False, "error": "invalid url"}), 400
+    local_path = _download_image(url)
+    if local_path.startswith("http"):
+        return jsonify({"ok": False, "error": "download failed or url expired"}), 502
+    serve_path = "/uploads/" + Path(local_path).name
+    return jsonify({"ok": True, "localPath": serve_path})
+
+
 @app.post("/api/image2video")
 def image2video():
     prompt = _get_param(request, "prompt", "").strip()
