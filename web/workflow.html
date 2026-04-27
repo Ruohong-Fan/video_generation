@@ -881,6 +881,12 @@ body {
     updateEdgesFor(id);
     if (document.getElementById('panel-files')?.style.display !== 'none') renderFilesPanel();
     if (selected.has(id)) renderInspector(id);
+    // Refresh inspector of any selected downstream node so upstream output appears
+    if (status === 'done') {
+      edges.filter(e => e.fromId === id).forEach(e => {
+        if (selected.has(e.toId)) renderInspector(e.toId);
+      });
+    }
   }
 
   function upstreamNodes(id) {
@@ -892,7 +898,7 @@ body {
     let prompt = node.prompt || '';
     let imageRef = null;
     for (const u of up) {
-      if (u.type === 'script' && u.prompt && !prompt) prompt = u.prompt;
+      if (u.type === 'script' && u.prompt) prompt = u.prompt;
       const uLast = u.results?.[u.results.length - 1];
       if (!imageRef && uLast?.kind === 'image') imageRef = uLast.localPath || uLast.url || null;
       if (!imageRef && u.uploadPath) imageRef = u.uploadPath;
@@ -1183,6 +1189,8 @@ body {
     edges.push({ id: 'e' + Math.random().toString(36).slice(2, 8), fromId, toId, selected: false });
     renderAllEdges();
     const n = nodes.get(toId); if (n) renderNode(n);
+    if (selected.has(toId)) renderInspector(toId);
+    if (selected.has(fromId)) renderInspector(fromId);
   }
 
   // ── Handle drag (create edges) ──────────────────────────────────────────
