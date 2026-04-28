@@ -955,7 +955,7 @@ body {
       const videoPrompt = prompt || imagePrompts.join(', ');
       if (!videoPrompt) throw new Error('prompt required (connect a Text or Image node, or type one)');
       endpoint = '/api/text2video';
-      body = { prompt: videoPrompt, duration: node.params.duration, ratio: node.params.ratio, resolution: node.params.resolution, model_version: node.params.modelVersion };
+      body = { prompt: videoPrompt, duration: node.params.duration, ratio: node.params.ratio, resolution: node.params.resolution };
     } else {
       throw new Error('Unsupported node type: ' + node.type);
     }
@@ -1903,14 +1903,6 @@ body {
         </select></div>`;
     }
 
-    // Model
-    if (node.type === 'video') {
-      f += `<div class="insp-field"><div class="insp-label">Model</div>
-        <select class="insp-select" data-field="modelVersion">
-          ${sel([['seedance2.0fast','Non-VIP Fast'],['seedance2.0','Non-VIP'],
-            ['seedance2.0fast_vip','VIP Fast'],['seedance2.0_vip','VIP']], node.params.modelVersion)}
-        </select></div>`;
-    }
 
     // Image source thumbnails (optional — upstream image nodes + own upload)
     if (node.type === 'image' || node.type === 'video') {
