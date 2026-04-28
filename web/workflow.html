@@ -589,6 +589,10 @@ body {
   display: flex; align-items: center; justify-content: center;
   width: 100%; height: 100%; font-size: 20px; color: var(--fg-3);
 }
+.insp-ref-note {
+  font-size: 10px; color: var(--fg-3); margin-bottom: 6px;
+  line-height: 1.4; font-style: italic;
+}
 .file-thumb-expired {
   display: flex; align-items: center; justify-content: center; flex-direction: column;
   width: 100%; height: 100%; gap: 4px;
@@ -911,6 +915,7 @@ body {
     const up = upstreamNodes(node.id);
     let prompt = node.prompt || '';
     const imageRefs = [];
+    const imagePrompts = [];
     for (const u of up) {
       if (u.type === 'text' && u.prompt) prompt = u.prompt;
       const uLast = u.results?.[u.results.length - 1];
@@ -918,18 +923,19 @@ body {
         const ref = uLast.localPath || uLast.url || null;
         if (ref) imageRefs.push(ref);
       }
+      if (u.type === 'image' && u.prompt) imagePrompts.push(u.prompt);
     }
     // Node's own upload appended after upstream results
     if (node.uploadPath) imageRefs.push(node.uploadPath);
     else if (node.uploadUrl) imageRefs.push(node.uploadUrl);
-    return { prompt, imageRefs };
+    return { prompt, imageRefs, imagePrompts };
   }
 
   // Nodes that don't need to call an API — they provide data to downstream
   const PASSIVE_TYPES = new Set(['text', 'audio']);
 
   async function startTask(node) {
-    const { prompt, imageRefs } = collectInputs(node);
+    const { prompt, imageRefs, imagePrompts } = collectInputs(node);
     const imageRef = imageRefs[0] || null;
     let endpoint, body;
 
@@ -944,14 +950,12 @@ body {
         body = { prompt, ratio: node.params.ratio, resolution: node.params.resolution };
       }
     } else if (node.type === 'video') {
-      if (imageRef) {
-        endpoint = '/api/image2video';
-        body = { image: imageRef, prompt, duration: node.params.duration, model_version: node.params.modelVersion };
-      } else {
-        if (!prompt) throw new Error('prompt required (connect a Text node or type one)');
-        endpoint = '/api/text2video';
-        body = { prompt, duration: node.params.duration, ratio: node.params.ratio, resolution: node.params.resolution, model_version: node.params.modelVersion };
-      }
+      // Always use text2video — image upload to Jimeng is unreliable.
+      // If the node has no prompt, fall back to upstream image nodes' prompts.
+      const videoPrompt = prompt || imagePrompts.join(', ');
+      if (!videoPrompt) throw new Error('prompt required (connect a Text or Image node, or type one)');
+      endpoint = '/api/text2video';
+      body = { prompt: videoPrompt, duration: node.params.duration, ratio: node.params.ratio, resolution: node.params.resolution, model_version: node.params.modelVersion };
     } else {
       throw new Error('Unsupported node type: ' + node.type);
     }
@@ -1911,12 +1915,13 @@ body {
     // Image source thumbnails (optional — upstream image nodes + own upload)
     if (node.type === 'image' || node.type === 'video') {
       let thumbs = '';
+      const thumbLabel = node.type === 'video' ? 'Ref' : 'Image';
       for (const iu of imageUps) {
         const imgLast = iu.results?.[iu.results.length - 1];
         if (imgLast?.servePath || imgLast?.url) {
           thumbs += `<div class="insp-thumb">
             <img src="${esc(mediaUrl(imgLast.servePath || imgLast.url))}" alt="" referrerpolicy="no-referrer"/>
-            <div class="insp-thumb-label">Image</div>
+            <div class="insp-thumb-label">${thumbLabel}</div>
           </div>`;
         } else {
           thumbs += `<div class="insp-thumb">
@@ -1935,10 +1940,15 @@ body {
       const badge = imageUps.length > 0
         ? ` <span class="conn-badge ok">✓ ${imageUps.length}</span>`
         : ` <span style="opacity:0.5;font-size:10px">(optional)</span>`;
+      const sectionLabel = node.type === 'video' ? 'Visual references' : 'Source images';
+      const refNote = node.type === 'video' && imageUps.length > 0
+        ? `<div class="insp-ref-note">Connected image prompts will guide video generation</div>`
+        : '';
       f += `<div class="insp-field">
-        <div class="insp-label">Source images${badge}</div>
+        <div class="insp-label">${sectionLabel}${badge}</div>
+        ${refNote}
         ${grid}
-        <input class="insp-file" type="file" accept="image/*" data-upload/>
+        ${node.type === 'image' ? `<input class="insp-file" type="file" accept="image/*" data-upload/>` : ''}
       </div>`;
     }
 
