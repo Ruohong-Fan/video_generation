@@ -339,16 +339,17 @@ body {
 
 /* ── Empty state ─────────────────────────────────────────────────────────── */
 .empty-state {
-  text-align: center;
-  padding: 80px 20px;
+  text-align: center; padding: 80px 20px;
+  display: flex; flex-direction: column; align-items: center;
 }
-.empty-state h2 { font-size: 1.25rem; font-weight: 600; margin-bottom: 10px; }
+.empty-state h2 {
+  font-family: var(--type-display); font-size: 28px;
+  font-style: italic; font-weight: 400;
+  color: var(--fg-1); margin-bottom: 8px;
+}
 .empty-state p {
-  font-size: 0.875rem;
-  color: var(--muted);
-  max-width: 340px;
-  margin: 0 auto 28px;
-  line-height: 1.6;
+  font-size: 13px; color: var(--muted);
+  max-width: 300px; margin: 0 auto 24px; line-height: 1.6;
 }
 
 /* ── Modal ───────────────────────────────────────────────────────────────── */
