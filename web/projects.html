@@ -589,6 +589,23 @@ body {
   </div>
 </div>
 
+<!-- Delete confirmation modal -->
+<div class="modal-overlay" id="delete-overlay" style="display:none">
+  <div class="modal" style="width:380px">
+    <div class="modal-head">
+      <h2 id="delete-title">Delete this project?</h2>
+      <p>This permanently removes the canvas, generated outputs, and run history. This cannot be undone.</p>
+    </div>
+    <div class="modal-foot">
+      <button class="btn ghost" id="delete-cancel">Cancel</button>
+      <button class="btn danger" id="delete-confirm" style="background:oklch(0.70 0.18 25 / 0.18);border:1px solid oklch(0.70 0.18 25 / 0.5)">
+        <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M3 4.5h10M6 4.5V3a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v1.5M5 4.5v8a1 1 0 0 0 1 1h4a1 1 0 0 0 1-1v-8"/></svg>
+        Delete
+      </button>
+    </div>
+  </div>
+</div>
+
 <script>
   const GRADIENTS = [
     ['#7c6af7','#a78bfa'],
@@ -861,10 +878,30 @@ body {
   });
 
 
-  // Placeholder until 3c adds the real delete modal
-  async function openDeleteModal(id) {
+  // ── Delete modal ──────────────────────────────────────────────────────────
+  const deleteOverlay = document.getElementById('delete-overlay');
+  let deleteTargetId = null;
+
+  function openDeleteModal(id) {
     if (!id || !projects[id]) return;
-    if (!confirm(`Delete "${projects[id].name}"? This cannot be undone.`)) return;
+    deleteTargetId = id;
+    const title = document.getElementById('delete-title');
+    title.textContent = `Delete "${projects[id].name}"?`;
+    deleteOverlay.style.display = 'grid';
+  }
+
+  function closeDeleteModal() {
+    deleteOverlay.style.display = 'none';
+    deleteTargetId = null;
+  }
+
+  document.getElementById('delete-cancel').addEventListener('click', closeDeleteModal);
+  deleteOverlay.addEventListener('click', (e) => { if (e.target === deleteOverlay) closeDeleteModal(); });
+
+  document.getElementById('delete-confirm').addEventListener('click', async () => {
+    const id = deleteTargetId;
+    if (!id) return;
+    closeDeleteModal();
     try {
       const d = await fetch('/api/projects/' + encodeURIComponent(id), { method: 'DELETE' }).then(r => r.json());
       if (!d.ok) throw new Error(d.error);
@@ -872,7 +909,7 @@ body {
       renderGrid();
       toast('Project deleted');
     } catch (e) { toast('Delete failed: ' + e.message, 'error'); }
-  }
+  });
 
   // ── Modal ─────────────────────────────────────────────────────────────────
   const TEMPLATES = [
