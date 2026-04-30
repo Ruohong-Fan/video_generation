@@ -1,0 +1,17 @@
+[Unit]
+Description=Video Generation Flask App
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/opt/video_generation
+Environment=PORT=8080
+Environment=POLL_INTERVAL_SECONDS=15
+Environment=POLL_TIMEOUT_SECONDS=21600
+ExecStart=/opt/video_generation/.venv/bin/gunicorn --workers 1 --threads 8 --bind 127.0.0.1:8080 server:app
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
