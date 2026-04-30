@@ -345,6 +345,7 @@ def query_result(submit_id: str):
 def text2video():
     data = request.get_json(force=True)
     prompt = data.get("prompt", "").strip()
+    model_version = data.get("model_version", "").strip()
     if not prompt:
         return jsonify({"ok": False, "error": "prompt is required"}), 400
     cmd = [
@@ -355,6 +356,8 @@ def text2video():
         f"--video_resolution={data.get('resolution', '720P')}",
         "--poll=240",
     ]
+    if model_version:
+        cmd.append(f"--model_version={model_version}")
     return jsonify(_start_task(cmd, f"text2video: {prompt[:60]}"))
 
 
