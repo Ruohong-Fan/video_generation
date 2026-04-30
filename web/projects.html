@@ -403,22 +403,25 @@ body {
   position: fixed;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 6px;
-  min-width: 140px;
+  border-radius: var(--r-md);
+  padding: 5px;
+  min-width: 168px;
   z-index: 400;
-  box-shadow: 0 10px 36px rgba(0,0,0,0.65);
+  box-shadow: 0 12px 40px oklch(0 0 0 / 0.6);
 }
 .ctx-item {
-  padding: 8px 12px;
-  font-size: 0.84rem;
-  cursor: pointer;
-  border-radius: 6px;
-  transition: background 0.1s;
+  display: flex; align-items: center; gap: 8px;
+  padding: 7px 10px;
+  font-size: 12px; color: var(--fg-1);
+  cursor: pointer; border-radius: var(--r-sm);
+  transition: background 0.1s, color 0.1s;
 }
-.ctx-item:hover { background: var(--surface2); }
+.ctx-item:hover { background: var(--surface2); color: var(--text); }
 .ctx-item.danger { color: var(--error); }
-.ctx-item.danger:hover { background: rgba(248,113,113,0.08); }
+.ctx-item.danger:hover { background: oklch(0.70 0.18 25 / 0.1); }
+.ctx-item svg { flex-shrink: 0; opacity: 0.7; }
+.ctx-item:hover svg { opacity: 1; }
+.ctx-sep { height: 1px; background: var(--border); margin: 4px 0; }
 
 /* ── Toast ───────────────────────────────────────────────────────────────── */
 .toast {
@@ -522,8 +525,25 @@ body {
 
 <!-- Context menu -->
 <div class="ctx-menu" id="ctx-menu" style="display:none">
-  <div class="ctx-item" id="ctx-rename">Rename</div>
-  <div class="ctx-item danger" id="ctx-delete">Delete</div>
+  <div class="ctx-item" id="ctx-open">
+    <svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor" stroke="none"><path d="M5 3.5v9l7-4.5z"/></svg>Open
+  </div>
+  <div class="ctx-item" id="ctx-rename">
+    <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M3 4h10M8 4v9M5 13h6"/></svg>Rename
+  </div>
+  <div class="ctx-item" id="ctx-duplicate">
+    <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="8" height="8" rx="1"/><path d="M4 4V3a1 1 0 0 1 1-1h7a1 1 0 0 1 1 1v7"/></svg>Duplicate
+  </div>
+  <div class="ctx-item" id="ctx-fav">
+    <svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor" stroke="none"><path d="M9 2L3 9h4l-1 5 6-7H8l1-5z"/></svg>Toggle favorite
+  </div>
+  <div class="ctx-sep"></div>
+  <div class="ctx-item" id="ctx-archive">
+    <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2 5a1 1 0 0 1 1-1h3l1.5 1.5H13a1 1 0 0 1 1 1V12a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V5z"/></svg><span id="ctx-archive-label">Archive</span>
+  </div>
+  <div class="ctx-item danger" id="ctx-delete">
+    <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M3 4.5h10M6 4.5V3a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v1.5M5 4.5v8a1 1 0 0 0 1 1h4a1 1 0 0 0 1-1v-8"/></svg>Delete
+  </div>
 </div>
 
 <script>
@@ -680,7 +700,7 @@ body {
       const action = e.target.closest('[data-action]')?.dataset.action;
       if (action === 'fav') {
         e.stopPropagation();
-        toggleFavorite(id, card);
+        toggleFavorite(id);
         return;
       }
       if (action === 'rename') {
@@ -704,7 +724,7 @@ body {
     return card;
   }
 
-  async function toggleFavorite(id, card) {
+  async function toggleFavorite(id) {
     if (!projects[id]) return;
     const newFav = !projects[id].favorite;
     projects[id].favorite = newFav;
@@ -730,37 +750,86 @@ body {
       const r = btn.getBoundingClientRect();
       x = r.left; y = r.bottom + 4;
     }
-    x = Math.min(x, window.innerWidth - 160);
-    y = Math.min(y, window.innerHeight - 180);
+    x = Math.min(x, window.innerWidth - 175);
+    y = Math.min(y, window.innerHeight - 220);
     ctxMenu.style.top  = y + 'px';
     ctxMenu.style.left = x + 'px';
     ctxMenu.style.display = 'block';
+    const lbl = document.getElementById('ctx-archive-label');
+    if (lbl) lbl.textContent = projects[id]?.archived ? 'Restore' : 'Archive';
   }
 
   document.addEventListener('click', () => { ctxMenu.style.display = 'none'; });
   ctxMenu.addEventListener('click', e => e.stopPropagation());
 
+  function hideCtx() { ctxMenu.style.display = 'none'; }
+
+  document.getElementById('ctx-open').addEventListener('click', () => {
+    hideCtx();
+    if (ctxId) location.href = '/workflow?project=' + encodeURIComponent(ctxId);
+  });
+
   document.getElementById('ctx-rename').addEventListener('click', () => {
-    ctxMenu.style.display = 'none';
+    hideCtx();
     if (!ctxId || !projects[ctxId]) return;
     openModal('rename', ctxId, projects[ctxId].name);
   });
 
-  document.getElementById('ctx-delete').addEventListener('click', async () => {
-    ctxMenu.style.display = 'none';
+  document.getElementById('ctx-duplicate').addEventListener('click', async () => {
+    hideCtx();
     if (!ctxId || !projects[ctxId]) return;
-    const name = projects[ctxId].name;
-    if (!confirm(`Delete "${name}"? This cannot be undone.`)) return;
+    const src = projects[ctxId];
     try {
-      const d = await fetch('/api/projects/' + encodeURIComponent(ctxId), { method: 'DELETE' }).then(r => r.json());
+      const d = await fetch('/api/projects', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ name: src.name + ' copy', description: src.description || '', tags: src.tags || [] }),
+      }).then(r => r.json());
       if (!d.ok) throw new Error(d.error);
-      delete projects[ctxId];
+      projects[d.id] = { name: d.name, description: d.description, tags: d.tags || [], favorite: false, archived: false, created_at: d.created_at, updated_at: d.updated_at };
+      renderGrid();
+      toast('Duplicated');
+    } catch (e) { toast('Duplicate failed: ' + e.message, 'error'); }
+  });
+
+  document.getElementById('ctx-fav').addEventListener('click', () => {
+    hideCtx();
+    if (ctxId) toggleFavorite(ctxId);
+  });
+
+  document.getElementById('ctx-archive').addEventListener('click', async () => {
+    hideCtx();
+    if (!ctxId || !projects[ctxId]) return;
+    const newArchived = !projects[ctxId].archived;
+    projects[ctxId].archived = newArchived;
+    try {
+      await fetch('/api/projects/' + encodeURIComponent(ctxId), {
+        method: 'PUT', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ archived: newArchived }),
+      });
+    } catch (_) {}
+    renderGrid();
+    toast(newArchived ? 'Archived' : 'Restored');
+  });
+
+  document.getElementById('ctx-delete').addEventListener('click', () => {
+    hideCtx();
+    if (!ctxId || !projects[ctxId]) return;
+    openDeleteModal(ctxId);
+  });
+
+
+  // Placeholder until 3c adds the real delete modal
+  async function openDeleteModal(id) {
+    if (!id || !projects[id]) return;
+    if (!confirm(`Delete "${projects[id].name}"? This cannot be undone.`)) return;
+    try {
+      const d = await fetch('/api/projects/' + encodeURIComponent(id), { method: 'DELETE' }).then(r => r.json());
+      if (!d.ok) throw new Error(d.error);
+      delete projects[id];
       renderGrid();
       toast('Project deleted');
-    } catch (e) {
-      toast('Delete failed: ' + e.message, 'error');
-    }
-  });
+    } catch (e) { toast('Delete failed: ' + e.message, 'error'); }
+  }
 
   // ── Modal ─────────────────────────────────────────────────────────────────
   const modalOverlay = document.getElementById('modal-overlay');
