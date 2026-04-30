@@ -177,76 +177,124 @@ body {
 .project-card {
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: var(--r-md);
   overflow: hidden;
   cursor: pointer;
   position: relative;
+  display: flex;
+  flex-direction: column;
   transition: border-color 0.15s, box-shadow 0.15s, transform 0.15s;
   user-select: none;
 }
 .project-card:hover {
-  border-color: var(--accent);
-  box-shadow: 0 8px 32px rgba(0,0,0,0.55);
+  border-color: var(--amber-dim);
+  box-shadow: 0 16px 40px oklch(0 0 0 / 0.4);
   transform: translateY(-2px);
 }
 
-.card-banner {
-  height: 104px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-.card-initial {
-  font-size: 2.8rem;
-  font-weight: 800;
-  color: rgba(255,255,255,0.88);
-  text-shadow: 0 2px 10px rgba(0,0,0,0.35);
-  letter-spacing: -0.03em;
-}
-.card-body {
-  padding: 12px 14px 14px;
-}
-.card-name {
-  font-size: 0.88rem;
-  font-weight: 600;
-  white-space: nowrap;
+/* Cover */
+.p-cover {
+  position: relative;
+  aspect-ratio: 16 / 10;
   overflow: hidden;
-  text-overflow: ellipsis;
-  margin-bottom: 5px;
+  background: var(--surface2);
+  flex-shrink: 0;
 }
-.card-meta {
-  font-size: 0.72rem;
+.p-cover-empty {
+  width: 100%; height: 100%;
+  display: grid; place-items: center;
+  background: repeating-linear-gradient(
+    45deg,
+    oklch(0.22 0.01 65),
+    oklch(0.22 0.01 65) 6px,
+    oklch(0.25 0.012 65) 6px,
+    oklch(0.25 0.012 65) 12px
+  );
+  font-family: var(--type-mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
   color: var(--muted);
 }
+.p-cover-overlay {
+  position: absolute; inset: 0;
+  background: linear-gradient(to top, oklch(0 0 0 / 0.5), transparent 50%);
+  pointer-events: none;
+}
+.p-cover-badge {
+  position: absolute; top: 8px; left: 8px;
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 3px 7px;
+  font-family: var(--type-mono); font-size: 9px;
+  letter-spacing: 0.1em; text-transform: uppercase;
+  background: oklch(0 0 0 / 0.65); border-radius: 3px;
+  color: var(--fg-0); backdrop-filter: blur(6px);
+}
+.p-cover-badge .dot {
+  width: 5px; height: 5px; border-radius: 50%;
+  background: currentColor;
+}
+.p-cover-badge.archived { color: var(--muted); }
+.p-cover-badge.ready    { color: var(--success); }
 
+/* "new project" dashed card */
+.project-card.p-card-new {
+  border-style: dashed; border-color: var(--surface3);
+  background: transparent; place-items: center;
+  display: grid; min-height: 220px;
+}
+.project-card.p-card-new:hover {
+  border-color: var(--accent);
+  background: oklch(0.78 0.145 70 / 0.04);
+  box-shadow: none; transform: none;
+}
+.p-card-new-inner { text-align: center; color: var(--muted); }
+.project-card.p-card-new:hover .p-card-new-inner { color: var(--accent); }
+.p-card-new-icon {
+  width: 44px; height: 44px; border-radius: 50%;
+  border: 1px solid currentColor;
+  display: grid; place-items: center;
+  margin: 0 auto 10px;
+}
+.p-card-new-title {
+  font-family: var(--type-display);
+  font-size: 20px; font-style: italic; margin-bottom: 2px;
+}
+.p-card-new-sub { font-size: 12px; color: var(--muted); }
+.project-card.p-card-new:hover .p-card-new-sub { color: var(--accent); opacity: 0.7; }
+
+/* ── Card menu button ────────────────────────────────────────────────────── */
 .card-menu-btn {
-  position: absolute;
-  top: 8px;
-  right: 8px;
-  background: rgba(0,0,0,0.38);
-  border: none;
-  color: rgba(255,255,255,0.82);
-  width: 28px;
-  height: 28px;
-  border-radius: 6px;
-  font-size: 1.05rem;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  opacity: 0;
-  transition: opacity 0.15s, background 0.15s;
-  line-height: 1;
+  position: absolute; top: 8px; right: 8px;
+  background: oklch(0 0 0 / 0.55); border: none;
+  color: var(--fg-0); width: 28px; height: 28px;
+  border-radius: 6px; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  opacity: 0; transition: opacity 0.15s, background 0.12s;
+  backdrop-filter: blur(6px);
 }
 .project-card:hover .card-menu-btn { opacity: 1; }
-.card-menu-btn:hover { background: rgba(0,0,0,0.65); color: #fff; }
+.card-menu-btn:hover { background: oklch(0 0 0 / 0.75); }
+
+/* ── Card body ───────────────────────────────────────────────────────────── */
+.p-card-body {
+  padding: 12px 14px 10px;
+  display: flex; flex-direction: column; gap: 4px; flex: 1;
+}
+.p-card-title {
+  font-size: 14px; font-weight: 600; color: var(--text);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.p-card-meta {
+  font-family: var(--type-mono); font-size: 10px;
+  color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em;
+}
 
 /* ── Empty state ─────────────────────────────────────────────────────────── */
 .empty-state {
   text-align: center;
-  padding: 96px 20px;
+  padding: 80px 20px;
 }
-.empty-icon { font-size: 3.2rem; margin-bottom: 18px; }
 .empty-state h2 { font-size: 1.25rem; font-weight: 600; margin-bottom: 10px; }
 .empty-state p {
   font-size: 0.875rem;
@@ -514,7 +562,24 @@ body {
     if (!entries.length) { empty.style.display = 'block'; return; }
     empty.style.display = 'none';
 
+    // "New project" card always first
+    grid.appendChild(makeNewCard());
     for (const [id, project] of entries) grid.appendChild(makeCard(id, project));
+  }
+
+  function makeNewCard() {
+    const card = document.createElement('div');
+    card.className = 'project-card p-card-new';
+    card.innerHTML = `
+      <div class="p-card-new-inner">
+        <div class="p-card-new-icon">
+          <svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M8 3v10M3 8h10"/></svg>
+        </div>
+        <div class="p-card-new-title">New project</div>
+        <div class="p-card-new-sub">Start blank or from a template</div>
+      </div>`;
+    card.addEventListener('click', () => openModal('create'));
+    return card;
   }
 
   function makeCard(id, project) {
@@ -522,19 +587,27 @@ body {
     card.className = 'project-card';
     card.dataset.id = id;
 
-    const initial  = (project.name || '?')[0].toUpperCase();
-    const gradient = cardGradient(id);
-    const ts       = project.updated_at || project.created_at;
+    const ts     = project.updated_at || project.created_at;
+    const status = project.archived ? 'archived' : 'ready';
+    const badgeLabel = project.archived ? 'Archived' : 'Ready';
 
     card.innerHTML = `
-      <div class="card-banner" style="background:${gradient}">
-        <div class="card-initial">${esc(initial)}</div>
+      <div class="p-cover">
+        <div class="p-cover-empty">${esc((project.name || 'untitled').toUpperCase())}</div>
+        <div class="p-cover-overlay"></div>
+        <span class="p-cover-badge ${status}">
+          <span class="dot"></span>${badgeLabel}
+        </span>
       </div>
-      <div class="card-body">
-        <div class="card-name">${esc(project.name)}</div>
-        <div class="card-meta">${ts ? 'Modified ' + timeAgo(ts) : 'Just created'}</div>
+      <div class="p-card-body">
+        <div class="p-card-title">${esc(project.name)}</div>
+        <div class="p-card-meta">${ts ? timeAgo(ts) : 'Just created'}</div>
       </div>
-      <button class="card-menu-btn" title="Options">⋯</button>
+      <button class="card-menu-btn" title="Options">
+        <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" stroke="none">
+          <circle cx="3.5" cy="8" r="1.2"/><circle cx="8" cy="8" r="1.2"/><circle cx="12.5" cy="8" r="1.2"/>
+        </svg>
+      </button>
     `;
 
     card.addEventListener('click', (e) => {
