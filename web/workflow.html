@@ -1658,9 +1658,11 @@ body {
   canvas.addEventListener('pointerdown', (e) => {
     const nodeEl = e.target.closest('.node');
     if (!nodeEl) return;
+    if (e.button !== 0) return;
     if (e.target.closest('input, textarea, select, button, .handle')) return;
     const node = nodes.get(nodeEl.id);
     if (!node) return;
+    e.stopPropagation();
 
     // Selection logic on mousedown (like Figma)
     if (e.shiftKey) {
@@ -1677,13 +1679,16 @@ body {
     dragState = {
       group, moved: false,
       startX: e.clientX, startY: e.clientY,
+      pointerId: e.pointerId,
+      captureEl: nodeEl,
     };
     nodeEl.setPointerCapture?.(e.pointerId);
     e.preventDefault();
   });
 
-  canvas.addEventListener('pointermove', (e) => {
+  function onNodeDragMove(e) {
     if (!dragState) return;
+    if (e.pointerId !== dragState.pointerId) return;
     const dx = (e.clientX - dragState.startX) / view.scale;
     const dy = (e.clientY - dragState.startY) / view.scale;
     if (Math.abs(dx) + Math.abs(dy) > 2) dragState.moved = true;
@@ -1696,9 +1701,23 @@ body {
       if (el) { el.style.left = n.x + 'px'; el.style.top = n.y + 'px'; }
       updateEdgesFor(g.id);
     }
-  });
-  canvas.addEventListener('pointerup',   () => { dragState = null; });
-  canvas.addEventListener('pointercancel', () => { dragState = null; });
+    e.preventDefault();
+  }
+
+  function endNodeDrag(e) {
+    if (!dragState) return;
+    if (e.pointerId != null && e.pointerId !== dragState.pointerId) return;
+    if (dragState.captureEl?.hasPointerCapture?.(dragState.pointerId)) {
+      dragState.captureEl.releasePointerCapture(dragState.pointerId);
+    }
+    if (dragState.moved) scheduleSave();
+    dragState = null;
+  }
+
+  document.addEventListener('pointermove', onNodeDragMove);
+  document.addEventListener('pointerup', endNodeDrag);
+  document.addEventListener('pointercancel', endNodeDrag);
+  window.addEventListener('blur', () => { dragState = null; });
 
   // ── Tool mode ────────────────────────────────────────────────────────────
   let canvasTool = 'pan'; // 'pan' | 'select'
@@ -1775,7 +1794,7 @@ body {
     }
   });
 
-  canvasWrap.addEventListener('pointerup', () => {
+  function endCanvasGesture() {
     if (panState && !panState.moved) clearSelection(); // click on empty canvas = deselect
     panState = null;
     canvasWrap.classList.remove('panning');
@@ -1783,7 +1802,13 @@ body {
     if (selBoxState && !selBoxMoved) clearSelection(); // click without drag in select mode = deselect
     selBoxState = null;
     selBoxMoved = false;
-  });
+  }
+
+  canvasWrap.addEventListener('pointerup', endCanvasGesture);
+  canvasWrap.addEventListener('pointercancel', endCanvasGesture);
+  document.addEventListener('pointerup', endCanvasGesture);
+  document.addEventListener('pointercancel', endCanvasGesture);
+  window.addEventListener('blur', endCanvasGesture);
 
   // ── Canvas zoom (wheel) ─────────────────────────────────────────────────
   canvasWrap.addEventListener('wheel', (e) => {
