@@ -637,6 +637,9 @@ def create_project():
     projects[pid] = {
         "name": name,
         "description": data.get("description", ""),
+        "tags": data.get("tags", []),
+        "favorite": bool(data.get("favorite", False)),
+        "archived": bool(data.get("archived", False)),
         "created_at": now,
         "updated_at": now,
     }
@@ -663,6 +666,12 @@ def update_project(pid: str):
         p["name"] = name
     if "description" in data:
         p["description"] = data["description"]
+    if "tags" in data:
+        p["tags"] = data["tags"]
+    if "favorite" in data:
+        p["favorite"] = bool(data["favorite"])
+    if "archived" in data:
+        p["archived"] = bool(data["archived"])
     p["updated_at"] = time.time()
     _save_projects()
     return jsonify({"ok": True, "id": pid, **p})

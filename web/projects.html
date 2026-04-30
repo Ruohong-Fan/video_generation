@@ -3,22 +3,45 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Jimeng — Projects</title>
+<title>Reel · Projects</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 :root {
-  --bg: #0a0a0f;
-  --surface: #14141c;
-  --surface2: #1c1c28;
-  --surface3: #24243a;
-  --border: #2a2a3e;
-  --accent: #7c6af7;
-  --accent2: #a78bfa;
-  --text: #e8e8f0;
-  --muted: #7a7a94;
-  --success: #4ade80;
-  --error: #f87171;
+  /* Warm film-studio palette */
+  --bg:       oklch(0.17 0.012 60);
+  --surface:  oklch(0.21 0.014 62);
+  --surface2: oklch(0.25 0.016 64);
+  --surface3: oklch(0.30 0.018 65);
+  --border:   oklch(0.32 0.015 65 / 0.55);
+  --accent:   oklch(0.78 0.145 70);
+  --accent2:  oklch(0.86 0.11  70);
+  --text:     oklch(0.95 0.02  85);
+  --muted:    oklch(0.50 0.022 72);
+  --success:  oklch(0.75 0.14 155);
+  --error:    oklch(0.70 0.18  25);
+
+  /* extended tokens used by new components */
+  --bg-0: var(--bg);
+  --bg-1: var(--surface);
+  --bg-2: var(--surface2);
+  --bg-3: var(--surface3);
+  --fg-0: var(--text);
+  --fg-1: oklch(0.82 0.025 80);
+  --fg-2: oklch(0.62 0.025 75);
+  --fg-3: var(--muted);
+  --amber: var(--accent);
+  --amber-dim: oklch(0.52 0.10 68);
+  --line: var(--border);
+  --line-soft: oklch(0.32 0.015 65 / 0.25);
+  --r-sm: 6px; --r-md: 10px; --r-lg: 14px;
+  --type-display: "Instrument Serif", Georgia, serif;
+  --type-ui: "Inter", system-ui, sans-serif;
+  --type-mono: "JetBrains Mono", ui-monospace, monospace;
+  --shadow-2: 0 1px 0 oklch(1 0 0 / 0.05) inset, 0 18px 48px oklch(0 0 0 / 0.55);
 }
 
 html { height: 100%; }
@@ -26,7 +49,8 @@ body {
   min-height: 100%;
   background: var(--bg);
   color: var(--text);
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-family: var(--type-ui);
+  -webkit-font-smoothing: antialiased;
   overflow-y: auto;
 }
 
@@ -35,7 +59,7 @@ body {
   position: sticky;
   top: 0;
   height: 56px;
-  background: rgba(20,20,28,0.92);
+  background: color-mix(in oklch, var(--surface) 92%, transparent);
   backdrop-filter: blur(12px);
   border-bottom: 1px solid var(--border);
   display: flex;
