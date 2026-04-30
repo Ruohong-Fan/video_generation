@@ -796,19 +796,19 @@ body {
   let searchQuery = '';
 
   function renderGrid() {
-    const grid  = document.getElementById('project-grid');
-    const empty = document.getElementById('empty-state');
-    const sub   = document.getElementById('p-subtitle');
+    const container = document.getElementById('project-grid');
+    const empty     = document.getElementById('empty-state');
+    const sub       = document.getElementById('p-subtitle');
 
     let entries = Object.entries(projects).sort(
       ([,a],[,b]) => (b.updated_at || b.created_at || 0) - (a.updated_at || a.created_at || 0)
     );
 
-    // Apply sidebar filter
+    // Apply filter
     if (activeFilter === 'favorites') entries = entries.filter(([,p]) => p.favorite);
     else if (activeFilter === 'archived') entries = entries.filter(([,p]) => p.archived);
     else if (activeFilter === 'recent') entries = entries.slice(0, 6);
-    else entries = entries.filter(([,p]) => !p.archived); // 'all'
+    else entries = entries.filter(([,p]) => !p.archived);
 
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
@@ -816,16 +816,76 @@ body {
     }
 
     if (sub) sub.textContent = `${entries.length} project${entries.length !== 1 ? 's' : ''}`;
-    grid.innerHTML = '';
-
     updateSidebarCounts();
 
-    if (!entries.length) { empty.style.display = 'block'; return; }
+    if (!entries.length) {
+      container.innerHTML = '';
+      container.className = 'project-grid';
+      empty.style.display = 'flex';
+      return;
+    }
     empty.style.display = 'none';
 
-    // "New project" card always first
-    grid.appendChild(makeNewCard());
-    for (const [id, project] of entries) grid.appendChild(makeCard(id, project));
+    if (currentView === 'list') {
+      container.className = '';
+      container.innerHTML = '';
+      const list = document.createElement('div');
+      list.className = 'p-list';
+      list.innerHTML = `<div class="p-list-head">
+        <span></span><span>Name</span><span>Tags</span><span>Updated</span><span>Status</span>
+      </div>`;
+      for (const [id, project] of entries) list.appendChild(makeListRow(id, project));
+      container.appendChild(list);
+    } else {
+      container.className = 'project-grid';
+      container.innerHTML = '';
+      container.appendChild(makeNewCard());
+      for (const [id, project] of entries) container.appendChild(makeCard(id, project));
+    }
+  }
+
+  function makeListRow(id, project) {
+    const row = document.createElement('div');
+    row.className = 'p-list-row' + (selected.has(id) ? ' selected' : '');
+    row.dataset.id = id;
+
+    const status      = project.archived ? 'archived' : 'ready';
+    const statusColor = project.archived ? 'var(--muted)' : 'var(--success)';
+    const statusLabel = project.archived ? 'Archived' : 'Ready';
+    const tags        = (project.tags || []).slice(0, 2);
+    const tagsHtml    = tags.map(t => `<span class="p-tag">${esc(t)}</span>`).join('');
+    const ts          = project.updated_at || project.created_at;
+
+    row.innerHTML = `
+      <div class="p-checkbox${selected.has(id) ? ' on' : ''}" data-action="check">
+        ${selected.has(id) ? '<svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M3.5 8.5l3 3 6-7"/></svg>' : ''}
+      </div>
+      <div class="p-list-name">
+        <div class="p-list-thumb"></div>
+        <div class="p-list-name-text">
+          <strong>${esc(project.name)}</strong>
+          ${project.description ? `<span>${esc(project.description)}</span>` : ''}
+        </div>
+      </div>
+      <div class="p-list-tags">${tagsHtml}</div>
+      <span style="color:var(--muted);font-size:11px">${ts ? timeAgo(ts) : '—'}</span>
+      <span class="p-list-status" style="color:${statusColor}">
+        <span class="dot"></span>${statusLabel}
+      </span>
+    `;
+
+    row.addEventListener('click', (e) => {
+      if (e.target.closest('[data-action="check"]')) {
+        e.stopPropagation();
+        toggleSelect(id);
+        return;
+      }
+      if (e.shiftKey || e.metaKey || e.ctrlKey) { toggleSelect(id); return; }
+      if (e.target.closest('[data-action]')) return;
+      location.href = '/workflow?project=' + encodeURIComponent(id);
+    });
+    row.addEventListener('contextmenu', (e) => { e.preventDefault(); openCtxMenu(id, null, e.clientX, e.clientY); });
+    return row;
   }
 
   function makeNewCard() {
@@ -1013,34 +1073,45 @@ body {
 
   // ── Delete modal ──────────────────────────────────────────────────────────
   const deleteOverlay = document.getElementById('delete-overlay');
-  let deleteTargetId = null;
+  let deleteIds = [];
 
   function openDeleteModal(id) {
     if (!id || !projects[id]) return;
-    deleteTargetId = id;
-    const title = document.getElementById('delete-title');
-    title.textContent = `Delete "${projects[id].name}"?`;
+    deleteIds = [id];
+    document.getElementById('delete-title').textContent = `Delete "${projects[id].name}"?`;
+    deleteOverlay.style.display = 'grid';
+  }
+
+  function openBulkDeleteModal(ids) {
+    deleteIds = ids;
+    const noun = ids.length === 1 ? `"${projects[ids[0]]?.name}"` : ids.length + ' projects';
+    document.getElementById('delete-title').textContent = `Delete ${noun}?`;
     deleteOverlay.style.display = 'grid';
   }
 
   function closeDeleteModal() {
     deleteOverlay.style.display = 'none';
-    deleteTargetId = null;
+    deleteIds = [];
   }
 
   document.getElementById('delete-cancel').addEventListener('click', closeDeleteModal);
   deleteOverlay.addEventListener('click', (e) => { if (e.target === deleteOverlay) closeDeleteModal(); });
 
   document.getElementById('delete-confirm').addEventListener('click', async () => {
-    const id = deleteTargetId;
-    if (!id) return;
+    const ids = [...deleteIds];
+    if (!ids.length) return;
     closeDeleteModal();
     try {
-      const d = await fetch('/api/projects/' + encodeURIComponent(id), { method: 'DELETE' }).then(r => r.json());
-      if (!d.ok) throw new Error(d.error);
-      delete projects[id];
+      for (const id of ids) {
+        const d = await fetch('/api/projects/' + encodeURIComponent(id), { method: 'DELETE' }).then(r => r.json());
+        if (!d.ok) throw new Error(d.error);
+        delete projects[id];
+        selected.delete(id);
+      }
+      updateSelbar();
+      updateSidebarCounts();
       renderGrid();
-      toast('Project deleted');
+      toast(ids.length === 1 ? 'Project deleted' : ids.length + ' projects deleted');
     } catch (e) { toast('Delete failed: ' + e.message, 'error'); }
   });
 
@@ -1137,6 +1208,69 @@ body {
   document.getElementById('search-input').addEventListener('input', (e) => {
     searchQuery = e.target.value.trim();
     renderGrid();
+  });
+
+  // ── Multi-select ──────────────────────────────────────────────────────────
+  const selected = new Set();
+
+  function updateSelbar() {
+    const selbar = document.getElementById('selbar');
+    const count  = document.getElementById('selbar-count');
+    if (selected.size > 0) {
+      selbar.style.display = 'flex';
+      count.textContent = selected.size + ' selected';
+    } else {
+      selbar.style.display = 'none';
+    }
+  }
+
+  function toggleSelect(id) {
+    if (selected.has(id)) selected.delete(id);
+    else selected.add(id);
+    updateSelbar();
+    renderGrid();
+  }
+
+  document.getElementById('selbar-clear').addEventListener('click', () => {
+    selected.clear();
+    updateSelbar();
+    renderGrid();
+  });
+
+  document.getElementById('selbar-archive').addEventListener('click', async () => {
+    const ids = [...selected];
+    for (const id of ids) {
+      const p = projects[id];
+      if (!p) continue;
+      const next = !p.archived;
+      await fetch('/api/projects/' + id, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ archived: next }) });
+      p.archived = next;
+    }
+    selected.clear();
+    updateSelbar();
+    updateSidebarCounts();
+    renderGrid();
+  });
+
+  document.getElementById('selbar-duplicate').addEventListener('click', async () => {
+    const ids = [...selected];
+    for (const id of ids) {
+      const p = projects[id];
+      if (!p) continue;
+      const res = await fetch('/api/projects', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: p.name + ' copy', description: p.description || '', tags: p.tags || [] }) });
+      const data = await res.json();
+      if (data.id) projects[data.id] = data;
+    }
+    selected.clear();
+    updateSelbar();
+    updateSidebarCounts();
+    renderGrid();
+  });
+
+  document.getElementById('selbar-delete').addEventListener('click', () => {
+    const ids = [...selected];
+    if (!ids.length) return;
+    openBulkDeleteModal(ids);
   });
 
   // ── View toggle ───────────────────────────────────────────────────────────
