@@ -111,11 +111,11 @@ body {
   gap: 6px;
   font-family: inherit;
 }
-.btn:hover { background: var(--surface3); border-color: var(--accent); }
+.btn:hover { background: var(--surface3); border-color: var(--surface3); }
 .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
-.btn.primary:hover { background: var(--accent2); border-color: var(--accent2); }
+.btn.primary:hover { background: var(--accent2); border-color: var(--accent2); color: #fff; }
 .btn.ghost { background: transparent; border-color: var(--border); color: var(--fg-1); }
-.btn.ghost:hover { background: var(--surface2); border-color: var(--surface3); color: var(--text); }
+.btn.ghost:hover { background: var(--surface2); border-color: var(--surface3); color: var(--fg-1); }
 .btn.danger:hover { border-color: var(--error); color: var(--error); background: oklch(0.70 0.18 25 / 0.07); }
 .btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
@@ -473,7 +473,7 @@ body {
 }
 .p-list-head {
   display: grid;
-  grid-template-columns: 32px 1fr 120px 90px 80px;
+  grid-template-columns: 32px 1fr 90px 80px;
   align-items: center; gap: 12px; padding: 9px 14px;
   background: var(--surface2);
   font-family: var(--type-mono); font-size: 10px;
@@ -482,7 +482,7 @@ body {
 }
 .p-list-row {
   display: grid;
-  grid-template-columns: 32px 1fr 120px 90px 80px;
+  grid-template-columns: 32px 1fr 90px 80px;
   align-items: center; gap: 12px; padding: 10px 14px;
   border-bottom: 1px solid var(--line-soft);
   cursor: pointer; transition: background 0.1s;
@@ -832,7 +832,7 @@ body {
       const list = document.createElement('div');
       list.className = 'p-list';
       list.innerHTML = `<div class="p-list-head">
-        <span></span><span>Name</span><span>Tags</span><span>Updated</span><span>Status</span>
+        <span></span><span>Name</span><span>Updated</span><span>Status</span>
       </div>`;
       for (const [id, project] of entries) list.appendChild(makeListRow(id, project));
       container.appendChild(list);
@@ -852,9 +852,7 @@ body {
     const status      = project.archived ? 'archived' : 'ready';
     const statusColor = project.archived ? 'var(--muted)' : 'var(--success)';
     const statusLabel = project.archived ? 'Archived' : 'Ready';
-    const tags        = (project.tags || []).slice(0, 2);
-    const tagsHtml    = tags.map(t => `<span class="p-tag">${esc(t)}</span>`).join('');
-    const ts          = project.updated_at || project.created_at;
+    const ts = project.updated_at || project.created_at;
 
     row.innerHTML = `
       <div class="p-checkbox${selected.has(id) ? ' on' : ''}" data-action="check">
@@ -867,7 +865,6 @@ body {
           ${project.description ? `<span>${esc(project.description)}</span>` : ''}
         </div>
       </div>
-      <div class="p-list-tags">${tagsHtml}</div>
       <span style="color:var(--muted);font-size:11px">${ts ? timeAgo(ts) : '—'}</span>
       <span class="p-list-status" style="color:${statusColor}">
         <span class="dot"></span>${statusLabel}
@@ -913,7 +910,7 @@ body {
     const badgeLabel = project.archived ? 'Archived' : 'Ready';
     const tags       = (project.tags || []);
     const tagsHtml   = tags.map(t => `<span class="p-tag">${esc(t)}</span>`).join('');
-    const initial    = (project.name || '?')[0].toUpperCase();
+    const userInitial = document.querySelector('.topbar-avatar')?.textContent?.trim() || '?';
 
     card.innerHTML = `
       <div class="p-cover">
@@ -935,7 +932,7 @@ body {
       </div>
       <div class="p-card-foot">
         <div class="p-collab">
-          <div class="p-collab-pip">${esc(initial)}</div>
+          <div class="p-collab-pip">${esc(userInitial)}</div>
         </div>
         <button class="p-card-action" title="Rename" data-action="rename">
           <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M3 4h10M8 4v9M5 13h6"/></svg>
