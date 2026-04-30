@@ -339,6 +339,20 @@ body {
 .p-card-fav.on { opacity: 1; color: var(--amber); }
 .p-card-fav:hover { color: var(--amber); }
 
+/* ── Selection bar ───────────────────────────────────────────────────────── */
+.p-selbar {
+  position: sticky; top: 0; z-index: 8;
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 14px; margin-bottom: 14px;
+  background: var(--surface); border: 1px solid var(--amber-dim);
+  border-radius: var(--r-md);
+  box-shadow: 0 12px 32px oklch(0 0 0 / 0.4), 0 0 24px oklch(0.78 0.145 70 / 0.15);
+}
+.p-selbar-count {
+  padding: 0 8px; font-family: var(--type-mono);
+  font-size: 11px; color: var(--accent);
+}
+
 /* ── Empty state ─────────────────────────────────────────────────────────── */
 .empty-state {
   text-align: center; padding: 80px 20px;
@@ -422,6 +436,87 @@ body {
   margin-bottom: 2px;
 }
 .template-card-desc { font-size: 11px; color: var(--muted); line-height: 1.4; }
+
+/* ── Toolbar ─────────────────────────────────────────────────────────────── */
+.p-toolbar {
+  display: flex; align-items: center; gap: 8px;
+  margin-bottom: 18px; padding-bottom: 14px;
+  border-bottom: 1px solid var(--border);
+}
+.p-tabs { display: flex; gap: 2px; }
+.p-tab {
+  padding: 6px 12px; font-size: 12px; font-weight: 500;
+  color: var(--muted); border-radius: var(--r-sm); cursor: pointer;
+}
+.p-tab:hover { color: var(--text); background: var(--surface2); }
+.p-tab.active { color: var(--accent); background: oklch(0.78 0.145 70 / 0.12); }
+.p-tab .pill {
+  margin-left: 5px; font-family: var(--type-mono); font-size: 10px;
+  background: oklch(0 0 0 / 0.3); padding: 1px 5px; border-radius: 3px; color: var(--muted);
+}
+.p-tab.active .pill { color: var(--accent); }
+.p-toolbar-spacer { flex: 1; }
+.p-view-seg {
+  display: flex; gap: 0; padding: 2px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-sm);
+}
+.p-view-seg button {
+  padding: 4px 8px; border-radius: 4px; color: var(--muted); cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+.p-view-seg button.active { background: var(--surface3); color: var(--text); }
+
+/* ── List view ───────────────────────────────────────────────────────────── */
+.p-list {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--r-md); overflow: hidden;
+}
+.p-list-head {
+  display: grid;
+  grid-template-columns: 32px 1fr 120px 90px 80px;
+  align-items: center; gap: 12px; padding: 9px 14px;
+  background: var(--surface2);
+  font-family: var(--type-mono); font-size: 10px;
+  letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted);
+  border-bottom: 1px solid var(--border);
+}
+.p-list-row {
+  display: grid;
+  grid-template-columns: 32px 1fr 120px 90px 80px;
+  align-items: center; gap: 12px; padding: 10px 14px;
+  border-bottom: 1px solid var(--line-soft);
+  cursor: pointer; transition: background 0.1s;
+  font-size: 12px; color: var(--fg-1);
+}
+.p-list-row:last-child { border-bottom: none; }
+.p-list-row:hover { background: var(--surface2); }
+.p-list-row.selected { background: oklch(0.78 0.145 70 / 0.08); }
+.p-list-name {
+  display: flex; align-items: center; gap: 10px; min-width: 0;
+}
+.p-list-thumb {
+  width: 40px; height: 26px; border-radius: 4px;
+  background: repeating-linear-gradient(45deg, oklch(0.22 0.01 65), oklch(0.22 0.01 65) 4px, oklch(0.25 0.012 65) 4px, oklch(0.25 0.012 65) 8px);
+  flex-shrink: 0; display: grid; place-items: center;
+  font-family: var(--type-mono); font-size: 8px; color: var(--muted); letter-spacing: 0.05em;
+}
+.p-list-name-text { min-width: 0; }
+.p-list-name-text strong { display: block; color: var(--text); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.p-list-name-text span { font-size: 11px; color: var(--muted); }
+.p-list-status {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-family: var(--type-mono); font-size: 10px;
+  text-transform: uppercase; letter-spacing: 0.05em;
+}
+.p-list-status .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.p-list-tags { display: flex; gap: 4px; flex-wrap: wrap; }
+.p-checkbox {
+  width: 16px; height: 16px; border-radius: 3px;
+  border: 1px solid var(--muted); display: grid; place-items: center;
+  background: var(--bg); cursor: pointer; flex-shrink: 0;
+  color: oklch(0.18 0.03 65); transition: background 0.1s, border-color 0.1s;
+}
+.p-checkbox.on { background: var(--accent); border-color: var(--accent); }
 
 /* ── Context menu ────────────────────────────────────────────────────────── */
 .ctx-menu {
@@ -520,6 +615,44 @@ body {
     <h1 class="p-title">Your <em>projects</em></h1>
     <p class="p-subtitle" id="p-subtitle">0 projects</p>
   </div>
+
+  <!-- Toolbar -->
+  <div class="p-toolbar">
+    <div class="p-tabs">
+      <button class="p-tab active" data-tab="all">All <span class="pill" id="tab-count-all">0</span></button>
+      <button class="p-tab" data-tab="favorites">Favorites <span class="pill" id="tab-count-fav">0</span></button>
+      <button class="p-tab" data-tab="archived">Archived <span class="pill" id="tab-count-arch">0</span></button>
+    </div>
+    <div class="p-toolbar-spacer"></div>
+    <div class="p-view-seg">
+      <button id="view-grid" class="active" title="Grid view">
+        <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" stroke="none"><circle cx="4" cy="4" r=".9"/><circle cx="8" cy="4" r=".9"/><circle cx="12" cy="4" r=".9"/><circle cx="4" cy="8" r=".9"/><circle cx="8" cy="8" r=".9"/><circle cx="12" cy="8" r=".9"/><circle cx="4" cy="12" r=".9"/><circle cx="8" cy="12" r=".9"/><circle cx="12" cy="12" r=".9"/></svg>
+      </button>
+      <button id="view-list" title="List view">
+        <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M3 4h10M3 8h10M3 12h10"/></svg>
+      </button>
+    </div>
+  </div>
+
+  <!-- Selection bar (hidden until items selected) -->
+  <div class="p-selbar" id="selbar" style="display:none">
+    <span class="p-selbar-count" id="selbar-count">0 selected</span>
+    <button class="btn ghost" id="selbar-archive">
+      <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2 5a1 1 0 0 1 1-1h3l1.5 1.5H13a1 1 0 0 1 1 1V12a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V5z"/></svg>Archive
+    </button>
+    <button class="btn ghost" id="selbar-duplicate">
+      <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="8" height="8" rx="1"/><path d="M4 4V3a1 1 0 0 1 1-1h7a1 1 0 0 1 1 1v7"/></svg>Duplicate
+    </button>
+    <button class="btn danger" id="selbar-delete">
+      <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M3 4.5h10M6 4.5V3a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v1.5M5 4.5v8a1 1 0 0 0 1 1h4a1 1 0 0 0 1-1v-8"/></svg>Delete
+    </button>
+    <div style="margin-left:auto">
+      <button class="btn ghost" id="selbar-clear">
+        <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 4l8 8M12 4l-8 8"/></svg>Clear
+      </button>
+    </div>
+  </div>
+
   <div id="project-grid" class="project-grid"></div>
   <div id="empty-state" class="empty-state" style="display:none">
     <svg width="32" height="32" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" style="opacity:0.4;margin-bottom:14px"><path d="M8 2L2 5l6 3 6-3-6-3z"/><path d="M2 8l6 3 6-3M2 11l6 3 6-3"/></svg>
@@ -1006,6 +1139,33 @@ body {
     renderGrid();
   });
 
+  // ── View toggle ───────────────────────────────────────────────────────────
+  let currentView = 'grid';
+
+  document.getElementById('view-grid').addEventListener('click', () => {
+    currentView = 'grid';
+    document.getElementById('view-grid').classList.add('active');
+    document.getElementById('view-list').classList.remove('active');
+    renderGrid();
+  });
+  document.getElementById('view-list').addEventListener('click', () => {
+    currentView = 'list';
+    document.getElementById('view-list').classList.add('active');
+    document.getElementById('view-grid').classList.remove('active');
+    renderGrid();
+  });
+
+  // ── Toolbar tabs ──────────────────────────────────────────────────────────
+  document.querySelectorAll('.p-tab[data-tab]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      activeFilter = btn.dataset.tab;
+      document.querySelectorAll('.p-tab[data-tab]').forEach(b => b.classList.toggle('active', b === btn));
+      // sync sidebar
+      document.querySelectorAll('.p-side-item[data-filter]').forEach(el => el.classList.toggle('active', el.dataset.filter === activeFilter));
+      renderGrid();
+    });
+  });
+
   // Sidebar filter
   let activeFilter = 'all';
   document.querySelectorAll('.p-side-item[data-filter]').forEach(el => {
@@ -1013,6 +1173,8 @@ body {
       activeFilter = el.dataset.filter;
       document.querySelectorAll('.p-side-item[data-filter]').forEach(x => x.classList.remove('active'));
       el.classList.add('active');
+      // sync toolbar tabs
+      document.querySelectorAll('.p-tab[data-tab]').forEach(b => b.classList.toggle('active', b.dataset.tab === activeFilter));
       renderGrid();
     });
   });
@@ -1021,12 +1183,9 @@ body {
     const all  = Object.values(projects).filter(p => !p.archived).length;
     const fav  = Object.values(projects).filter(p => p.favorite).length;
     const arch = Object.values(projects).filter(p => p.archived).length;
-    const allEl = document.getElementById('side-count-all');
-    const favEl = document.getElementById('side-count-fav');
-    const archEl = document.getElementById('side-count-arch');
-    if (allEl)  allEl.textContent  = all;
-    if (favEl)  favEl.textContent  = fav;
-    if (archEl) archEl.textContent = arch;
+    ['side-count-all', 'tab-count-all'].forEach(id => { const el = document.getElementById(id); if (el) el.textContent = all; });
+    ['side-count-fav', 'tab-count-fav'].forEach(id => { const el = document.getElementById(id); if (el) el.textContent = fav; });
+    ['side-count-arch', 'tab-count-arch'].forEach(id => { const el = document.getElementById(id); if (el) el.textContent = arch; });
   }
 
   loadProjects();
