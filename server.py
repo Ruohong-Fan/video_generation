@@ -701,6 +701,190 @@ def image2image():
     return jsonify(_start_task(cmd, f"image2image: {prompt[:60]}"))
 
 
+# ── API: Text generation via Doubao (multi-modal in, text out) ───────────────
+
+DOUBAO_URL = "https://ark.cn-beijing.volces.com/api/v3/responses"
+DOUBAO_MODEL = os.environ.get("DOUBAO_MODEL", "doubao-seed-2-0-pro-260215")
+
+_IMG_EXT_TO_MIME = {
+    ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png",
+    ".webp": "image/webp", ".gif": "image/gif", ".bmp": "image/bmp",
+}
+
+
+def _image_to_data_url(local_path: str) -> str | None:
+    """Read a local image file and return a base64 data URL the API can fetch."""
+    import base64
+    try:
+        p = Path(local_path)
+        if not p.exists() or not p.is_file():
+            return None
+        mime = _IMG_EXT_TO_MIME.get(p.suffix.lower(), "image/jpeg")
+        with open(p, "rb") as f:
+            b64 = base64.b64encode(f.read()).decode("ascii")
+        return f"data:{mime};base64,{b64}"
+    except Exception:
+        return None
+
+
+def _resolve_image_url_for_doubao(ref: str) -> str | None:
+    """Turn a frontend-supplied image reference into something the Doubao API
+    can fetch. Public http(s) URLs pass through; local /uploads/ paths and
+    absolute filesystem paths are inlined as base64 data URLs."""
+    if not ref:
+        return None
+    if ref.startswith(("http://", "https://", "data:")):
+        return ref
+    candidate = ref
+    if ref.startswith("/uploads/"):
+        candidate = str(UPLOAD_DIR / ref[len("/uploads/"):])
+    return _image_to_data_url(candidate)
+
+
+@app.post("/api/text")
+def text_generate():
+    """Multi-modal text generation via Doubao Ark Responses API.
+
+    Body shape:
+      {
+        "prompt": "Write a 30s product script…",
+        "inputs": [
+          {"type": "text",  "content": "Product: AeroBrew kettle"},
+          {"type": "text",  "content": "Selling points: 90s boil, app-controlled"},
+          {"type": "image", "url":  "/uploads/xxx.jpg"},
+          {"type": "image", "url":  "https://…/photo.png"},
+          {"type": "video", "url":  "/uploads/yyy.mp4", "label": "Hero teaser"}
+        ]
+      }
+
+    The Doubao endpoint currently accepts text + image content parts. Videos
+    are surfaced to the model as a textual reference line so the prompt still
+    gets that context even though the bytes can't be sent directly.
+    """
+    api_key = os.environ.get("ARK_API_KEY", "").strip()
+    if not api_key:
+        return jsonify({
+            "ok": False,
+            "error": "ARK_API_KEY is not set on the server. Export it before starting the server.",
+        }), 500
+
+    data = request.get_json(silent=True) or {}
+    prompt = (data.get("prompt") or "").strip()
+    raw_inputs = data.get("inputs") or []
+    if not prompt and not raw_inputs:
+        return jsonify({"ok": False, "error": "prompt or inputs is required"}), 400
+
+    content_parts: list[dict] = []
+    video_notes: list[str] = []
+    skipped_images: list[str] = []
+
+    for item in raw_inputs:
+        if not isinstance(item, dict):
+            continue
+        kind = (item.get("type") or "").lower()
+        if kind == "text":
+            txt = (item.get("content") or item.get("text") or "").strip()
+            if txt:
+                content_parts.append({"type": "input_text", "text": txt})
+        elif kind == "image":
+            ref = item.get("url") or item.get("path") or ""
+            resolved = _resolve_image_url_for_doubao(ref)
+            if resolved:
+                content_parts.append({"type": "input_image", "image_url": resolved})
+            else:
+                skipped_images.append(ref)
+        elif kind == "video":
+            ref = item.get("url") or item.get("path") or ""
+            label = item.get("label") or "Video"
+            if ref:
+                video_notes.append(f"- {label}: {ref}")
+
+    # The user prompt itself goes last so it sits next to the model's response.
+    if video_notes:
+        content_parts.append({
+            "type": "input_text",
+            "text": "Reference videos (URLs, frames not transmitted):\n" + "\n".join(video_notes),
+        })
+    if prompt:
+        content_parts.append({"type": "input_text", "text": prompt})
+
+    if not content_parts:
+        return jsonify({"ok": False, "error": "no usable content after resolving inputs"}), 400
+
+    payload = {
+        "model": DOUBAO_MODEL,
+        "input": [{"role": "user", "content": content_parts}],
+    }
+
+    try:
+        resp = requests.post(
+            DOUBAO_URL,
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            },
+            json=payload,
+            timeout=120,
+        )
+    except requests.RequestException as e:
+        return jsonify({"ok": False, "error": f"Doubao request failed: {e}"}), 502
+
+    if not resp.ok:
+        try:
+            err = resp.json()
+        except Exception:
+            err = {"raw": resp.text[:500]}
+        return jsonify({"ok": False, "error": "Doubao API error", "detail": err}), resp.status_code
+
+    body = resp.json()
+    text = _extract_doubao_text(body)
+    if not text:
+        return jsonify({"ok": False, "error": "Doubao returned no text", "detail": body}), 502
+
+    return jsonify({
+        "ok": True,
+        "text": text,
+        "model": DOUBAO_MODEL,
+        "skipped_images": skipped_images,
+    })
+
+
+def _extract_doubao_text(body: dict) -> str:
+    """Walk the Ark Responses payload and pull out the assistant's text. The
+    shape is `output: [{ content: [{ type: 'output_text', text: '…' }] }]`,
+    but we tolerate a couple of older shapes too."""
+    if not isinstance(body, dict):
+        return ""
+    # New Responses API shape
+    output = body.get("output")
+    if isinstance(output, list):
+        chunks: list[str] = []
+        for item in output:
+            content = (item or {}).get("content")
+            if isinstance(content, list):
+                for c in content:
+                    if isinstance(c, dict) and c.get("type") in ("output_text", "text"):
+                        t = c.get("text") or ""
+                        if t:
+                            chunks.append(t)
+        if chunks:
+            return "\n".join(chunks).strip()
+    # Some variants flatten to output_text
+    ot = body.get("output_text")
+    if isinstance(ot, str) and ot:
+        return ot.strip()
+    if isinstance(ot, list):
+        return "\n".join(s for s in ot if isinstance(s, str)).strip()
+    # Chat-style fallback
+    choices = body.get("choices")
+    if isinstance(choices, list) and choices:
+        msg = (choices[0] or {}).get("message") or {}
+        c = msg.get("content")
+        if isinstance(c, str):
+            return c.strip()
+    return ""
+
+
 # ── API: Upload and Workflow ──────────────────────────────────────────────────
 
 @app.post("/api/upload")
