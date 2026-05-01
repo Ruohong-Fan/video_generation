@@ -1,0 +1,591 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Reel · Sign in</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+button { background: none; border: none; cursor: pointer; font-family: inherit; color: inherit; }
+
+:root {
+  --bg-0: oklch(0.17 0.012 60);
+  --bg-1: oklch(0.21 0.014 62);
+  --bg-2: oklch(0.25 0.016 64);
+  --bg-3: oklch(0.30 0.018 65);
+  --bg-4: oklch(0.36 0.020 66);
+  --line: oklch(0.32 0.015 65 / 0.55);
+  --fg-0: oklch(0.95 0.02 85);
+  --fg-1: oklch(0.82 0.025 80);
+  --fg-2: oklch(0.62 0.025 75);
+  --fg-3: oklch(0.50 0.022 72);
+  --amber: oklch(0.78 0.145 70);
+  --amber-dim: oklch(0.52 0.10 68);
+  --type-display: "Instrument Serif", Georgia, serif;
+  --type-ui: "Inter", system-ui, sans-serif;
+  --type-mono: "JetBrains Mono", ui-monospace, monospace;
+}
+
+html, body { height: 100%; }
+body {
+  background: var(--bg-0);
+  color: var(--fg-0);
+  font-family: var(--type-ui);
+  -webkit-font-smoothing: antialiased;
+  overflow: auto;
+}
+
+.login-shell {
+  min-height: 100vh;
+  display: grid;
+  grid-template-columns: 1.05fr 1fr;
+  background: var(--bg-0);
+}
+@media (max-width: 880px) {
+  .login-shell { grid-template-columns: 1fr; }
+  .login-stage { display: none !important; }
+}
+
+/* Left: cinematic stage */
+.login-stage {
+  position: relative;
+  overflow: hidden;
+  background: oklch(0.13 0.012 60);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 32px 40px 40px;
+  border-right: 1px solid var(--line);
+}
+.stage-grid {
+  position: absolute;
+  inset: 0;
+  background-image: radial-gradient(oklch(0.38 0.02 70 / 0.35) 1px, transparent 1px);
+  background-size: 22px 22px;
+  -webkit-mask-image: radial-gradient(ellipse at 30% 40%, #000 30%, transparent 75%);
+          mask-image: radial-gradient(ellipse at 30% 40%, #000 30%, transparent 75%);
+}
+.stage-vignette {
+  position: absolute; inset: 0;
+  background:
+    radial-gradient(ellipse at 75% 30%, oklch(0.78 0.145 70 / 0.18), transparent 55%),
+    radial-gradient(ellipse at 20% 80%, oklch(0.55 0.12 30 / 0.15), transparent 60%),
+    linear-gradient(to bottom, transparent 60%, oklch(0 0 0 / 0.6));
+  pointer-events: none;
+}
+.stage-mark {
+  position: relative; z-index: 2;
+  display: flex; align-items: baseline; gap: 8px;
+}
+.stage-mark .logo-mark {
+  align-self: center;
+  width: 22px; height: 22px; border-radius: 50%;
+  background: conic-gradient(from 0deg, var(--amber), oklch(0.6 0.15 50), var(--amber));
+  box-shadow: 0 0 0 2px var(--bg-0), 0 0 0 3px var(--amber-dim);
+  position: relative;
+}
+.stage-mark .logo-mark::after {
+  content: ""; position: absolute; inset: 6px;
+  background: var(--bg-0); border-radius: 50%;
+}
+.stage-mark .logo-name {
+  font-family: var(--type-display); font-size: 24px; letter-spacing: -0.01em;
+}
+.stage-mark .logo-sub {
+  font-family: var(--type-mono); font-size: 10px; color: var(--fg-3);
+  text-transform: uppercase; letter-spacing: 0.14em; align-self: center;
+}
+
+/* Floating film cards */
+.stage-mosaic {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.stage-card {
+  position: absolute;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid oklch(1 0 0 / 0.06);
+  box-shadow: 0 24px 60px oklch(0 0 0 / 0.5);
+  background: var(--bg-2);
+}
+.stage-card.c1 { width: 280px; aspect-ratio: 16/10; left: 8%;  top: 22%;    transform: rotate(-3deg);   }
+.stage-card.c2 { width: 240px; aspect-ratio: 9/16;  right: 14%; top: 12%;   transform: rotate(4deg);    }
+.stage-card.c3 { width: 220px; aspect-ratio: 4/3;   left: 36%;  bottom: 24%; transform: rotate(-1.5deg); }
+.stage-card.c4 { width: 180px; aspect-ratio: 1/1;   right: 6%;  bottom: 26%; transform: rotate(6deg);    }
+.stage-card img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.stage-card .label {
+  position: absolute; bottom: 0; left: 0; right: 0;
+  padding: 6px 8px;
+  font-family: var(--type-mono); font-size: 9px; letter-spacing: 0.1em;
+  color: var(--fg-0); text-transform: uppercase;
+  background: linear-gradient(to top, oklch(0 0 0 / 0.7), transparent);
+}
+.stage-card .badge {
+  position: absolute; top: 6px; left: 6px;
+  padding: 2px 6px;
+  font-family: var(--type-mono); font-size: 8px; letter-spacing: 0.1em;
+  background: oklch(0 0 0 / 0.65); color: var(--amber);
+  text-transform: uppercase; border-radius: 3px;
+  display: inline-flex; align-items: center; gap: 4px;
+}
+.stage-card .badge .dot {
+  width: 4px; height: 4px; border-radius: 50%; background: currentColor;
+  box-shadow: 0 0 6px currentColor;
+  animation: pulse 1.2s ease-in-out infinite;
+}
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+/* Quote */
+.stage-quote {
+  position: relative; z-index: 2;
+  max-width: 460px;
+}
+.stage-quote h1 {
+  font-family: var(--type-display);
+  font-style: italic;
+  font-size: clamp(40px, 4.6vw, 60px);
+  line-height: 1.05;
+  margin: 0 0 14px;
+  letter-spacing: -0.01em;
+  color: var(--fg-0);
+  font-weight: normal;
+}
+.stage-quote h1 .accent { color: var(--amber); }
+.stage-quote p {
+  color: var(--fg-2);
+  font-size: 14px;
+  line-height: 1.55;
+  margin: 0;
+  max-width: 380px;
+}
+.stage-meta {
+  position: relative; z-index: 2;
+  display: flex; align-items: center; gap: 16px;
+  color: var(--fg-3);
+  font-family: var(--type-mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.stage-meta .dot-sep { width: 3px; height: 3px; border-radius: 50%; background: currentColor; }
+
+/* Right: form */
+.login-form-wrap {
+  display: grid;
+  place-items: center;
+  padding: 60px 32px;
+  background: var(--bg-0);
+}
+.login-card {
+  width: 100%;
+  max-width: 380px;
+}
+.login-eyebrow {
+  font-family: var(--type-mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  color: var(--fg-3);
+  margin-bottom: 14px;
+  display: flex; align-items: center; gap: 8px;
+}
+.login-eyebrow .line { flex: 1; height: 1px; background: var(--line); }
+.login-card h2 {
+  font-family: var(--type-display);
+  font-size: 44px;
+  line-height: 1;
+  margin: 0 0 8px;
+  letter-spacing: -0.01em;
+  font-weight: normal;
+}
+.login-card h2 em { color: var(--amber); font-style: italic; }
+.login-card .sub {
+  color: var(--fg-2);
+  font-size: 14px;
+  margin: 0 0 28px;
+}
+
+.field-stack { display: flex; flex-direction: column; gap: 14px; }
+.field-wrap { position: relative; }
+.field-wrap > .field-input {
+  width: 100%;
+  padding: 12px 14px 12px 38px;
+  background: var(--bg-1);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--fg-0);
+  font-size: 13px;
+  font-family: inherit;
+  outline: none;
+  transition: border-color 0.12s, background 0.12s;
+}
+.field-wrap > .field-input:focus { border-color: var(--amber); background: var(--bg-2); }
+.field-wrap > .field-input::placeholder { color: var(--fg-3); }
+.field-wrap .field-icon {
+  position: absolute;
+  left: 12px; top: 50%;
+  transform: translateY(-50%);
+  color: var(--fg-3);
+  pointer-events: none;
+  display: inline-flex;
+}
+.field-wrap .field-icon.right {
+  left: auto; right: 12px;
+  pointer-events: auto;
+  cursor: pointer;
+  background: none; border: none; padding: 0;
+  color: var(--fg-3);
+}
+.field-wrap .field-icon.right:hover { color: var(--fg-0); }
+.field-label-row {
+  display: flex; justify-content: space-between; align-items: baseline;
+  margin-bottom: 6px;
+}
+.field-label {
+  font-family: var(--type-mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--fg-3);
+}
+.field-label-row a {
+  font-size: 11px; color: var(--amber); text-decoration: none;
+}
+.field-label-row a:hover { text-decoration: underline; }
+
+.remember {
+  display: flex; align-items: center; gap: 8px;
+  color: var(--fg-2);
+  font-size: 12px;
+  margin: 4px 0 8px;
+  cursor: pointer;
+  user-select: none;
+}
+.remember .box {
+  width: 14px; height: 14px;
+  border: 1px solid var(--fg-3);
+  border-radius: 3px;
+  background: var(--bg-1);
+  display: grid; place-items: center;
+  color: oklch(0.18 0.03 65);
+  transition: background 0.12s, border-color 0.12s;
+}
+.remember.on .box { background: var(--amber); border-color: var(--amber); }
+.remember:hover { color: var(--fg-0); }
+
+.submit-btn {
+  width: 100%;
+  padding: 12px;
+  font-size: 13px;
+  font-weight: 600;
+  background: var(--amber);
+  color: oklch(0.18 0.03 65);
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  transition: background 0.12s, transform 0.05s;
+}
+.submit-btn:hover { background: oklch(0.82 0.15 72); }
+.submit-btn:active { transform: scale(0.99); }
+.submit-btn:disabled { background: var(--bg-3); color: var(--fg-3); cursor: not-allowed; }
+
+.invite-only {
+  margin-top: 22px;
+  padding: 12px 14px;
+  background: var(--bg-1);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-size: 12px;
+  color: var(--fg-2);
+  line-height: 1.5;
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+}
+.invite-only .icon-wrap {
+  width: 22px; height: 22px;
+  border-radius: 4px;
+  background: oklch(0.78 0.145 70 / 0.12);
+  color: var(--amber);
+  display: grid; place-items: center;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+.invite-only strong { color: var(--fg-0); font-weight: 600; }
+.invite-only a { color: var(--amber); text-decoration: none; }
+.invite-only a:hover { text-decoration: underline; }
+
+.login-foot {
+  margin-top: 30px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  color: var(--fg-3);
+  font-size: 11px;
+}
+.login-foot a { color: var(--fg-2); text-decoration: none; }
+.login-foot a:hover { color: var(--fg-0); }
+
+.form-error {
+  background: oklch(0.70 0.18 25 / 0.10);
+  border: 1px solid oklch(0.70 0.18 25 / 0.4);
+  color: oklch(0.85 0.12 25);
+  padding: 10px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  display: flex; gap: 8px; align-items: center;
+  margin-bottom: 14px;
+}
+</style>
+</head>
+<body>
+
+<div class="login-shell">
+  <!-- Left stage -->
+  <aside class="login-stage">
+    <div class="stage-grid"></div>
+    <div class="stage-vignette"></div>
+
+    <div class="stage-mosaic" id="stage-mosaic">
+      <div class="stage-card c1">
+        <img alt="" data-placeholder="rain window|600|380|240"/>
+        <span class="badge"><span class="dot"></span> Live</span>
+        <span class="label">Noir Detective · Scene 01</span>
+      </div>
+      <div class="stage-card c2">
+        <img alt="" data-placeholder="character ref|360|640|30"/>
+        <span class="label">Detective · turnaround</span>
+      </div>
+      <div class="stage-card c3">
+        <img alt="" data-placeholder="interrogation|480|360|60"/>
+        <span class="label">Shot 02 · wide</span>
+      </div>
+      <div class="stage-card c4">
+        <img alt="" data-placeholder="steam|360|360|80"/>
+        <span class="label">Coffee ritual</span>
+      </div>
+    </div>
+
+    <header class="stage-mark">
+      <div class="logo-mark"></div>
+      <div class="logo-name">Reel</div>
+      <div class="logo-sub">studio</div>
+    </header>
+
+    <div class="stage-quote">
+      <h1>Direct your <span class="accent">whole film</span> on a single canvas.</h1>
+      <p>Compose prompts, references, and shots as nodes — then run any branch, any subset, or the whole graph at once.</p>
+    </div>
+
+    <footer class="stage-meta">
+      <span>v 4.2 · spring release</span>
+      <span class="dot-sep"></span>
+      <span>2,400 studios · 18M renders</span>
+    </footer>
+  </aside>
+
+  <!-- Right form -->
+  <main class="login-form-wrap">
+    <div class="login-card">
+      <div class="login-eyebrow">
+        <span class="line"></span>
+        Sign in
+        <span class="line"></span>
+      </div>
+      <h2>Welcome <em>back</em>.</h2>
+      <p class="sub">Pick up where your last render left off.</p>
+
+      <div class="form-error" id="form-error" style="display:none">
+        <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 4l8 8M12 4l-8 8"/></svg>
+        <span id="form-error-text"></span>
+      </div>
+
+      <form class="field-stack" id="login-form" novalidate>
+        <div>
+          <div class="field-label-row">
+            <label class="field-label" for="login-email">Email</label>
+          </div>
+          <div class="field-wrap">
+            <span class="field-icon">
+              <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="2" y="3.5" width="12" height="9" rx="1.5"/><path d="M2.5 4.5l5.5 4 5.5-4"/>
+              </svg>
+            </span>
+            <input id="login-email" class="field-input" type="email" autocomplete="username"
+                   placeholder="director@studio.com" autofocus />
+          </div>
+        </div>
+
+        <div>
+          <div class="field-label-row">
+            <label class="field-label" for="login-password">Password</label>
+            <a href="#" id="forgot-link">Forgot?</a>
+          </div>
+          <div class="field-wrap">
+            <span class="field-icon">
+              <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="3" y="7" width="10" height="7" rx="1.5"/><path d="M5 7V5a3 3 0 0 1 6 0v2"/>
+              </svg>
+            </span>
+            <input id="login-password" class="field-input" type="password" autocomplete="current-password"
+                   placeholder="••••••••••••" />
+            <button type="button" id="toggle-password" class="field-icon right" title="Show password" aria-label="Show password">
+              <svg id="eye-icon" width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M1.5 8s2.5-4.5 6.5-4.5S14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8z"/><circle cx="8" cy="8" r="2"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        <label class="remember on" id="remember-toggle">
+          <span class="box">
+            <svg id="check-icon" width="9" height="9" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M3.5 8.5l3 3 6-7"/></svg>
+          </span>
+          Keep me signed in on this device
+        </label>
+
+        <button type="submit" class="submit-btn" id="submit-btn">
+          <span id="submit-label">Sign in</span>
+          <svg id="submit-arrow" width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 4l4 4-4 4"/></svg>
+        </button>
+      </form>
+
+      <div class="invite-only">
+        <span class="icon-wrap">
+          <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 13l4-4M11 5l-2 2M9 3l4 4M5 11l-2 2"/><circle cx="13" cy="3" r="1.2"/></svg>
+        </span>
+        <div>
+          <strong>Reel is invite-only.</strong> No public sign-up yet — <a href="mailto:hello@reel.studio?subject=Request%20access">request access</a> and we'll get back within 48 hours.
+        </div>
+      </div>
+
+      <div class="login-foot">
+        <span>© 2026 Reel Studio</span>
+        <div style="display:flex; gap:14px">
+          <a href="#">Terms</a>
+          <a href="#">Privacy</a>
+          <a href="#">Status</a>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<script>
+  // ── Placeholder image generator (mirrors design's SVG mock images) ──
+  function placeholder(label, w, h, hue) {
+    const svg = `<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 ${w} ${h}'>
+      <defs>
+        <linearGradient id='g' x1='0' y1='0' x2='1' y2='1'>
+          <stop offset='0' stop-color='oklch(0.32 0.04 ${hue})'/>
+          <stop offset='1' stop-color='oklch(0.18 0.02 ${hue})'/>
+        </linearGradient>
+        <pattern id='p' width='14' height='14' patternUnits='userSpaceOnUse' patternTransform='rotate(45)'>
+          <rect width='7' height='14' fill='oklch(0.26 0.02 ${hue})'/>
+          <rect x='7' width='7' height='14' fill='oklch(0.30 0.025 ${hue})'/>
+        </pattern>
+      </defs>
+      <rect width='100%' height='100%' fill='url(#g)'/>
+      <rect width='100%' height='100%' fill='url(#p)' opacity='0.4'/>
+      <text x='50%' y='50%' text-anchor='middle' dominant-baseline='middle'
+        font-family='JetBrains Mono, monospace' font-size='12' letter-spacing='1.2'
+        fill='oklch(0.7 0.04 ${hue} / 0.7)'>${label.toUpperCase()}</text>
+    </svg>`;
+    return "data:image/svg+xml;utf8," + encodeURIComponent(svg);
+  }
+  document.querySelectorAll("img[data-placeholder]").forEach(img => {
+    const [label, w, h, hue] = img.dataset.placeholder.split("|");
+    img.src = placeholder(label, +w, +h, +hue);
+  });
+
+  // ── Form interactions ──
+  const form = document.getElementById("login-form");
+  const emailEl = document.getElementById("login-email");
+  const pwEl = document.getElementById("login-password");
+  const submitBtn = document.getElementById("submit-btn");
+  const submitLabel = document.getElementById("submit-label");
+  const submitArrow = document.getElementById("submit-arrow");
+  const errEl = document.getElementById("form-error");
+  const errText = document.getElementById("form-error-text");
+  const rememberEl = document.getElementById("remember-toggle");
+  const checkIcon = document.getElementById("check-icon");
+  const eyeIcon = document.getElementById("eye-icon");
+  const togglePw = document.getElementById("toggle-password");
+
+  // Remember-me checkbox toggle
+  rememberEl.addEventListener("click", (e) => {
+    e.preventDefault();
+    const on = rememberEl.classList.toggle("on");
+    checkIcon.style.display = on ? "" : "none";
+  });
+
+  // Show/hide password toggle
+  togglePw.addEventListener("click", () => {
+    const showing = pwEl.type === "text";
+    pwEl.type = showing ? "password" : "text";
+    togglePw.title = showing ? "Show password" : "Hide password";
+    togglePw.setAttribute("aria-label", togglePw.title);
+    // Swap eye icon between "open" and "slashed" based on state
+    eyeIcon.innerHTML = showing
+      ? `<path d="M1.5 8s2.5-4.5 6.5-4.5S14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8z"/><circle cx="8" cy="8" r="2"/>`
+      : `<path d="M2 2l12 12"/><path d="M3.5 5.5C2.3 6.6 1.5 8 1.5 8s2.5 4.5 6.5 4.5c1.3 0 2.4-.4 3.4-1"/><path d="M14.5 8s-1.1-2-3-3.3"/><path d="M6.4 6.4a2 2 0 0 0 2.8 2.8"/>`;
+  });
+
+  function showError(msg) {
+    errText.textContent = msg;
+    errEl.style.display = "";
+  }
+  function clearError() {
+    errEl.style.display = "none";
+  }
+
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    clearError();
+
+    const email = emailEl.value.trim();
+    const password = pwEl.value;
+    const remember = rememberEl.classList.contains("on");
+
+    if (!email || !password) {
+      showError("Enter your email and password to continue.");
+      return;
+    }
+
+    submitBtn.disabled = true;
+    submitLabel.textContent = "Signing in…";
+    submitArrow.style.display = "none";
+
+    try {
+      const resp = await fetch("/api/login", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password, remember }),
+      });
+      const data = await resp.json().catch(() => ({}));
+      if (resp.ok && data.ok) {
+        window.location.href = "/";
+        return;
+      }
+      showError(data.error || "Sign-in failed. Please try again.");
+    } catch (err) {
+      showError("Network error — please check your connection and retry.");
+    } finally {
+      submitBtn.disabled = false;
+      submitLabel.textContent = "Sign in";
+      submitArrow.style.display = "";
+    }
+  });
+</script>
+</body>
+</html>
