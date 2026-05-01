@@ -1563,11 +1563,12 @@ body {
     edgeDrag = null;
   }
 
-  canvas.addEventListener('pointerdown', (e) => {
+  canvasWrap.addEventListener('pointerdown', (e) => {
     const handle = e.target.closest('.handle');
     if (!handle) return;
+    if (canvasTool === 'select') return;
     if (handle.dataset.dir !== 'out') return;
-    e.stopPropagation();
+    e.stopImmediatePropagation();
     e.preventDefault();
 
     const fromId = handle.dataset.node;
@@ -1669,7 +1670,7 @@ body {
   // ── Node interactions: click, shift-click, drag ─────────────────────────
   let dragState = null;
 
-  canvas.addEventListener('pointerdown', (e) => {
+  canvasWrap.addEventListener('pointerdown', (e) => {
     const nodeEl = e.target.closest('.node');
     if (!nodeEl) return;
     if (e.button !== 0) return;
@@ -1677,7 +1678,7 @@ body {
     if (e.target.closest('input, textarea, select, button, .handle')) return;
     const node = nodes.get(nodeEl.id);
     if (!node) return;
-    e.stopPropagation();
+    e.stopImmediatePropagation();
 
     // Selection logic on mousedown (like Figma)
     if (e.shiftKey) {
@@ -1778,7 +1779,7 @@ body {
 
     // Select mode: drag to draw a selection box
     const start = screenToWorld(e.clientX, e.clientY);
-    selBoxState = { sx: start.x, sy: start.y, pointerId: e.pointerId, startNodeId: startNode?.id || null };
+    selBoxState = { sx: start.x, sy: start.y, cx: start.x, cy: start.y, pointerId: e.pointerId, startNodeId: startNode?.id || null };
     selBoxMoved = false;
     selBoxEl = document.createElement('div');
     selBoxEl.className = 'sel-box';
@@ -1802,6 +1803,8 @@ body {
     if (selBoxState && selBoxEl) {
       if (e.pointerId !== selBoxState.pointerId) return;
       const cur = screenToWorld(e.clientX, e.clientY);
+      selBoxState.cx = cur.x;
+      selBoxState.cy = cur.y;
       const lo = Math.min(selBoxState.sx, cur.x);
       const to = Math.min(selBoxState.sy, cur.y);
       const w  = Math.abs(cur.x - selBoxState.sx);
@@ -1826,9 +1829,14 @@ body {
     panState = null;
     canvasWrap.classList.remove('panning');
     if (selBoxEl) { selBoxEl.remove(); selBoxEl = null; }
-    if (selBoxState && !selBoxMoved) {
-      if (selBoxState.startNodeId) selectOnly(selBoxState.startNodeId);
-      else clearSelection(); // click without drag in select mode = deselect
+    if (selBoxState) {
+      if (selBoxMoved) {
+        selectInRect(selBoxState.sx, selBoxState.sy, selBoxState.cx, selBoxState.cy);
+      } else if (selBoxState.startNodeId) {
+        selectOnly(selBoxState.startNodeId);
+      } else {
+        clearSelection(); // click without drag in select mode = deselect
+      }
     }
     selBoxState = null;
     selBoxMoved = false;
