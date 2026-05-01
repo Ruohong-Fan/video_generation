@@ -412,16 +412,39 @@ def _resolve_image_input(request) -> str | None:
     return _download_image(str(image_ref))
 
 
-def _download_image(url: str) -> str:
-    """Download a remote image URL into uploads dir; return local path (or url on failure)."""
+_MIME_TO_EXT = {
+    "video/mp4": ".mp4",
+    "video/webm": ".webm",
+    "video/quicktime": ".mov",
+    "image/jpeg": ".jpg",
+    "image/png": ".png",
+    "image/webp": ".webp",
+    "image/gif": ".gif",
+}
+
+
+def _download_media(url: str, hint_ext: str = "") -> str:
+    """Download a CDN media URL into uploads/; return local path (or url on failure).
+
+    Extension priority:
+      1. Content-Type response header (most reliable for CDN files)
+      2. Path component of the URL
+      3. Caller-supplied hint_ext  (e.g. ".mp4" for video tasks)
+      4. ".bin" as last resort (never misidentify video as image)
+    """
     try:
         parsed = urlparse(url)
-        suffix = Path(parsed.path).suffix
-        if not suffix or len(suffix) > 6:
-            suffix = ".jpg"
-        local = UPLOAD_DIR / f"dl_{uuid.uuid4()}{suffix}"
+        url_suffix = Path(parsed.path).suffix.lower()
+        if len(url_suffix) > 6:
+            url_suffix = ""
+
         resp = requests.get(url, timeout=60, stream=True, headers={"User-Agent": "Mozilla/5.0"})
         resp.raise_for_status()
+
+        ct = resp.headers.get("Content-Type", "").split(";")[0].strip().lower()
+        suffix = _MIME_TO_EXT.get(ct) or url_suffix or hint_ext or ".bin"
+
+        local = UPLOAD_DIR / f"dl_{uuid.uuid4()}{suffix}"
         with open(local, "wb") as f:
             for chunk in resp.iter_content(65536):
                 if chunk:
@@ -429,6 +452,10 @@ def _download_image(url: str) -> str:
         return str(local)
     except Exception:
         return url  # fall back to passing the URL directly
+
+
+# Keep old name as alias so existing callers don't break
+_download_image = _download_media
 
 
 def _extract_output_url(result_data: dict) -> str | None:
@@ -491,7 +518,9 @@ def _cache_task_output(task: dict) -> None:
     url = _extract_output_url(result_data)
     if not url or not url.startswith("http"):
         return
-    downloaded = _download_image(url)
+    label = task.get("label", "")
+    hint = ".mp4" if "video" in label.lower() else ".jpg"
+    downloaded = _download_media(url, hint_ext=hint)
     if downloaded and not downloaded.startswith("http"):
         serve_path = "/uploads/" + Path(downloaded).name
         result_data["serve_path"] = serve_path

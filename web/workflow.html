@@ -1201,7 +1201,7 @@ body {
       return `<div class="node-preview empty">No audio — upload in Params</div>`;
     }
 
-    if (last?.url || last?.localPath) {
+    if (last?.url || last?.localPath || last?.servePath) {
       const u = mediaUrl(last.servePath || last.url);
       const media = last.kind === 'video'
         ? `<video controls preload="metadata" muted playsinline referrerpolicy="no-referrer" style="width:100%;height:100%;object-fit:cover;display:block"><source src="${esc(u)}" type="video/mp4"/></video>`
