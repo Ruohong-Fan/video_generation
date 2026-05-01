@@ -967,6 +967,12 @@ body {
   const view = { x: 0, y: 0, scale: 1 };
   let nextId = 1;
 
+  // Right-panel state — declared up-front so renderRightPanel() and the
+  // initial updateSelInfo() call don't hit a TDZ error.
+  let rightTab = 'inputs';
+  let inputsFilter = 'all';
+  let inputsGroupBy = 'type';
+
   const NODE_SPECS = {
     text:  { title: 'Text',  hasIn: false, hasOut: true },
     image: { title: 'Image', hasIn: true,  hasOut: true },
@@ -2192,7 +2198,7 @@ body {
   }
 
   // ── Right panel tab management ───────────────────────────────────────────
-  let rightTab = 'inputs';
+  // (rightTab is declared at top-of-script with other state)
 
   function switchRightTab(tab) {
     rightTab = tab;
@@ -2257,8 +2263,7 @@ body {
   }
 
   // ── Inputs tab ────────────────────────────────────────────────────────────
-  let inputsFilter = 'all';
-  let inputsGroupBy = 'type';
+  // (inputsFilter, inputsGroupBy declared at top-of-script with other state)
 
   function renderInputsTab(panel, selNode) {
     if (!selNode) {
