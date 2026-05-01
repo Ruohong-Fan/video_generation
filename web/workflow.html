@@ -214,8 +214,6 @@ body {
   width: 100%;
   height: 100%;
   transform-origin: 0 0;
-  z-index: 2;
-  pointer-events: none;
 }
 
 /* SVG layer for edges */
@@ -227,7 +225,6 @@ body {
   pointer-events: none;
   overflow: visible;
   transform-origin: 0 0;
-  z-index: 1;
 }
 .edge { fill: none; stroke: var(--muted); stroke-width: 2; opacity: 0.55; transition: stroke 0.15s, opacity 0.15s; pointer-events: stroke; cursor: pointer; }
 .edge:hover, .edge.selected { stroke: var(--accent2); opacity: 1; stroke-width: 3; }
@@ -245,7 +242,6 @@ body {
   transition: border-color 0.12s, box-shadow 0.2s;
   cursor: grab;
   user-select: none;
-  pointer-events: auto;
 }
 .node:active { cursor: grabbing; }
 .node:hover { border-color: var(--bg-4); }
@@ -1491,22 +1487,14 @@ body {
     hit.setAttribute('d', d);
     hit.setAttribute('class', 'edge-hit');
     hit.setAttribute('data-edge-hit', edge.id);
-    hit.addEventListener('click', (e) => {
-      e.stopPropagation();
-      if (canvasTool === 'select') return;
-      selectEdge(edge.id);
-    });
+    hit.addEventListener('click', (e) => { e.stopPropagation(); selectEdge(edge.id); });
     edgesSvg.appendChild(hit);
 
     const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
     path.setAttribute('d', d);
     path.setAttribute('class', 'edge' + (edge.selected ? ' selected' : ''));
     path.setAttribute('data-edge-id', edge.id);
-    path.addEventListener('click', (e) => {
-      e.stopPropagation();
-      if (canvasTool === 'select') return;
-      selectEdge(edge.id);
-    });
+    path.addEventListener('click', (e) => { e.stopPropagation(); selectEdge(edge.id); });
     edgesSvg.appendChild(path);
   }
 
@@ -1563,12 +1551,11 @@ body {
     edgeDrag = null;
   }
 
-  canvasWrap.addEventListener('pointerdown', (e) => {
+  canvas.addEventListener('pointerdown', (e) => {
     const handle = e.target.closest('.handle');
     if (!handle) return;
-    if (canvasTool === 'select') return;
     if (handle.dataset.dir !== 'out') return;
-    e.stopImmediatePropagation();
+    e.stopPropagation();
     e.preventDefault();
 
     const fromId = handle.dataset.node;
@@ -1632,9 +1619,7 @@ body {
     const [to, bo] = [Math.min(y1,y2), Math.max(y1,y2)];
     clearSelection();
     for (const n of nodes.values()) {
-      const el = document.getElementById(n.id);
-      const nx2 = n.x + (el?.offsetWidth || NODE_WIDTH);
-      const ny2 = n.y + (el?.offsetHeight || 200);
+      const nx2 = n.x + 240, ny2 = n.y + 260;
       if (n.x < hi && nx2 > lo && n.y < bo && ny2 > to) setSelected(n.id, true);
     }
     updateSelInfo();
@@ -1670,15 +1655,12 @@ body {
   // ── Node interactions: click, shift-click, drag ─────────────────────────
   let dragState = null;
 
-  canvasWrap.addEventListener('pointerdown', (e) => {
+  canvas.addEventListener('pointerdown', (e) => {
     const nodeEl = e.target.closest('.node');
     if (!nodeEl) return;
-    if (e.button !== 0) return;
-    if (canvasTool === 'select') return;
     if (e.target.closest('input, textarea, select, button, .handle')) return;
     const node = nodes.get(nodeEl.id);
     if (!node) return;
-    e.stopImmediatePropagation();
 
     // Selection logic on mousedown (like Figma)
     if (e.shiftKey) {
@@ -1695,16 +1677,13 @@ body {
     dragState = {
       group, moved: false,
       startX: e.clientX, startY: e.clientY,
-      pointerId: e.pointerId,
-      captureEl: nodeEl,
     };
     nodeEl.setPointerCapture?.(e.pointerId);
     e.preventDefault();
   });
 
-  function onNodeDragMove(e) {
+  canvas.addEventListener('pointermove', (e) => {
     if (!dragState) return;
-    if (e.pointerId !== dragState.pointerId) return;
     const dx = (e.clientX - dragState.startX) / view.scale;
     const dy = (e.clientY - dragState.startY) / view.scale;
     if (Math.abs(dx) + Math.abs(dy) > 2) dragState.moved = true;
@@ -1717,23 +1696,9 @@ body {
       if (el) { el.style.left = n.x + 'px'; el.style.top = n.y + 'px'; }
       updateEdgesFor(g.id);
     }
-    e.preventDefault();
-  }
-
-  function endNodeDrag(e) {
-    if (!dragState) return;
-    if (e.pointerId != null && e.pointerId !== dragState.pointerId) return;
-    if (dragState.captureEl?.hasPointerCapture?.(dragState.pointerId)) {
-      dragState.captureEl.releasePointerCapture(dragState.pointerId);
-    }
-    if (dragState.moved) scheduleSave();
-    dragState = null;
-  }
-
-  document.addEventListener('pointermove', onNodeDragMove);
-  document.addEventListener('pointerup', endNodeDrag);
-  document.addEventListener('pointercancel', endNodeDrag);
-  window.addEventListener('blur', () => { dragState = null; });
+  });
+  canvas.addEventListener('pointerup',   () => { dragState = null; });
+  canvas.addEventListener('pointercancel', () => { dragState = null; });
 
   // ── Tool mode ────────────────────────────────────────────────────────────
   let canvasTool = 'pan'; // 'pan' | 'select'
@@ -1760,9 +1725,8 @@ body {
   });
 
   canvasWrap.addEventListener('pointerdown', (e) => {
-    const startNode = e.target.closest('.node');
-    if (startNode && canvasTool !== 'select') return;
-    if (e.target.closest('svg') && canvasTool !== 'select') return; // let edge-path clicks reach their handlers
+    if (e.target.closest('.node')) return;
+    if (e.target.closest('svg')) return; // let edge-path clicks reach their handlers
     if (e.target.closest('.canvas-overlay')) return; // let overlay controls handle their own events
     if (e.button === 2) return;
 
@@ -1770,41 +1734,34 @@ body {
     const wantPan = canvasTool === 'pan' || e.button === 1;
 
     if (wantPan) {
-      panState = { startX: e.clientX, startY: e.clientY, origX: view.x, origY: view.y, moved: false, pointerId: e.pointerId };
+      panState = { startX: e.clientX, startY: e.clientY, origX: view.x, origY: view.y, moved: false };
       canvasWrap.classList.add('panning');
       canvasWrap.setPointerCapture?.(e.pointerId);
-      e.preventDefault();
       return;
     }
 
     // Select mode: drag to draw a selection box
     const start = screenToWorld(e.clientX, e.clientY);
-    selBoxState = { sx: start.x, sy: start.y, cx: start.x, cy: start.y, pointerId: e.pointerId, startNodeId: startNode?.id || null };
+    selBoxState = { sx: start.x, sy: start.y };
     selBoxMoved = false;
     selBoxEl = document.createElement('div');
     selBoxEl.className = 'sel-box';
     canvas.appendChild(selBoxEl);
     canvasWrap.setPointerCapture?.(e.pointerId);
-    e.preventDefault();
   });
 
-  function onCanvasGestureMove(e) {
+  canvasWrap.addEventListener('pointermove', (e) => {
     if (panState) {
-      if (e.pointerId !== panState.pointerId) return;
       const dx = e.clientX - panState.startX;
       const dy = e.clientY - panState.startY;
       if (Math.abs(dx) + Math.abs(dy) > 3) panState.moved = true;
       view.x = panState.origX + dx;
       view.y = panState.origY + dy;
       applyView();
-      e.preventDefault();
       return;
     }
     if (selBoxState && selBoxEl) {
-      if (e.pointerId !== selBoxState.pointerId) return;
       const cur = screenToWorld(e.clientX, e.clientY);
-      selBoxState.cx = cur.x;
-      selBoxState.cy = cur.y;
       const lo = Math.min(selBoxState.sx, cur.x);
       const to = Math.min(selBoxState.sy, cur.y);
       const w  = Math.abs(cur.x - selBoxState.sx);
@@ -1815,39 +1772,18 @@ body {
       selBoxEl.style.width  = w  + 'px';
       selBoxEl.style.height = h  + 'px';
       selectInRect(selBoxState.sx, selBoxState.sy, cur.x, cur.y);
-      e.preventDefault();
     }
-  }
+  });
 
-  function endCanvasGesture(e) {
-    const pointerId = e?.pointerId;
-    if (pointerId != null) {
-      if (panState && pointerId !== panState.pointerId) return;
-      if (selBoxState && pointerId !== selBoxState.pointerId) return;
-    }
+  canvasWrap.addEventListener('pointerup', () => {
     if (panState && !panState.moved) clearSelection(); // click on empty canvas = deselect
     panState = null;
     canvasWrap.classList.remove('panning');
     if (selBoxEl) { selBoxEl.remove(); selBoxEl = null; }
-    if (selBoxState) {
-      if (selBoxMoved) {
-        selectInRect(selBoxState.sx, selBoxState.sy, selBoxState.cx, selBoxState.cy);
-      } else if (selBoxState.startNodeId) {
-        selectOnly(selBoxState.startNodeId);
-      } else {
-        clearSelection(); // click without drag in select mode = deselect
-      }
-    }
+    if (selBoxState && !selBoxMoved) clearSelection(); // click without drag in select mode = deselect
     selBoxState = null;
     selBoxMoved = false;
-  }
-
-  document.addEventListener('pointermove', onCanvasGestureMove);
-  canvasWrap.addEventListener('pointerup', endCanvasGesture);
-  canvasWrap.addEventListener('pointercancel', endCanvasGesture);
-  document.addEventListener('pointerup', endCanvasGesture);
-  document.addEventListener('pointercancel', endCanvasGesture);
-  window.addEventListener('blur', endCanvasGesture);
+  });
 
   // ── Canvas zoom (wheel) ─────────────────────────────────────────────────
   canvasWrap.addEventListener('wheel', (e) => {
