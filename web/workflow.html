@@ -1158,7 +1158,9 @@ body {
         return { id, origX: n.x, origY: n.y };
       });
       dragState = { group, moved: false, startX: e.clientX, startY: e.clientY };
-      el.setPointerCapture?.(e.pointerId);
+      // Capture pointer to canvasWrap (not the node) so pointermove/pointerup fire
+      // on the same element that handles pan + rubber-band — single state machine.
+      canvasWrap.setPointerCapture?.(e.pointerId);
     });
   }
 
@@ -1673,27 +1675,10 @@ body {
   }
 
   // ── Node interactions ────────────────────────────────────────────────────
-  // Selection + drag-start handler is attached per-node inside renderNode().
-  // Drag-move and drag-end live on `canvas` and react to dragState.
+  // Selection + drag-start are attached per-node inside renderNode(). Pointer
+  // is captured to canvasWrap, so drag-move + drag-end live in the consolidated
+  // canvasWrap pointermove / pointerup handlers below alongside pan + rubber-band.
   let dragState = null;
-
-  canvas.addEventListener('pointermove', (e) => {
-    if (!dragState) return;
-    const dx = (e.clientX - dragState.startX) / view.scale;
-    const dy = (e.clientY - dragState.startY) / view.scale;
-    if (Math.abs(dx) + Math.abs(dy) > 2) dragState.moved = true;
-    for (const g of dragState.group) {
-      const n = nodes.get(g.id);
-      if (!n) continue;
-      n.x = g.origX + dx;
-      n.y = g.origY + dy;
-      const el = document.getElementById(g.id);
-      if (el) { el.style.left = n.x + 'px'; el.style.top = n.y + 'px'; }
-      updateEdgesFor(g.id);
-    }
-  });
-  canvas.addEventListener('pointerup',   () => { dragState = null; });
-  canvas.addEventListener('pointercancel', () => { dragState = null; });
 
   // ── Tool mode ────────────────────────────────────────────────────────────
   let canvasTool = 'pan'; // 'pan' | 'select'
@@ -1746,14 +1731,30 @@ body {
   });
 
   canvasWrap.addEventListener('pointermove', (e) => {
-    // If a button was released outside the viewport, pointerup may have been missed.
-    // Detect that here and clean up so the canvas doesn't stay locked.
-    if (e.buttons === 0 && (panState || selBoxState)) {
+    // Self-heal: if a button was released outside the viewport, pointerup may
+    // have been missed. Reset all gesture state when no buttons are held.
+    if (e.buttons === 0 && (dragState || panState || selBoxState)) {
+      dragState = null;
       panState = null;
       canvasWrap.classList.remove('panning');
       if (selBoxEl) { selBoxEl.remove(); selBoxEl = null; }
       selBoxState = null;
       selBoxMoved = false;
+      return;
+    }
+    if (dragState) {
+      const dx = (e.clientX - dragState.startX) / view.scale;
+      const dy = (e.clientY - dragState.startY) / view.scale;
+      if (Math.abs(dx) + Math.abs(dy) > 2) dragState.moved = true;
+      for (const g of dragState.group) {
+        const n = nodes.get(g.id);
+        if (!n) continue;
+        n.x = g.origX + dx;
+        n.y = g.origY + dy;
+        const nEl = document.getElementById(g.id);
+        if (nEl) { nEl.style.left = n.x + 'px'; nEl.style.top = n.y + 'px'; }
+        updateEdgesFor(g.id);
+      }
       return;
     }
     if (panState) {
@@ -1780,15 +1781,25 @@ body {
     }
   });
 
-  canvasWrap.addEventListener('pointerup', () => {
-    if (panState && !panState.moved) clearSelection(); // click on empty canvas = deselect
-    panState = null;
-    canvasWrap.classList.remove('panning');
-    if (selBoxEl) { selBoxEl.remove(); selBoxEl = null; }
-    if (selBoxState && !selBoxMoved) clearSelection(); // click without drag in select mode = deselect
-    selBoxState = null;
-    selBoxMoved = false;
-  });
+  function _endGesture(e) {
+    if (dragState) {
+      dragState = null;
+    } else if (panState) {
+      if (!panState.moved) clearSelection();
+      panState = null;
+      canvasWrap.classList.remove('panning');
+    } else if (selBoxState || selBoxEl) {
+      if (selBoxEl) { selBoxEl.remove(); selBoxEl = null; }
+      if (!selBoxMoved) clearSelection();
+      selBoxState = null;
+      selBoxMoved = false;
+    }
+    if (e?.pointerId != null) {
+      try { canvasWrap.releasePointerCapture(e.pointerId); } catch (_) {}
+    }
+  }
+  canvasWrap.addEventListener('pointerup',     _endGesture);
+  canvasWrap.addEventListener('pointercancel', _endGesture);
 
   // ── Canvas zoom (wheel) ─────────────────────────────────────────────────
   canvasWrap.addEventListener('wheel', (e) => {
