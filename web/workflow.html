@@ -1753,33 +1753,38 @@ body {
     const wantPan = canvasTool === 'pan' || e.button === 1;
 
     if (wantPan) {
-      panState = { startX: e.clientX, startY: e.clientY, origX: view.x, origY: view.y, moved: false };
+      panState = { startX: e.clientX, startY: e.clientY, origX: view.x, origY: view.y, moved: false, pointerId: e.pointerId };
       canvasWrap.classList.add('panning');
       canvasWrap.setPointerCapture?.(e.pointerId);
+      e.preventDefault();
       return;
     }
 
     // Select mode: drag to draw a selection box
     const start = screenToWorld(e.clientX, e.clientY);
-    selBoxState = { sx: start.x, sy: start.y };
+    selBoxState = { sx: start.x, sy: start.y, pointerId: e.pointerId };
     selBoxMoved = false;
     selBoxEl = document.createElement('div');
     selBoxEl.className = 'sel-box';
     canvas.appendChild(selBoxEl);
     canvasWrap.setPointerCapture?.(e.pointerId);
+    e.preventDefault();
   });
 
-  canvasWrap.addEventListener('pointermove', (e) => {
+  function onCanvasGestureMove(e) {
     if (panState) {
+      if (e.pointerId !== panState.pointerId) return;
       const dx = e.clientX - panState.startX;
       const dy = e.clientY - panState.startY;
       if (Math.abs(dx) + Math.abs(dy) > 3) panState.moved = true;
       view.x = panState.origX + dx;
       view.y = panState.origY + dy;
       applyView();
+      e.preventDefault();
       return;
     }
     if (selBoxState && selBoxEl) {
+      if (e.pointerId !== selBoxState.pointerId) return;
       const cur = screenToWorld(e.clientX, e.clientY);
       const lo = Math.min(selBoxState.sx, cur.x);
       const to = Math.min(selBoxState.sy, cur.y);
@@ -1791,10 +1796,16 @@ body {
       selBoxEl.style.width  = w  + 'px';
       selBoxEl.style.height = h  + 'px';
       selectInRect(selBoxState.sx, selBoxState.sy, cur.x, cur.y);
+      e.preventDefault();
     }
-  });
+  }
 
-  function endCanvasGesture() {
+  function endCanvasGesture(e) {
+    const pointerId = e?.pointerId;
+    if (pointerId != null) {
+      if (panState && pointerId !== panState.pointerId) return;
+      if (selBoxState && pointerId !== selBoxState.pointerId) return;
+    }
     if (panState && !panState.moved) clearSelection(); // click on empty canvas = deselect
     panState = null;
     canvasWrap.classList.remove('panning');
@@ -1804,6 +1815,7 @@ body {
     selBoxMoved = false;
   }
 
+  document.addEventListener('pointermove', onCanvasGestureMove);
   canvasWrap.addEventListener('pointerup', endCanvasGesture);
   canvasWrap.addEventListener('pointercancel', endCanvasGesture);
   document.addEventListener('pointerup', endCanvasGesture);
