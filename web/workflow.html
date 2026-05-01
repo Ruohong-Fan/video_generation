@@ -1140,6 +1140,26 @@ body {
     el.querySelector('[data-action=dup]')?.addEventListener('click', e => { e.stopPropagation(); duplicateNode(node.id); });
     el.querySelector('[data-action=del]')?.addEventListener('pointerdown', e => e.stopPropagation());
     el.querySelector('[data-action=del]')?.addEventListener('click', e => { e.stopPropagation(); deleteNode(node.id); });
+
+    // Selection + drag start on pointerdown anywhere on the node card
+    el.addEventListener('pointerdown', (e) => {
+      if (e.button === 2) return;
+      // Let buttons, inputs, handles, and the checkbox handle their own pointer events
+      if (e.target.closest('button, input, textarea, select, .handle, [data-action=check]')) return;
+      e.stopPropagation();
+      e.preventDefault();
+      if (e.shiftKey) {
+        toggleSelect(node.id);
+      } else if (!selected.has(node.id)) {
+        selectOnly(node.id);
+      }
+      const group = [...selected].map(id => {
+        const n = nodes.get(id);
+        return { id, origX: n.x, origY: n.y };
+      });
+      dragState = { group, moved: false, startX: e.clientX, startY: e.clientY };
+      el.setPointerCapture?.(e.pointerId);
+    });
   }
 
   function renderNodeBody(node) {
@@ -1652,35 +1672,10 @@ body {
     toast(`${n} node(s) deleted`);
   }
 
-  // ── Node interactions: click, shift-click, drag ─────────────────────────
+  // ── Node interactions ────────────────────────────────────────────────────
+  // Selection + drag-start handler is attached per-node inside renderNode().
+  // Drag-move and drag-end live on `canvas` and react to dragState.
   let dragState = null;
-
-  canvas.addEventListener('pointerdown', (e) => {
-    const nodeEl = e.target.closest('.node');
-    if (!nodeEl) return;
-    if (e.target.closest('input, textarea, select, button, .handle')) return;
-    const node = nodes.get(nodeEl.id);
-    if (!node) return;
-
-    // Selection logic on mousedown (like Figma)
-    if (e.shiftKey) {
-      toggleSelect(node.id);
-    } else if (!selected.has(node.id)) {
-      selectOnly(node.id);
-    }
-
-    // Capture starting positions of every selected node for group drag
-    const group = [...selected].map(id => {
-      const n = nodes.get(id);
-      return { id, origX: n.x, origY: n.y };
-    });
-    dragState = {
-      group, moved: false,
-      startX: e.clientX, startY: e.clientY,
-    };
-    nodeEl.setPointerCapture?.(e.pointerId);
-    e.preventDefault();
-  });
 
   canvas.addEventListener('pointermove', (e) => {
     if (!dragState) return;
