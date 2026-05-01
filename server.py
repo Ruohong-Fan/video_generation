@@ -9,19 +9,64 @@ from __future__ import annotations
 
 import json
 import os
+import secrets
 import subprocess
 import threading
 import time
 import uuid
+from functools import wraps
 from pathlib import Path
 from urllib.parse import urlparse
 
 import requests
-from flask import Flask, Response, jsonify, request, send_from_directory, stream_with_context
+from flask import (
+    Flask,
+    Response,
+    jsonify,
+    redirect,
+    request,
+    send_from_directory,
+    session,
+    stream_with_context,
+)
 from flask_cors import CORS
 
 app = Flask(__name__, static_folder="web")
-CORS(app)
+# Flask session — persists across requests via a signed cookie. The secret key
+# defaults to a per-process random value; set FLASK_SECRET_KEY in the env if
+# you want sessions to survive restarts.
+app.secret_key = os.environ.get("FLASK_SECRET_KEY") or secrets.token_hex(32)
+app.config.update(
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE="Lax",
+    PERMANENT_SESSION_LIFETIME=60 * 60 * 24 * 30,  # 30 days when "remember me"
+)
+CORS(app, supports_credentials=True)
+
+# ── Auth ─────────────────────────────────────────────────────────────────────
+# Invite-only — no public sign-up. Credentials come from env so they aren't
+# checked into source. If unset, falls back to admin/reel for local dev.
+LOGIN_EMAIL = os.environ.get("REEL_LOGIN_EMAIL", "admin@reel.local").strip().lower()
+LOGIN_PASSWORD = os.environ.get("REEL_LOGIN_PASSWORD", "reel")
+
+
+def is_authed() -> bool:
+    return bool(session.get("user"))
+
+
+def require_auth(view):
+    """Page-level guard — redirects browsers to /login, returns 401 to API clients."""
+    @wraps(view)
+    def wrapped(*args, **kwargs):
+        if is_authed():
+            return view(*args, **kwargs)
+        accept = request.headers.get("Accept", "")
+        if request.path.startswith("/api/") or "application/json" in accept:
+            return jsonify({"ok": False, "error": "unauthorized"}), 401
+        return redirect("/login")
+    return wrapped
+
+
 
 UPLOAD_DIR = Path("uploads")
 UPLOAD_DIR.mkdir(exist_ok=True)
@@ -242,6 +287,41 @@ def index():
 @app.get("/workflow")
 def workflow_view():
     return send_from_directory("web", "workflow.html")
+
+
+@app.get("/login")
+def login_page():
+    if is_authed():
+        return redirect("/")
+    return send_from_directory("web", "login.html")
+
+
+@app.post("/api/login")
+def login_submit():
+    data = request.get_json(silent=True) or {}
+    email = (data.get("email") or "").strip().lower()
+    password = data.get("password") or ""
+    remember = bool(data.get("remember"))
+    if not email or not password:
+        return jsonify({"ok": False, "error": "Enter your email and password to continue."}), 400
+    # Constant-time comparison so timing doesn't leak info about the secret.
+    if not (secrets.compare_digest(email, LOGIN_EMAIL)
+            and secrets.compare_digest(password, LOGIN_PASSWORD)):
+        return jsonify({"ok": False, "error": "Those credentials don't match an active account."}), 401
+    session["user"] = email
+    session.permanent = remember
+    return jsonify({"ok": True})
+
+
+@app.post("/api/logout")
+def logout():
+    session.clear()
+    return jsonify({"ok": True})
+
+
+@app.get("/api/me")
+def whoami():
+    return jsonify({"ok": True, "authed": is_authed(), "user": session.get("user")})
 
 
 @app.get("/uploads/<path:filename>")
