@@ -214,6 +214,8 @@ body {
   width: 100%;
   height: 100%;
   transform-origin: 0 0;
+  z-index: 2;
+  pointer-events: none;
 }
 
 /* SVG layer for edges */
@@ -225,6 +227,7 @@ body {
   pointer-events: none;
   overflow: visible;
   transform-origin: 0 0;
+  z-index: 1;
 }
 .edge { fill: none; stroke: var(--muted); stroke-width: 2; opacity: 0.55; transition: stroke 0.15s, opacity 0.15s; pointer-events: stroke; cursor: pointer; }
 .edge:hover, .edge.selected { stroke: var(--accent2); opacity: 1; stroke-width: 3; }
@@ -242,6 +245,7 @@ body {
   transition: border-color 0.12s, box-shadow 0.2s;
   cursor: grab;
   user-select: none;
+  pointer-events: auto;
 }
 .node:active { cursor: grabbing; }
 .node:hover { border-color: var(--bg-4); }
@@ -1487,14 +1491,22 @@ body {
     hit.setAttribute('d', d);
     hit.setAttribute('class', 'edge-hit');
     hit.setAttribute('data-edge-hit', edge.id);
-    hit.addEventListener('click', (e) => { e.stopPropagation(); selectEdge(edge.id); });
+    hit.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (canvasTool === 'select') return;
+      selectEdge(edge.id);
+    });
     edgesSvg.appendChild(hit);
 
     const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
     path.setAttribute('d', d);
     path.setAttribute('class', 'edge' + (edge.selected ? ' selected' : ''));
     path.setAttribute('data-edge-id', edge.id);
-    path.addEventListener('click', (e) => { e.stopPropagation(); selectEdge(edge.id); });
+    path.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (canvasTool === 'select') return;
+      selectEdge(edge.id);
+    });
     edgesSvg.appendChild(path);
   }
 
@@ -1619,7 +1631,9 @@ body {
     const [to, bo] = [Math.min(y1,y2), Math.max(y1,y2)];
     clearSelection();
     for (const n of nodes.values()) {
-      const nx2 = n.x + 240, ny2 = n.y + 260;
+      const el = document.getElementById(n.id);
+      const nx2 = n.x + (el?.offsetWidth || NODE_WIDTH);
+      const ny2 = n.y + (el?.offsetHeight || 200);
       if (n.x < hi && nx2 > lo && n.y < bo && ny2 > to) setSelected(n.id, true);
     }
     updateSelInfo();
@@ -1747,7 +1761,7 @@ body {
   canvasWrap.addEventListener('pointerdown', (e) => {
     const startNode = e.target.closest('.node');
     if (startNode && canvasTool !== 'select') return;
-    if (e.target.closest('svg')) return; // let edge-path clicks reach their handlers
+    if (e.target.closest('svg') && canvasTool !== 'select') return; // let edge-path clicks reach their handlers
     if (e.target.closest('.canvas-overlay')) return; // let overlay controls handle their own events
     if (e.button === 2) return;
 
