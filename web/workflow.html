@@ -1746,6 +1746,16 @@ body {
   });
 
   canvasWrap.addEventListener('pointermove', (e) => {
+    // If a button was released outside the viewport, pointerup may have been missed.
+    // Detect that here and clean up so the canvas doesn't stay locked.
+    if (e.buttons === 0 && (panState || selBoxState)) {
+      panState = null;
+      canvasWrap.classList.remove('panning');
+      if (selBoxEl) { selBoxEl.remove(); selBoxEl = null; }
+      selBoxState = null;
+      selBoxMoved = false;
+      return;
+    }
     if (panState) {
       const dx = e.clientX - panState.startX;
       const dy = e.clientY - panState.startY;
