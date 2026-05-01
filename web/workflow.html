@@ -556,7 +556,7 @@ body {
 .side-tab:not(.active) .tab-count { background: var(--bg-3); color: var(--fg-1); }
 
 /* ── Upstream inputs panel ──────────────────────────────────────────────── */
-.upstream { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.upstream { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .upstream-head {
   padding: 12px 14px 10px; border-bottom: 1px solid var(--line);
   background: var(--bg-1); flex-shrink: 0;
@@ -1155,8 +1155,8 @@ body {
       }
       const group = [...selected].map(id => {
         const n = nodes.get(id);
-        return { id, origX: n.x, origY: n.y };
-      });
+        return n ? { id, origX: n.x, origY: n.y } : null;
+      }).filter(Boolean);
       dragState = { group, moved: false, startX: e.clientX, startY: e.clientY };
       // Capture pointer to canvasWrap (not the node) so pointermove/pointerup fire
       // on the same element that handles pan + rubber-band — single state machine.
@@ -1628,8 +1628,15 @@ body {
     updateSelInfo();
   }
   function selectOnly(id) {
+    const hadSelection = selected.size > 0;
     clearSelection();
     setSelected(id, true);
+    // On fresh selection (nothing was selected before), switch to Params so the
+    // user immediately sees editable node settings rather than an empty Inputs tab.
+    if (!hadSelection && rightTab !== 'params') {
+      rightTab = 'params';
+      document.querySelectorAll('[data-rtab]').forEach(b => b.classList.toggle('active', b.dataset.rtab === 'params'));
+    }
     updateSelInfo();
   }
   function toggleSelect(id) {
