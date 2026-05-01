@@ -1659,6 +1659,7 @@ body {
     const nodeEl = e.target.closest('.node');
     if (!nodeEl) return;
     if (e.button !== 0) return;
+    if (canvasTool === 'select') return;
     if (e.target.closest('input, textarea, select, button, .handle')) return;
     const node = nodes.get(nodeEl.id);
     if (!node) return;
@@ -1744,7 +1745,8 @@ body {
   });
 
   canvasWrap.addEventListener('pointerdown', (e) => {
-    if (e.target.closest('.node')) return;
+    const startNode = e.target.closest('.node');
+    if (startNode && canvasTool !== 'select') return;
     if (e.target.closest('svg')) return; // let edge-path clicks reach their handlers
     if (e.target.closest('.canvas-overlay')) return; // let overlay controls handle their own events
     if (e.button === 2) return;
@@ -1762,7 +1764,7 @@ body {
 
     // Select mode: drag to draw a selection box
     const start = screenToWorld(e.clientX, e.clientY);
-    selBoxState = { sx: start.x, sy: start.y, pointerId: e.pointerId };
+    selBoxState = { sx: start.x, sy: start.y, pointerId: e.pointerId, startNodeId: startNode?.id || null };
     selBoxMoved = false;
     selBoxEl = document.createElement('div');
     selBoxEl.className = 'sel-box';
@@ -1810,7 +1812,10 @@ body {
     panState = null;
     canvasWrap.classList.remove('panning');
     if (selBoxEl) { selBoxEl.remove(); selBoxEl = null; }
-    if (selBoxState && !selBoxMoved) clearSelection(); // click without drag in select mode = deselect
+    if (selBoxState && !selBoxMoved) {
+      if (selBoxState.startNodeId) selectOnly(selBoxState.startNodeId);
+      else clearSelection(); // click without drag in select mode = deselect
+    }
     selBoxState = null;
     selBoxMoved = false;
   }
