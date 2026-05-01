@@ -67,6 +67,37 @@ def require_auth(view):
     return wrapped
 
 
+# Endpoints reachable without a session. Anything not in this set goes
+# through the auth check in `_global_auth_gate` below.
+PUBLIC_ENDPOINTS = {
+    "login_page",      # GET  /login
+    "login_submit",    # POST /api/login
+    "logout",          # POST /api/logout
+    "whoami",          # GET  /api/me
+    "static",          # /static/*
+    # Media files use UUID-prefixed names and are loaded by <img>/<video>
+    # tags that don't carry session cookies on cross-origin requests.
+    # Auth-gating these would break previews; the file names act as a
+    # weak capability token.
+    "uploaded_file",   # /uploads/<filename>
+}
+
+
+@app.before_request
+def _global_auth_gate():
+    if request.method == "OPTIONS":
+        return None  # let CORS preflights through
+    endpoint = request.endpoint
+    if endpoint is None or endpoint in PUBLIC_ENDPOINTS:
+        return None
+    if is_authed():
+        return None
+    accept = request.headers.get("Accept", "")
+    if request.path.startswith("/api/") or "application/json" in accept:
+        return jsonify({"ok": False, "error": "unauthorized"}), 401
+    return redirect("/login")
+
+
 
 UPLOAD_DIR = Path("uploads")
 UPLOAD_DIR.mkdir(exist_ok=True)

@@ -103,6 +103,50 @@ body {
 .breadcrumb .sep { color: var(--fg-3); }
 .topbar-project { color: var(--fg-0); font-weight: 500; font-size: 12px; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .topbar-spacer { flex: 1; }
+
+/* User menu — avatar + sign-out dropdown */
+.topbar-avatar {
+  width: 30px; height: 30px; border-radius: 50%;
+  background: linear-gradient(135deg, var(--amber), oklch(0.55 0.12 30));
+  display: grid; place-items: center;
+  font-family: var(--type-display); font-size: 15px;
+  color: oklch(0.18 0.03 65); font-weight: 600;
+  flex-shrink: 0; cursor: pointer;
+  border: 1px solid transparent;
+  transition: border-color 0.12s, transform 0.05s;
+}
+.topbar-avatar:hover { border-color: var(--amber); }
+.topbar-avatar:active { transform: scale(0.96); }
+.user-menu { position: relative; flex-shrink: 0; }
+.user-menu-pop {
+  position: absolute; top: calc(100% + 6px); right: 0;
+  min-width: 160px; padding: 4px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: 0 12px 32px oklch(0 0 0 / 0.45);
+  z-index: 200; display: none;
+}
+.user-menu.open .user-menu-pop { display: block; }
+.user-menu-info {
+  padding: 8px 10px 6px; font-size: 11px;
+  color: var(--fg-3);
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 4px;
+  font-family: var(--type-mono);
+  text-transform: uppercase; letter-spacing: 0.06em;
+  word-break: break-all;
+}
+.user-menu-item {
+  display: flex; align-items: center; gap: 8px;
+  width: 100%; padding: 8px 10px;
+  font-size: 12px; color: var(--fg-0);
+  border-radius: 5px; text-align: left;
+  background: none; border: none; cursor: pointer; font-family: inherit;
+}
+.user-menu-item:hover { background: var(--surface2); }
+.user-menu-item.danger { color: oklch(0.78 0.16 25); }
+.user-menu-item.danger:hover { background: oklch(0.70 0.18 25 / 0.10); }
 .topbar-run-group {
   display: flex; align-items: center; gap: 4px;
   padding: 3px; background: var(--bg-1);
@@ -862,6 +906,16 @@ body {
     <button class="btn primary" id="btn-run-all">▶▶ Run all <span class="btn-kbd">⌘↵</span></button>
   </div>
   <button class="btn ghost" id="btn-clear-all">Clear</button>
+  <div class="user-menu" id="user-menu">
+    <button class="topbar-avatar" id="user-menu-trigger" title="Account" aria-haspopup="true" aria-expanded="false">R</button>
+    <div class="user-menu-pop" role="menu">
+      <div class="user-menu-info" id="user-menu-email">—</div>
+      <button class="user-menu-item danger" id="user-menu-signout" role="menuitem">
+        <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M10 11l3-3-3-3"/><path d="M13 8H6"/><path d="M9 3H4a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h5"/></svg>
+        Sign out
+      </button>
+    </div>
+  </div>
 </div>
 
 <div class="side-left">
@@ -2661,6 +2715,43 @@ body {
 
   // Wire right panel input → save
   document.getElementById('right-panel-content')?.addEventListener('input', scheduleSave);
+
+  // ── User menu (avatar dropdown + sign out) ────────────────────────────────
+  (function setupUserMenu() {
+    const menu    = document.getElementById('user-menu');
+    const trigger = document.getElementById('user-menu-trigger');
+    const emailEl = document.getElementById('user-menu-email');
+    const signOut = document.getElementById('user-menu-signout');
+    if (!menu || !trigger) return;
+
+    fetch('/api/me', { credentials: 'same-origin' })
+      .then(r => r.json())
+      .then(d => {
+        if (d?.user) {
+          emailEl.textContent = d.user;
+          trigger.textContent = (d.user[0] || 'R').toUpperCase();
+        }
+      }).catch(() => {});
+
+    trigger.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const open = menu.classList.toggle('open');
+      trigger.setAttribute('aria-expanded', open ? 'true' : 'false');
+    });
+    document.addEventListener('click', (e) => {
+      if (!menu.contains(e.target)) {
+        menu.classList.remove('open');
+        trigger.setAttribute('aria-expanded', 'false');
+      }
+    });
+    signOut.addEventListener('click', async () => {
+      try {
+        await fetch('/api/logout', { method: 'POST', credentials: 'same-origin' });
+      } finally {
+        window.location.href = '/login';
+      }
+    });
+  })();
 </script>
 </body>
 </html>
