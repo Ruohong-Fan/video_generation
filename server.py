@@ -819,6 +819,8 @@ def text_generate():
         "messages": [{"role": "user", "content": content_parts}],
     }
 
+    print(f"[doubao] POST {DOUBAO_URL} model={DOUBAO_MODEL} parts={len(content_parts)}", flush=True)
+
     try:
         resp = requests.post(
             DOUBAO_URL,
@@ -830,19 +832,35 @@ def text_generate():
             timeout=120,
         )
     except requests.RequestException as e:
-        return jsonify({"ok": False, "error": f"Doubao request failed: {e}"}), 502
+        print(f"[doubao] request exception: {e}", flush=True)
+        return jsonify({"ok": False, "error": f"Doubao request failed: {e}"}), 200
 
     if not resp.ok:
         try:
             err = resp.json()
         except Exception:
-            err = {"raw": resp.text[:500]}
-        return jsonify({"ok": False, "error": "Doubao API error", "detail": err}), resp.status_code
+            err = {"raw": resp.text[:1000]}
+        print(f"[doubao] HTTP {resp.status_code} response: {err}", flush=True)
+        # Always return 200 to the browser so the JSON body survives proxies/devtools.
+        # The frontend reads `ok`/`error` to know it failed.
+        hint = ""
+        if resp.status_code == 503:
+            hint = (" — model may not be activated for this API key. "
+                    "Check Volces Ark console: 推理接入点 (Inference Endpoints) "
+                    "and confirm '" + DOUBAO_MODEL + "' is enabled, "
+                    "or set DOUBAO_MODEL=<your endpoint id, e.g. ep-xxxxxxxx>.")
+        return jsonify({
+            "ok": False,
+            "error": f"Doubao API error (HTTP {resp.status_code}){hint}",
+            "detail": err,
+            "upstream_status": resp.status_code,
+        }), 200
 
     body = resp.json()
     text = _extract_doubao_text(body)
     if not text:
-        return jsonify({"ok": False, "error": "Doubao returned no text", "detail": body}), 502
+        print(f"[doubao] empty text in response: {body}", flush=True)
+        return jsonify({"ok": False, "error": "Doubao returned no text", "detail": body}), 200
 
     return jsonify({
         "ok": True,
