@@ -954,7 +954,7 @@ body {
         </button>
         <button class="lib-card" onclick="addNodeFromLibrary('audio')">
           <div class="lib-card-icon">🎵</div>
-          <div><div class="lib-card-name">Audio</div><div class="lib-card-desc">Upload audio clip</div></div>
+          <div><div class="lib-card-name">Audio</div><div class="lib-card-desc">Generate music (Jimeng)</div></div>
         </button>
       </div>
     </div>
@@ -997,7 +997,7 @@ body {
   </div>
   <div class="add-menu-item" data-node-type="audio">
     <span class="icon">🎵</span>
-    <div><div>Audio (upload)</div><div class="sub">Attach an audio clip</div></div>
+    <div><div>Audio</div><div class="sub">Generate music or upload a clip</div></div>
   </div>
 </div>
 
@@ -1044,7 +1044,7 @@ body {
     text:  { title: 'Text',  hasIn: true,  hasOut: true },
     image: { title: 'Image', hasIn: true,  hasOut: true },
     video: { title: 'Video', hasIn: true,  hasOut: true },
-    audio: { title: 'Audio', hasIn: false, hasOut: true },
+    audio: { title: 'Audio', hasIn: true,  hasOut: true },
   };
 
   // SVG icons for node types and actions
@@ -1063,6 +1063,7 @@ body {
     layers: `<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2L2 5l6 3 6-3-6-3z"/><path d="M2 8l6 3 6-3M2 11l6 3 6-3"/></svg>`,
     fit:    `<svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M3 6V3h3M10 3h3v3M13 10v3h-3M6 13H3v-3"/></svg>`,
     refresh:`<svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M2 8A6 6 0 1 0 3.5 3.5"/><path d="M2 4V8h4"/></svg>`,
+    pause:  `<svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor"><rect x="3" y="3" width="3.5" height="10" rx="1"/><rect x="9.5" y="3" width="3.5" height="10" rx="1"/></svg>`,
   };
 
   // ── DOM references ──────────────────────────────────────────────────────
@@ -1139,7 +1140,7 @@ body {
       title: spec.title + (typeCount > 0 ? ' ' + (typeCount + 1) : ''),
       prompt: '',
       params: {
-        duration: '5',
+        duration: type === 'audio' ? '30' : '5',
         ratio: '16:9',
         resolution: type === 'video' ? '720P' : '2k',
         modelVersion: 'seedance2.0',
@@ -1261,19 +1262,27 @@ body {
     }
 
     if (node.type === 'audio') {
-      if (node.uploadUrl) {
-        // Deterministic waveform bars
+      // Prefer generated result; fall back to manual upload.
+      const audioSrc = (last?.kind === 'audio' ? (last.servePath || last.url) : null) || node.uploadUrl;
+      if (audioSrc) {
         const bars = 28;
         const waveBars = Array.from({ length: bars }, (_, i) => {
           const h = 10 + 20 * Math.abs(Math.sin(i * 0.6 + (node.id.charCodeAt(1) || 1))) + 5 * Math.abs(Math.sin(i * 1.3));
           return `<span style="height:${h}px"></span>`;
         }).join('');
-        return `<div class="node-audio-body">
-          <button class="node-action run" style="width:28px;height:28px;border-radius:50%;background:var(--amber);color:oklch(0.18 0.03 65);flex-shrink:0" title="Play">${ICONS.play}</button>
+        const isGenerated = !!(last?.kind === 'audio');
+        const badge = isGenerated ? `<div class="node-text-label generated" style="position:absolute;top:6px;right:8px">GEN</div>` : '';
+        return `<div class="node-audio-body" style="position:relative">
+          ${badge}
+          <audio id="aud-${node.id}" src="${esc(mediaUrl(audioSrc))}" preload="none" style="display:none"></audio>
+          <button class="node-action" style="width:28px;height:28px;border-radius:50%;background:var(--amber);color:oklch(0.18 0.03 65);flex-shrink:0" title="Play" data-audio-play="${esc(node.id)}">${ICONS.play}</button>
           <div class="wave">${waveBars}</div>
+          ${countBadge}
         </div>`;
       }
-      return `<div class="node-preview empty">No audio — upload in Params</div>`;
+      if (node.status === 'running') return `<div class="node-preview empty">Generating…</div>`;
+      if (node.status === 'queued')  return `<div class="node-preview empty">Queued…</div>`;
+      return `<div class="node-preview empty">Type a prompt or upload a file</div>`;
     }
 
     if (last?.url || last?.localPath || last?.servePath) {
@@ -1403,8 +1412,8 @@ body {
     return inputs;
   }
 
-  // Nodes that don't need to call an API — they provide data to downstream
-  const PASSIVE_TYPES = new Set(['audio']);
+  // All node types are now active (have a Run button and call an API).
+  const PASSIVE_TYPES = new Set();
 
   async function startTask(node) {
     const { prompt, imageRefs, imagePrompts } = collectInputs(node);
@@ -1430,7 +1439,12 @@ body {
       return { sync: true, text: data.text };
     }
 
-    if (node.type === 'image') {
+    if (node.type === 'audio') {
+      const audioPrompt = prompt || '';
+      if (!audioPrompt) throw new Error('prompt required — describe the music or audio you want');
+      endpoint = '/api/text2audio';
+      body = { prompt: audioPrompt, duration: node.params.duration || '30' };
+    } else if (node.type === 'image') {
       if (imageRef) {
         if (!prompt) throw new Error('prompt required for image transform');
         endpoint = '/api/image2image';
@@ -1541,7 +1555,7 @@ body {
       setNodeStatus(id, 'running', { taskId });
       const task = await pollUntilDone(taskId, id);
       const url = extractOutputUrl(task);
-      const kind = node.type === 'video' ? 'video' : 'image';
+      const kind = node.type === 'video' ? 'video' : node.type === 'audio' ? 'audio' : 'image';
       // localPath = CLI's own saved file (for passing back to CLI as --image input)
       // servePath = server-downloaded /uploads/ copy (for browser display)
       const localPath = task?.result?.data?.local_path || task?.result?.local_path || null;
@@ -2081,6 +2095,26 @@ body {
   // Save on field edits inside nodes (prompt, params)
   canvas.addEventListener('input', scheduleSave);
 
+  // Audio play/pause for node cards (event delegation so re-renders don't lose listeners)
+  canvas.addEventListener('click', e => {
+    const btn = e.target.closest('[data-audio-play]');
+    if (!btn) return;
+    e.stopPropagation();
+    const nodeId = btn.dataset.audioPlay;
+    const audio = document.getElementById('aud-' + nodeId);
+    if (!audio) return;
+    if (audio.paused) {
+      // Pause all other audios first
+      document.querySelectorAll('audio').forEach(a => { if (a !== audio) a.pause(); });
+      audio.play();
+      btn.innerHTML = ICONS.pause || '⏸';
+    } else {
+      audio.pause();
+      btn.innerHTML = ICONS.play;
+    }
+    audio.addEventListener('ended', () => { btn.innerHTML = ICONS.play; }, { once: true });
+  });
+
   async function loadWorkflow() {
     loading = true;
     try {
@@ -2267,7 +2301,7 @@ body {
     const thumb = (r) => {
       const p = esc(mediaUrl(r.servePath || r.url));
       if (r.kind === 'video') return `<video src="${p}" muted preload="metadata" referrerpolicy="no-referrer" onerror="markMediaExpired(this)"></video>`;
-      if (r.kind === 'audio') return '🎵';
+      if (r.kind === 'audio') return `<div style="display:grid;place-items:center;height:100%;background:oklch(0.78 0.12 320/0.1);border-radius:4px;color:oklch(0.78 0.12 320)">${ICONS.audio}</div>`;
       return `<img src="${p}" alt="" referrerpolicy="no-referrer" onerror="markMediaExpired(this)"/>`;
     };
     const fmtTs = ts => { try { return ts ? new Date(ts).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}) : ''; } catch { return ''; } };
@@ -2290,11 +2324,15 @@ body {
           const isLatest = i === results.length - 1;
           const t = fmtTs(r.ts);
           const fileHref = esc(mediaUrl(r.servePath || r.url));
+          const audioPlayer = r.kind === 'audio'
+            ? `<audio src="${fileHref}" controls style="width:100%;margin:4px 0;border-radius:4px"></audio>`
+            : '';
           html += `<div class="file-item">
             <div class="file-thumb">${thumb(r)}</div>
             <div class="file-info">
               <div class="file-name">Run ${runNum}${isLatest ? ' <span style="color:var(--amber);font-size:9px">LATEST</span>' : ''}</div>
               <div class="file-sub">${r.kind}${t ? ' · ' + t : ''}</div>
+              ${audioPlayer}
               <div class="file-actions">
                 <a class="file-link" href="${fileHref}" target="_blank" download>↓ download</a>
                 <a class="file-link" href="${fileHref}" target="_blank">↗ open</a>
@@ -2710,10 +2748,32 @@ body {
       </div>`;
     }
 
-    // Audio upload
+    // Audio: prompt + duration + generated preview + optional manual upload
     if (node.type === 'audio') {
-      f += `<div class="field"><label class="field-label">Audio file</label>
-        ${node.uploadUrl ? `<audio src="${esc(mediaUrl(node.uploadUrl))}" controls style="width:100%;margin-bottom:6px"></audio>` : ''}
+      f += `<div class="field">
+        <label class="field-label">Prompt</label>
+        <textarea class="field-textarea" data-field="prompt" rows="4"
+          placeholder="Upbeat cinematic background music, 30 seconds, orchestral…">${esc(node.prompt)}</textarea>
+        <div class="field-helper">Describe the music or audio you want generated.</div>
+      </div>`;
+      f += `<div class="field">
+        <label class="field-label">Duration (seconds)</label>
+        <div class="chip-row">
+          ${['15','30','60'].map(d => `<button class="chip${(node.params.duration||'30')===d?' active':''}" data-field="duration" data-val="${d}">${d}s</button>`).join('')}
+        </div>
+      </div>`;
+      // Show generated audio player if a result exists
+      const lastAudio = (node.results||[]).slice().reverse().find(r => r?.kind === 'audio');
+      if (lastAudio) {
+        const src = esc(mediaUrl(lastAudio.servePath || lastAudio.url));
+        f += `<div class="field">
+          <label class="field-label">Generated audio <span style="color:var(--amber);font-size:10px">${(node.results||[]).length} run${(node.results||[]).length===1?'':'s'}</span></label>
+          <audio src="${src}" controls style="width:100%;border-radius:6px"></audio>
+        </div>`;
+      }
+      // Manual upload as override
+      f += `<div class="field"><label class="field-label" style="color:var(--fg-3)">Or upload a file</label>
+        ${node.uploadUrl ? `<audio src="${esc(mediaUrl(node.uploadUrl))}" controls style="width:100%;margin-bottom:6px;border-radius:6px"></audio>` : ''}
         <input type="file" accept="audio/*" data-upload style="font-size:11px;color:var(--fg-2);cursor:pointer"/>
       </div>`;
     }

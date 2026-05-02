@@ -488,6 +488,22 @@ def text2image():
     return jsonify(_start_task(cmd, f"text2image: {prompt[:60]}"))
 
 
+@app.post("/api/text2audio")
+def text2audio():
+    data = request.get_json(silent=True) or {}
+    prompt = data.get("prompt", "").strip()
+    duration = str(data.get("duration", "30")).strip()
+    if not prompt:
+        return jsonify({"ok": False, "error": "prompt is required"}), 400
+    cmd = [
+        "dreamina", "text2audio",
+        f"--prompt={prompt}",
+        f"--duration={duration}",
+        "--poll=120",
+    ]
+    return jsonify(_start_task(cmd, f"text2audio: {prompt[:60]}"))
+
+
 def _resolve_image_input(request) -> str | None:
     """Return a path-or-URL usable by `dreamina --image=...`.
     Accepts either a multipart upload OR JSON with image_url.
@@ -531,6 +547,13 @@ _MIME_TO_EXT = {
     "image/png": ".png",
     "image/webp": ".webp",
     "image/gif": ".gif",
+    "audio/mpeg": ".mp3",
+    "audio/mp3": ".mp3",
+    "audio/wav": ".wav",
+    "audio/x-wav": ".wav",
+    "audio/aac": ".aac",
+    "audio/ogg": ".ogg",
+    "audio/flac": ".flac",
 }
 
 
@@ -630,7 +653,12 @@ def _cache_task_output(task: dict) -> None:
     if not url or not url.startswith("http"):
         return
     label = task.get("label", "")
-    hint = ".mp4" if "video" in label.lower() else ".jpg"
+    if "video" in label.lower():
+        hint = ".mp4"
+    elif "audio" in label.lower():
+        hint = ".mp3"
+    else:
+        hint = ".jpg"
     downloaded = _download_media(url, hint_ext=hint)
     if downloaded and not downloaded.startswith("http"):
         serve_path = "/uploads/" + Path(downloaded).name
