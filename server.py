@@ -703,7 +703,8 @@ def image2image():
 
 # ── API: Text generation via Doubao (multi-modal in, text out) ───────────────
 
-DOUBAO_URL = "https://ark.cn-beijing.volces.com/api/v3/responses"
+# Chat Completions endpoint — stable, supported for all Ark models.
+DOUBAO_URL = "https://ark.cn-beijing.volces.com/api/v3/chat/completions"
 DOUBAO_MODEL = os.environ.get("DOUBAO_MODEL", "doubao-seed-2-0-pro-260215")
 
 _IMG_EXT_TO_MIME = {
@@ -774,6 +775,8 @@ def text_generate():
     if not prompt and not raw_inputs:
         return jsonify({"ok": False, "error": "prompt or inputs is required"}), 400
 
+    # Chat Completions content parts: images use {type:"image_url", image_url:{url:...}},
+    # text uses {type:"text", text:...}  (same shape as OpenAI vision API).
     content_parts: list[dict] = []
     video_notes: list[str] = []
     skipped_images: list[str] = []
@@ -785,12 +788,12 @@ def text_generate():
         if kind == "text":
             txt = (item.get("content") or item.get("text") or "").strip()
             if txt:
-                content_parts.append({"type": "input_text", "text": txt})
+                content_parts.append({"type": "text", "text": txt})
         elif kind == "image":
             ref = item.get("url") or item.get("path") or ""
             resolved = _resolve_image_url_for_doubao(ref)
             if resolved:
-                content_parts.append({"type": "input_image", "image_url": resolved})
+                content_parts.append({"type": "image_url", "image_url": {"url": resolved}})
             else:
                 skipped_images.append(ref)
         elif kind == "video":
@@ -802,18 +805,18 @@ def text_generate():
     # The user prompt itself goes last so it sits next to the model's response.
     if video_notes:
         content_parts.append({
-            "type": "input_text",
+            "type": "text",
             "text": "Reference videos (URLs, frames not transmitted):\n" + "\n".join(video_notes),
         })
     if prompt:
-        content_parts.append({"type": "input_text", "text": prompt})
+        content_parts.append({"type": "text", "text": prompt})
 
     if not content_parts:
         return jsonify({"ok": False, "error": "no usable content after resolving inputs"}), 400
 
     payload = {
         "model": DOUBAO_MODEL,
-        "input": [{"role": "user", "content": content_parts}],
+        "messages": [{"role": "user", "content": content_parts}],
     }
 
     try:
@@ -850,38 +853,21 @@ def text_generate():
 
 
 def _extract_doubao_text(body: dict) -> str:
-    """Walk the Ark Responses payload and pull out the assistant's text. The
-    shape is `output: [{ content: [{ type: 'output_text', text: '…' }] }]`,
-    but we tolerate a couple of older shapes too."""
+    """Extract assistant reply from a Chat Completions response."""
     if not isinstance(body, dict):
         return ""
-    # New Responses API shape
-    output = body.get("output")
-    if isinstance(output, list):
-        chunks: list[str] = []
-        for item in output:
-            content = (item or {}).get("content")
-            if isinstance(content, list):
-                for c in content:
-                    if isinstance(c, dict) and c.get("type") in ("output_text", "text"):
-                        t = c.get("text") or ""
-                        if t:
-                            chunks.append(t)
-        if chunks:
-            return "\n".join(chunks).strip()
-    # Some variants flatten to output_text
-    ot = body.get("output_text")
-    if isinstance(ot, str) and ot:
-        return ot.strip()
-    if isinstance(ot, list):
-        return "\n".join(s for s in ot if isinstance(s, str)).strip()
-    # Chat-style fallback
     choices = body.get("choices")
     if isinstance(choices, list) and choices:
         msg = (choices[0] or {}).get("message") or {}
         c = msg.get("content")
         if isinstance(c, str):
             return c.strip()
+        # Some vision models return content as a list of parts
+        if isinstance(c, list):
+            return "\n".join(
+                p.get("text", "") for p in c
+                if isinstance(p, dict) and p.get("type") in ("text", "output_text")
+            ).strip()
     return ""
 
 
