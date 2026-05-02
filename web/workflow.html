@@ -1390,12 +1390,16 @@ body {
         const t = textNodeOutput(u);
         if (t) prompt = t;
       }
-      const uLast = u.results?.[u.results.length - 1];
-      if (uLast?.kind === 'image') {
-        const ref = uLast.localPath || uLast.url || null;
-        if (ref) imageRefs.push(ref);
+      if (u.type === 'image') {
+        const uLast = u.results?.[u.results.length - 1];
+        if (uLast?.kind === 'image') {
+          const ref = uLast.servePath || uLast.localPath || uLast.url || null;
+          if (ref) imageRefs.push(ref);
+        } else if (u.uploadPath || u.uploadUrl) {
+          imageRefs.push(u.uploadPath || u.uploadUrl);
+        }
+        if (u.prompt) imagePrompts.push(u.prompt);
       }
-      if (u.type === 'image' && u.prompt) imagePrompts.push(u.prompt);
     }
     // Node's own upload appended after upstream results
     if (node.uploadPath) imageRefs.push(node.uploadPath);
