@@ -1198,7 +1198,7 @@ body {
       ${progressBar}
       <div class="node-foot">
         ${nodeStatusHtml(node)}
-        <span>${esc(node.type === 'video' ? (node.params.modelVersion || '') : '')}</span>
+        <span>${esc(node.type === 'video' ? `${videoMode(node)} · ${node.params.modelVersion || ''}` : '')}</span>
       </div>
     `;
     canvas.appendChild(el);
@@ -1344,9 +1344,12 @@ body {
     updateEdgesFor(id);
     if (document.getElementById('panel-files')?.style.display !== 'none') renderFilesPanel();
     if (selected.has(id)) renderInspector(id);
-    // Refresh inspector of any selected downstream node so upstream output appears
+    // Refresh downstream nodes so they pick up new upstream outputs (image
+    // becoming available switches a Video node from T2V to I2V mode, etc.)
     if (status === 'done') {
       edges.filter(e => e.fromId === id).forEach(e => {
+        const dn = nodes.get(e.toId);
+        if (dn) renderNode(dn);
         if (selected.has(e.toId)) renderInspector(e.toId);
       });
     }
@@ -1354,6 +1357,20 @@ body {
 
   function upstreamNodes(id) {
     return edges.filter(e => e.toId === id).map(e => nodes.get(e.fromId)).filter(Boolean);
+  }
+
+  // 'I2V' if a Video node has any usable image reference upstream/uploaded,
+  // otherwise 'T2V'. Used for the node-foot mode badge.
+  function videoMode(node) {
+    if (node.type !== 'video') return '';
+    if (node.uploadPath || node.uploadUrl) return 'I2V';
+    for (const u of upstreamNodes(node.id)) {
+      if (u.type !== 'image') continue;
+      const last = u.results?.[u.results.length - 1];
+      if (last?.kind === 'image' && (last.localPath || last.url)) return 'I2V';
+      if (u.uploadUrl) return 'I2V';
+    }
+    return 'T2V';
   }
 
   // Pull the most recent generated text from a Text node, falling back to its prompt.
@@ -1455,12 +1472,23 @@ body {
         body = { prompt, ratio: node.params.ratio, resolution: node.params.resolution };
       }
     } else if (node.type === 'video') {
-      // Always use text2video — image upload to Jimeng is unreliable.
-      // If the node has no prompt, fall back to upstream image nodes' prompts.
-      const videoPrompt = prompt || imagePrompts.join(', ');
-      if (!videoPrompt) throw new Error('prompt required (connect a Text or Image node, or type one)');
-      endpoint = '/api/text2video';
-      body = { prompt: videoPrompt, duration: node.params.duration, ratio: node.params.ratio, resolution: node.params.resolution, model_version: node.params.modelVersion };
+      if (imageRef) {
+        // I2V mode — animate the upstream/uploaded image. Prompt becomes
+        // the motion description (optional but recommended).
+        endpoint = '/api/image2video';
+        body = {
+          image: imageRef,
+          prompt: prompt || imagePrompts.join(', '),
+          duration: node.params.duration,
+          model_version: node.params.modelVersion,
+        };
+      } else {
+        // T2V mode — text only.
+        const videoPrompt = prompt || imagePrompts.join(', ');
+        if (!videoPrompt) throw new Error('prompt required (connect a Text or Image node, or type one)');
+        endpoint = '/api/text2video';
+        body = { prompt: videoPrompt, duration: node.params.duration, ratio: node.params.ratio, resolution: node.params.resolution, model_version: node.params.modelVersion };
+      }
     } else {
       throw new Error('Unsupported node type: ' + node.type);
     }
@@ -2655,15 +2683,21 @@ body {
 
     // Prompt
     if (['text','image','video'].includes(node.type)) {
+      const isI2V = node.type === 'video' && videoMode(node) === 'I2V';
       const ph = {
         text:'Write a 30s product script highlighting the selling points above…',
         image:'A misty mountain at dawn…',
-        video:'Camera pushes in slowly…',
+        video: isI2V ? 'Camera slowly pushes in, leaves rustle in the breeze…' : 'A fox sitting in a snowy forest, cinematic 4K…',
       }[node.type] || '';
       const lbl = node.type === 'text' ? 'Instruction' : 'Prompt';
-      const helper = node.type === 'text'
-        ? `<div class="field-helper">The model receives all upstream inputs (text · images · video refs) plus this instruction.</div>`
-        : '';
+      let helper = '';
+      if (node.type === 'text') {
+        helper = `<div class="field-helper">The model receives all upstream inputs (text · images · video refs) plus this instruction.</div>`;
+      } else if (node.type === 'video') {
+        helper = isI2V
+          ? `<div class="field-helper" style="color:var(--amber)">I2V mode — describes motion applied to the upstream image (optional).</div>`
+          : `<div class="field-helper">T2V mode — connect an Image node to switch to I2V (animate that image).</div>`;
+      }
       f += `<div class="field">
         <label class="field-label">${lbl}</label>
         <textarea class="field-textarea" data-field="prompt" rows="5" placeholder="${esc(ph)}">${esc(node.prompt)}</textarea>
