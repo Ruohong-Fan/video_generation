@@ -536,7 +536,12 @@ def _resolve_image_input(request) -> str | None:
         return str(image_ref)
 
     # Remote URL: download locally so the CLI gets a file it can upload.
-    return _download_image(str(image_ref))
+    # _download_image returns the URL itself on failure — the CLI only accepts
+    # local paths, so treat a URL return as a failed download.
+    local = _download_image(str(image_ref))
+    if local and not local.startswith("http"):
+        return local
+    return None
 
 
 _MIME_TO_EXT = {
@@ -695,7 +700,7 @@ def image2video():
     model_version = _get_param(request, "model_version", "").strip()
     image_ref = _resolve_image_input(request)
     if not image_ref:
-        return jsonify({"ok": False, "error": "image or image_url is required"}), 400
+        return jsonify({"ok": False, "error": "image is required — upload failed or URL could not be downloaded (it may have expired)"}), 400
     cmd = [
         "dreamina", "image2video",
         f"--image={image_ref}",
