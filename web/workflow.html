@@ -242,19 +242,19 @@ body {
 .side-left.collapsed  { transform: translateX(-260px); }
 .side-right.collapsed { transform: translateX(320px); }
 .panel-toggle {
-  position: absolute; top: 50%; transform: translateY(-50%);
+  position: fixed; top: 50%; transform: translateY(-50%);
   width: 18px; height: 42px;
   background: var(--bg-2); border: 1px solid var(--line);
   display: flex; align-items: center; justify-content: center;
-  color: var(--fg-3); cursor: pointer; z-index: 81;
-  transition: color 0.12s, background 0.12s;
+  color: var(--fg-3); cursor: pointer; z-index: 90;
+  transition: color 0.12s, background 0.12s, left 0.2s ease, right 0.2s ease;
 }
 .panel-toggle:hover { color: var(--fg-0); background: var(--bg-3); }
-.panel-toggle-left  { right: -18px; border-left: none; border-radius: 0 4px 4px 0; }
-.panel-toggle-right { left: -18px;  border-right: none; border-radius: 4px 0 0 4px; }
 .panel-toggle svg { width: 10px; height: 10px; }
-.side-left.collapsed  .panel-toggle-left  { position: fixed; left: 0; }
-.side-right.collapsed .panel-toggle-right { position: fixed; right: 0; }
+.panel-toggle-left  { left: 260px; border-left: none; border-radius: 0 4px 4px 0; }
+.panel-toggle-right { right: 320px; border-right: none; border-radius: 4px 0 0 4px; }
+body.left-collapsed  .panel-toggle-left  { left: 0; }
+body.right-collapsed .panel-toggle-right { right: 0; }
 
 /* ── Node title inline edit ─────────────────────────────────────────────── */
 .node-title-input {
@@ -961,10 +961,15 @@ body.right-collapsed .canvas-wrap { right: 0; }
   </div>
 </div>
 
+<!-- Panel toggle buttons — outside the panels so CSS transform doesn't trap them -->
+<button class="panel-toggle panel-toggle-left" id="toggle-left" title="Toggle left panel">
+  <svg viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" id="toggle-left-icon"><path d="M6 2L3 5l3 3"/></svg>
+</button>
+<button class="panel-toggle panel-toggle-right" id="toggle-right" title="Toggle right panel">
+  <svg viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" id="toggle-right-icon"><path d="M4 2l3 3-3 3"/></svg>
+</button>
+
 <div class="side-left" id="side-left">
-  <button class="panel-toggle panel-toggle-left" id="toggle-left" title="Toggle panel">
-    <svg viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" id="toggle-left-icon"><path d="M6 2L3 5l3 3"/></svg>
-  </button>
   <div class="side-tabs">
     <button class="side-tab active" id="tab-library" onclick="switchSideTab('library')">Library</button>
     <button class="side-tab" id="tab-files" onclick="switchSideTab('files')">Files</button>
@@ -1036,9 +1041,6 @@ body.right-collapsed .canvas-wrap { right: 0; }
 
 
 <div class="side-right" id="side-right">
-  <button class="panel-toggle panel-toggle-right" id="toggle-right" title="Toggle panel">
-    <svg viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" id="toggle-right-icon"><path d="M4 2l3 3-3 3"/></svg>
-  </button>
   <div class="side-tabs" id="right-tabs">
     <button class="side-tab active" data-rtab="inputs" onclick="switchRightTab('inputs')">Inputs<span class="tab-count" id="tab-inputs-count" style="display:none">0</span></button>
     <button class="side-tab" data-rtab="params" onclick="switchRightTab('params')">Params</button>
