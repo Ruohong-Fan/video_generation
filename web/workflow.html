@@ -2734,7 +2734,7 @@ body.right-collapsed .canvas-wrap { right: 0; }
           : null;
       mediaHtml = `<div class="input-media ${node.type}">
         ${mediaEl || `<div class="input-media-placeholder">${node.status==='running'?`RENDERING · ${node.progress||0}%`:node.type.toUpperCase()}</div>`}
-        ${node.type==='video' ? `<span class="input-media-pill duration">${node.params?.duration||'5s'}</span>` : ''}
+        ${node.type==='video' ? `<span class="input-media-pill duration">${node.params?.duration||'5'}s</span>` : ''}
       </div>`;
     }
 
