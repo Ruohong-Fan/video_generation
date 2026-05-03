@@ -2600,7 +2600,7 @@ body.right-collapsed .canvas-wrap { right: 0; }
       return;
     }
 
-    const all = computeUpstreamAll(selNode.id);
+    const all = upstreamNodes(selNode.id).map(node => ({ node, depth: 1 }));
     const counts = all.reduce((acc, {node}) => { acc[node.type] = (acc[node.type]||0)+1; return acc; }, {});
     const totalSize = all.length;
 
@@ -2624,10 +2624,6 @@ body.right-collapsed .canvas-wrap { right: 0; }
     const filterRow = totalSize > 0 ? `<div class="upstream-filters">
       ${chipHtml('all','All',totalSize)}
       ${TYPE_ORDER.filter(t => counts[t]).map(t => chipHtml(t, TYPE_LABEL[t], counts[t])).join('')}
-      <div class="upstream-filters-spacer"></div>
-      <button class="upstream-toggle-group${inputsGroupBy==='depth'?' on':''}" data-toggle-group title="Toggle grouping">
-        ${inputsGroupBy==='depth' ? ICONS.layers : ICONS.refresh}
-      </button>
     </div>` : '';
 
     // Group content
@@ -2638,18 +2634,11 @@ body.right-collapsed .canvas-wrap { right: 0; }
         <div class="empty-state-title">No inputs yet</div>
         <div class="empty-state-sub">Drag from another node's output port to feed it data.</div>
       </div>`;
-    } else if (inputsGroupBy === 'type') {
+    } else {
       groupsHtml = TYPE_ORDER.map(t => {
         const items = filtered.filter(({node}) => node.type === t);
         if (!items.length) return '';
         return upstreamGroupHtml(TYPE_LABEL[t], t, items);
-      }).join('');
-    } else {
-      groupsHtml = [1,2,3,4,5].map(d => {
-        const items = filtered.filter(({depth}) => depth === d);
-        if (!items.length) return '';
-        const label = d === 1 ? 'Direct parents' : `${d} hops upstream`;
-        return upstreamGroupHtml(label, null, items, d);
       }).join('');
     }
 
@@ -2674,10 +2663,6 @@ body.right-collapsed .canvas-wrap { right: 0; }
     // Wire filter chip clicks
     panel.querySelectorAll('[data-ifilter]').forEach(btn => {
       btn.addEventListener('click', () => { inputsFilter = btn.dataset.ifilter; renderRightPanel(); });
-    });
-    panel.querySelector('[data-toggle-group]')?.addEventListener('click', () => {
-      inputsGroupBy = inputsGroupBy === 'type' ? 'depth' : 'type';
-      renderRightPanel();
     });
     panel.querySelectorAll('[data-jump]').forEach(btn => {
       btn.addEventListener('click', () => {
