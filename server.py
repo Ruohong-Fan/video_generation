@@ -99,13 +99,15 @@ def _global_auth_gate():
 
 
 
-UPLOAD_DIR = Path("uploads")
+BASE_DIR = Path(__file__).resolve().parent
+
+UPLOAD_DIR = BASE_DIR / "uploads"
 UPLOAD_DIR.mkdir(exist_ok=True)
 
-TASKS_FILE = Path("tasks.json")
-WORKFLOW_FILE = Path("workflow.json")
-PROJECTS_FILE = Path("projects.json")
-WORKFLOWS_DIR = Path("workflows")
+TASKS_FILE = BASE_DIR / "tasks.json"
+WORKFLOW_FILE = BASE_DIR / "workflow.json"
+PROJECTS_FILE = BASE_DIR / "projects.json"
+WORKFLOWS_DIR = BASE_DIR / "workflows"
 WORKFLOWS_DIR.mkdir(exist_ok=True)
 POLL_INTERVAL = int(os.environ.get("POLL_INTERVAL_SECONDS", "15"))
 POLL_TIMEOUT = int(os.environ.get("POLL_TIMEOUT_SECONDS", "21600"))  # 6 hours; <=0 disables timeout
