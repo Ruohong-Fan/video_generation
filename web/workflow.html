@@ -828,6 +828,7 @@ body.right-collapsed .canvas-wrap { right: 0; }
   width: 48px; height: 48px; border-radius: 6px; background: var(--bg-2);
   object-fit: cover; flex-shrink: 0; border: 1px solid var(--line);
 }
+.inspector-thumb video { width: 100%; height: 100%; object-fit: cover; display: block; border-radius: 6px; }
 .inspector-thumb.placeholder {
   background: repeating-linear-gradient(45deg,
     oklch(0.22 0.01 65), oklch(0.22 0.01 65) 4px,
@@ -884,7 +885,7 @@ body.right-collapsed .canvas-wrap { right: 0; }
   position: relative; border-radius: 5px; overflow: hidden;
   background: var(--bg-0); aspect-ratio: 1; border: 1px solid var(--bg-3);
 }
-.insp-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.insp-thumb img, .insp-thumb video { width: 100%; height: 100%; object-fit: cover; display: block; }
 .insp-thumb-label {
   position: absolute; bottom: 0; left: 0; right: 0;
   font-size: 9px; color: #fff; background: oklch(0 0 0 / 0.55);
@@ -910,8 +911,9 @@ body.right-collapsed .canvas-wrap { right: 0; }
 }
 .queue-thumb {
   width: 32px; height: 32px; border-radius: 4px; background: var(--bg-3);
-  object-fit: cover; flex-shrink: 0;
+  object-fit: cover; flex-shrink: 0; overflow: hidden;
 }
+.queue-thumb video { width: 100%; height: 100%; object-fit: cover; display: block; }
 .queue-info { flex: 1; min-width: 0; }
 .queue-name { font-size: 12px; color: var(--fg-0); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .queue-sub { font-family: var(--type-mono); font-size: 10px; color: var(--fg-3); text-transform: uppercase; letter-spacing: 0.05em; }
@@ -1117,6 +1119,18 @@ body.right-collapsed .canvas-wrap { right: 0; }
   const mediaUrl = (url) => (url && /^https?:\/\//i.test(url))
     ? `/api/media_proxy?url=${encodeURIComponent(url)}`
     : (url || '');
+
+  // Render a thumbnail element (img or video) for a result object.
+  function resultThumb(r, cls = '') {
+    if (!r) return null;
+    const src = esc(mediaUrl(r.servePath || r.url));
+    if (!src) return null;
+    const c = cls ? ` class="${cls}"` : '';
+    if (r.kind === 'video') {
+      return `<video${c} src="${src}" muted preload="metadata" referrerpolicy="no-referrer"></video>`;
+    }
+    return `<img${c} src="${src}" alt="" referrerpolicy="no-referrer"/>`;
+  }
 
   function markMediaExpired(el) {
     const wrap = el.closest('.file-thumb') || el.parentElement;
@@ -2772,10 +2786,11 @@ body.right-collapsed .canvas-wrap { right: 0; }
 
     // Thumbnail / preview header
     const last = (node.results||[])[(node.results||[]).length-1];
-    const thumbUrl = last?.servePath || last?.url || node.uploadUrl;
-    const thumbHtml = thumbUrl
-      ? `<img class="inspector-thumb" src="${esc(mediaUrl(thumbUrl))}" alt="" referrerpolicy="no-referrer"/>`
-      : `<div class="inspector-thumb placeholder">${ICONS[node.type]||''}</div>`;
+    const thumbHtml = (last && resultThumb(last))
+      ? `<div class="inspector-thumb">${resultThumb(last)}</div>`
+      : node.uploadUrl
+        ? `<img class="inspector-thumb" src="${esc(mediaUrl(node.uploadUrl))}" alt="" referrerpolicy="no-referrer"/>`
+        : `<div class="inspector-thumb placeholder">${ICONS[node.type]||''}</div>`;
 
     let f = '';
 
@@ -2998,7 +3013,7 @@ body.right-collapsed .canvas-wrap { right: 0; }
     panel.innerHTML = `<div style="padding:14px">
       <div class="side-section-title" style="margin-top:0">Active · ${queue.length}</div>
       ${queue.map(n => `<div class="queue-item">
-        ${(n.results||[]).slice(-1)[0]?.url ? `<img class="queue-thumb" src="${esc(mediaUrl((n.results.slice(-1)[0].servePath||n.results.slice(-1)[0].url)))}" referrerpolicy="no-referrer"/>` : `<div class="queue-thumb" style="display:grid;place-items:center;color:var(--fg-3)">${ICONS[n.type]||''}</div>`}
+        ${(() => { const lr = (n.results||[]).slice(-1)[0]; const t = resultThumb(lr); return t ? `<div class="queue-thumb">${t}</div>` : `<div class="queue-thumb" style="display:grid;place-items:center;color:var(--fg-3)">${ICONS[n.type]||''}</div>`; })()}
         <div class="queue-info">
           <div class="queue-name">${esc(n.title||NODE_SPECS[n.type].title)}</div>
           <div class="queue-sub">${esc(n.type)}${n.progress!=null?' · '+n.progress+'%':''}</div>
@@ -3020,7 +3035,7 @@ body.right-collapsed .canvas-wrap { right: 0; }
       ${done.map(n => {
         const last = (n.results||[]).slice(-1)[0];
         return `<div class="queue-item">
-          ${last?.url ? `<img class="queue-thumb" src="${esc(mediaUrl(last.servePath||last.url))}" referrerpolicy="no-referrer"/>` : `<div class="queue-thumb" style="display:grid;place-items:center;color:var(--fg-3)">${ICONS[n.type]||''}</div>`}
+          ${(() => { const t = resultThumb(last); return t ? `<div class="queue-thumb">${t}</div>` : `<div class="queue-thumb" style="display:grid;place-items:center;color:var(--fg-3)">${ICONS[n.type]||''}</div>`; })()}
           <div class="queue-info">
             <div class="queue-name">${esc(n.title||NODE_SPECS[n.type].title)}</div>
             <div class="queue-sub">${esc(n.type)}${last?` · ${last.kind||''}`:''}</div>
