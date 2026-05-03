@@ -767,7 +767,7 @@ body.right-collapsed .canvas-wrap { right: 0; }
   position: relative; background: var(--bg-0);
   aspect-ratio: 16 / 9; overflow: hidden;
 }
-.input-media img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.input-media img, .input-media video { width: 100%; height: 100%; object-fit: cover; display: block; }
 .input-media-placeholder {
   position: absolute; inset: 0; display: grid; place-items: center;
   font-family: var(--type-mono); font-size: 10px; letter-spacing: 0.14em;
@@ -2737,11 +2737,18 @@ body.right-collapsed .canvas-wrap { right: 0; }
         </div>
       </div>`;
     } else if (node.type === 'video' || node.type === 'image') {
-      const imgUrl = last?.servePath || last?.url || node.uploadUrl;
+      const mediaSrc = last ? (last.servePath || last.url) : null;
+      const uploadSrc = node.uploadUrl || null;
+      const isVideo = last?.kind === 'video';
+      const mediaEl = mediaSrc
+        ? (isVideo
+            ? `<video src="${esc(mediaUrl_(mediaSrc))}" muted preload="metadata" referrerpolicy="no-referrer"></video>`
+            : `<img src="${esc(mediaUrl_(mediaSrc))}" alt="" referrerpolicy="no-referrer"/>`)
+        : uploadSrc
+          ? `<img src="${esc(mediaUrl_(uploadSrc))}" alt="" referrerpolicy="no-referrer"/>`
+          : null;
       mediaHtml = `<div class="input-media ${node.type}">
-        ${imgUrl
-          ? `<img src="${esc(mediaUrl_(imgUrl))}" alt="" referrerpolicy="no-referrer"/>`
-          : `<div class="input-media-placeholder">${node.status==='running'?`RENDERING · ${node.progress||0}%`:node.type.toUpperCase()}</div>`}
+        ${mediaEl || `<div class="input-media-placeholder">${node.status==='running'?`RENDERING · ${node.progress||0}%`:node.type.toUpperCase()}</div>`}
         ${node.type==='video' ? `<span class="input-media-pill duration">${node.params?.duration||'5s'}</span>` : ''}
       </div>`;
     }
