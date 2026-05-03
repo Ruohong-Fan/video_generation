@@ -920,6 +920,46 @@ body.right-collapsed .canvas-wrap { right: 0; }
 .queue-bar { height: 3px; background: var(--bg-0); border-radius: 2px; margin-top: 4px; overflow: hidden; }
 .queue-bar-fill { height: 100%; background: var(--amber); transition: width 0.4s ease; }
 
+/* ── Inputs-tab upload section ──────────────────────────────────────────── */
+.inputs-upload {
+  padding: 12px 14px 14px; border-top: 1px solid var(--line);
+  flex-shrink: 0;
+}
+.inputs-upload-title {
+  font-family: var(--type-mono); font-size: 10px; text-transform: uppercase;
+  letter-spacing: 0.12em; color: var(--fg-3); margin-bottom: 8px;
+}
+.inputs-upload-preview {
+  display: flex; align-items: center; gap: 8px;
+  padding: 7px 8px; background: var(--bg-2); border: 1px solid var(--line);
+  border-radius: 6px; margin-bottom: 6px;
+}
+.inputs-upload-thumb {
+  width: 36px; height: 36px; border-radius: 4px; background: var(--bg-0);
+  flex-shrink: 0; overflow: hidden; display: flex; align-items: center; justify-content: center;
+}
+.inputs-upload-thumb img,
+.inputs-upload-thumb video { width: 100%; height: 100%; object-fit: cover; display: block; }
+.inputs-upload-info { flex: 1; min-width: 0; }
+.inputs-upload-name {
+  font-size: 11px; color: var(--fg-1); overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap;
+}
+.inputs-upload-meta { font-family: var(--type-mono); font-size: 10px; color: var(--fg-3); }
+.inputs-upload-remove {
+  width: 22px; height: 22px; border-radius: 4px; flex-shrink: 0;
+  display: grid; place-items: center; color: var(--fg-3);
+}
+.inputs-upload-remove:hover { background: var(--bg-3); color: var(--err); }
+.inputs-upload-btn {
+  display: block; width: 100%; padding: 7px; text-align: center;
+  border: 1px dashed var(--line); border-radius: 6px;
+  font-size: 11px; color: var(--fg-3); cursor: pointer;
+  transition: border-color 0.12s, color 0.12s; background: none;
+}
+.inputs-upload-btn:hover { border-color: var(--amber-dim); color: var(--fg-1); }
+.inputs-upload-input { display: none; }
+
 /* ── Empty state ────────────────────────────────────────────────────────── */
 .empty-state { padding: 40px 20px; text-align: center; color: var(--fg-3); }
 .empty-state-title {
@@ -1204,6 +1244,7 @@ body.right-collapsed .canvas-wrap { right: 0; }
       error: null,
       uploadUrl: null,
       uploadPath: null,
+      uploadText: null,  // text node: content of an uploaded text file
     };
     nodes.set(id, node);
     renderNode(node);
@@ -1514,6 +1555,7 @@ body.right-collapsed .canvas-wrap { right: 0; }
       if (u.type === 'text') {
         const t = textNodeOutput(u);
         if (t) inputs.push({ type: 'text', content: `[${label}]\n${t}` });
+        if (u.uploadText) inputs.push({ type: 'text', content: `[${label} · uploaded text]\n${u.uploadText}` });
       } else if (u.type === 'image') {
         const last = u.results?.[u.results.length - 1];
         const ref = last?.servePath || last?.url || u.uploadUrl;
@@ -1542,6 +1584,7 @@ body.right-collapsed .canvas-wrap { right: 0; }
     if (node.type === 'text') {
       // Doubao multi-modal text generation. Synchronous — handled separately below.
       const inputs = collectMultimodalInputs(node);
+      if (node.uploadText) inputs.push({ type: 'text', content: `[Uploaded text]\n${node.uploadText}` });
       if (!node.prompt && !inputs.length) {
         throw new Error('Add an instruction or connect upstream inputs to generate text');
       }
@@ -2212,7 +2255,7 @@ body.right-collapsed .canvas-wrap { right: 0; }
         id: n.id, type: n.type, x: n.x, y: n.y,
         title: n.title, prompt: n.prompt, params: n.params,
         status: n.status === 'running' || n.status === 'queued' ? 'idle' : n.status,
-        results: n.results || [], uploadUrl: n.uploadUrl, uploadPath: n.uploadPath,
+        results: n.results || [], uploadUrl: n.uploadUrl, uploadPath: n.uploadPath, uploadText: n.uploadText || null,
       })),
       edges: edges.map(e => ({ id: e.id, fromId: e.fromId, toId: e.toId })),
       view: { x: view.x, y: view.y, scale: view.scale },
@@ -2289,6 +2332,7 @@ body.right-collapsed .canvas-wrap { right: 0; }
             error: n.error || null,
             uploadUrl: n.uploadUrl || null,
             uploadPath: n.uploadPath || null,
+            uploadText: n.uploadText || null,
           });
           renderNode(nodes.get(n.id));
         }
@@ -2642,7 +2686,42 @@ body.right-collapsed .canvas-wrap { right: 0; }
       }).join('');
     }
 
-    panel.innerHTML = `<div class="upstream">
+    // ── Upload section ──────────────────────────────────────────────────────
+    const ACCEPT = { text: '.txt,.md,.csv,.json', image: 'image/*', video: 'video/*', audio: 'audio/*' };
+    const UPLOAD_LABEL = { text: 'Text / document', image: 'Image', video: 'Video', audio: 'Audio' };
+    const hasUpload = !!(selNode.uploadUrl || selNode.uploadText);
+    const uploadPreviewHtml = (() => {
+      if (!hasUpload) return '';
+      let thumb = '';
+      if (selNode.uploadText) {
+        thumb = `<div class="inputs-upload-thumb" style="background:var(--bg-3);color:var(--fg-3);font-size:16px">📄</div>`;
+      } else if (selNode.type === 'video') {
+        thumb = `<div class="inputs-upload-thumb"><video src="${esc(mediaUrl(selNode.uploadUrl))}" muted preload="metadata"></video></div>`;
+      } else if (selNode.type === 'audio') {
+        thumb = `<div class="inputs-upload-thumb" style="background:var(--bg-3);color:var(--fg-3);font-size:16px">🎵</div>`;
+      } else {
+        thumb = `<div class="inputs-upload-thumb"><img src="${esc(mediaUrl(selNode.uploadUrl))}" alt=""/></div>`;
+      }
+      const name = selNode.uploadUrl ? selNode.uploadUrl.split('/').pop() : '(text content)';
+      return `<div class="inputs-upload-preview">
+        ${thumb}
+        <div class="inputs-upload-info">
+          <div class="inputs-upload-name">${esc(name)}</div>
+          <div class="inputs-upload-meta">${UPLOAD_LABEL[selNode.type]}</div>
+        </div>
+        <button class="inputs-upload-remove" id="upload-remove" title="Remove upload">✕</button>
+      </div>`;
+    })();
+    const uploadSectionHtml = `<div class="inputs-upload">
+      <div class="inputs-upload-title">Upload</div>
+      ${uploadPreviewHtml}
+      <label>
+        <input type="file" class="inputs-upload-input" id="upload-file-input" accept="${ACCEPT[selNode.type] || '*'}"/>
+        <span class="inputs-upload-btn">+ Choose ${UPLOAD_LABEL[selNode.type] || 'file'}</span>
+      </label>
+    </div>`;
+
+    panel.innerHTML = `<div class="upstream" style="display:flex;flex-direction:column;height:100%">
       <div class="upstream-head">
         <div class="upstream-target">
           <span class="upstream-target-badge">${ICONS[selNode.type] || ''}</span>
@@ -2657,7 +2736,8 @@ body.right-collapsed .canvas-wrap { right: 0; }
         </div>
         ${filterRow}
       </div>
-      <div class="upstream-body">${groupsHtml}</div>
+      <div class="upstream-body" style="flex:1">${groupsHtml}</div>
+      ${uploadSectionHtml}
     </div>`;
 
     // Wire filter chip clicks
@@ -2675,6 +2755,39 @@ body.right-collapsed .canvas-wrap { right: 0; }
         const el = btn.closest('.input-text');
         if (el) { el.classList.toggle('expanded'); btn.textContent = el.classList.contains('expanded') ? 'less' : 'more'; }
       });
+    });
+
+    // Remove upload
+    panel.querySelector('#upload-remove')?.addEventListener('click', () => {
+      selNode.uploadUrl = null; selNode.uploadPath = null; selNode.uploadText = null;
+      renderNode(selNode); renderRightPanel(); scheduleSave();
+    });
+
+    // File upload
+    panel.querySelector('#upload-file-input')?.addEventListener('change', async e => {
+      const f = e.target.files[0];
+      if (!f) return;
+      // Text nodes: read content directly; no server upload needed
+      if (selNode.type === 'text') {
+        const text = await f.text();
+        selNode.uploadText = text;
+        selNode.uploadUrl = null; selNode.uploadPath = null;
+        renderNode(selNode); renderRightPanel(); scheduleSave();
+        toast('Text file loaded', 'success');
+        return;
+      }
+      const fd = new FormData(); fd.append('file', f);
+      toast('Uploading…');
+      try {
+        const resp = await fetch('/api/upload', { method: 'POST', body: fd });
+        const d = await resp.json();
+        if (d.ok) {
+          selNode.uploadUrl = d.url; selNode.uploadPath = d.path || null; selNode.uploadText = null;
+          renderNode(selNode); renderRightPanel(); scheduleSave();
+          if (document.getElementById('panel-files')?.style.display !== 'none') renderFilesPanel();
+          toast('Upload done', 'success');
+        } else { toast('Upload failed', 'error'); }
+      } catch { toast('Upload failed', 'error'); }
     });
   }
 
