@@ -1540,11 +1540,22 @@ body {
   }
 
   async function pollUntilDone(taskId, nodeId) {
+    let networkErrors = 0;
     while (true) {
       await new Promise(r => setTimeout(r, 3000));
-      const resp = await fetch('/api/task/' + taskId);
+      let resp, t;
+      try {
+        resp = await fetch('/api/task/' + taskId);
+        t = await resp.json();
+      } catch (e) {
+        // Transient network error (server restart, brief hiccup) — retry up to 5 times
+        networkErrors++;
+        if (networkErrors >= 5) throw new Error('Server unreachable after several retries');
+        await new Promise(r => setTimeout(r, 2000 * networkErrors));
+        continue;
+      }
+      networkErrors = 0;
       if (!resp.ok) throw new Error('Task lookup failed');
-      const t = await resp.json();
       if (t.status === 'done')  return t;
       if (t.status === 'error') throw new Error(t.error || 'Task errored');
       const n = nodes.get(nodeId);
@@ -1555,7 +1566,6 @@ body {
         if (badge) badge.textContent = `queued #${t.queue_idx}`;
       }
     }
-    throw new Error('Timed out');
   }
 
   async function runNode(id) {
