@@ -253,8 +253,8 @@ body {
 .panel-toggle-left  { right: -18px; border-left: none; border-radius: 0 4px 4px 0; }
 .panel-toggle-right { left: -18px;  border-right: none; border-radius: 4px 0 0 4px; }
 .panel-toggle svg { width: 10px; height: 10px; }
-.side-left.collapsed  .panel-toggle-left  { right: -18px; }
-.side-right.collapsed .panel-toggle-right { left: -18px; }
+.side-left.collapsed  .panel-toggle-left  { position: fixed; left: 0; }
+.side-right.collapsed .panel-toggle-right { position: fixed; right: 0; }
 
 /* ── Node title inline edit ─────────────────────────────────────────────── */
 .node-title-input {
@@ -266,7 +266,7 @@ body {
 .canvas-wrap {
   position: fixed;
   top: 52px;
-  left: 260px; right: 280px; bottom: 0;
+  left: 260px; right: 320px; bottom: 0;
   transition: left 0.2s ease, right 0.2s ease;
   overflow: hidden;
   cursor: grab;
