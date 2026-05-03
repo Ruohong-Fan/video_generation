@@ -161,8 +161,6 @@ body {
   font-family: var(--type-mono); letter-spacing: 0.03em;
 }
 .toggle-chip.on { color: var(--amber); border-color: var(--amber-dim); background: oklch(0.78 0.145 70 / 0.08); }
-.toggle-chip .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
-.toggle-chip.off .dot { background: var(--fg-3); }
 
 .btn {
   display: inline-flex; align-items: center; gap: 5px;
@@ -912,13 +910,11 @@ body {
   </div>
   <div class="topbar-spacer"></div>
   <div class="toggle-chip off" id="node-count">0 nodes</div>
-  <div class="toggle-chip off"><span class="dot"></span><span id="credits-text">Loading…</span></div>
-  <div class="toggle-chip off" id="save-status">Saved</div>
+  <div class="toggle-chip off" id="credits-chip">— credits</div>
   <div class="topbar-run-group">
     <button class="btn ghost" id="btn-run-selected">▶ Run selected <span class="btn-kbd">↵</span></button>
     <button class="btn primary" id="btn-run-all">▶▶ Run all <span class="btn-kbd">⌘↵</span></button>
   </div>
-  <button class="btn ghost" id="btn-clear-all">Clear</button>
   <div class="user-menu" id="user-menu">
     <button class="topbar-avatar" id="user-menu-trigger" title="Account" aria-haspopup="true" aria-expanded="false">R</button>
     <div class="user-menu-pop" role="menu">
@@ -2068,17 +2064,6 @@ body {
   document.getElementById('btn-fit').addEventListener('click', fitToView);
 
   // ── Clear canvas ────────────────────────────────────────────────────────
-  document.getElementById('btn-clear-all').addEventListener('click', () => {
-    if (!nodes.size) return;
-    if (!confirm('Clear all nodes?')) return;
-    nodes.clear();
-    edges.length = 0;
-    selected.clear();
-    canvas.innerHTML = '';
-    edgesSvg.innerHTML = '';
-    updateSelInfo();
-  });
-
   // ── Run buttons ─────────────────────────────────────────────────────────
   document.getElementById('btn-run-selected').addEventListener('click', () => {
     if (!selected.size) { toast('Select nodes first (click or drag a box)'); return; }
@@ -2091,18 +2076,23 @@ body {
 
   // ── Credits ─────────────────────────────────────────────────────────────
   (async () => {
+    const chip = document.getElementById('credits-chip');
     try {
       const r = await fetch('/api/credits');
       const d = await r.json();
-      document.getElementById('credits-text').textContent =
-        d.ok ? d.output.replace(/\n/g, ' ').slice(0, 50) : 'Login required';
+      if (d.ok) {
+        // Extract the first number from the CLI output (e.g. "66.5" from any format)
+        const match = d.output.match(/[\d,]+(?:\.\d+)?/);
+        chip.textContent = match ? `${match[0].replace(/,/g, '')} credits` : '— credits';
+      } else {
+        chip.textContent = '— credits';
+      }
     } catch {
-      document.getElementById('credits-text').textContent = 'Server offline';
+      chip.textContent = '— credits';
     }
   })();
 
   // ── Persistence (save/load workflow to server) ──────────────────────────
-  const saveStatus = document.getElementById('save-status');
   let saveTimer = null;
   let loading = false;
 
@@ -2121,20 +2111,15 @@ body {
 
   function scheduleSave() {
     if (loading) return;
-    saveStatus.textContent = 'Saving…';
     clearTimeout(saveTimer);
     saveTimer = setTimeout(async () => {
       try {
-        const resp = await fetch(WORKFLOW_API, {
+        await fetch(WORKFLOW_API, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(serialize()),
         });
-        const d = await resp.json();
-        saveStatus.textContent = d.ok ? 'Saved' : 'Save failed';
-      } catch {
-        saveStatus.textContent = 'Offline';
-      }
+      } catch { /* silent */ }
     }, 600);
   }
 
