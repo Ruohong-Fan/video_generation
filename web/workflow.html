@@ -2488,72 +2488,72 @@ body.right-collapsed .canvas-wrap { right: 0; }
     const panel = document.getElementById('panel-files');
     if (!panel) return;
 
-    const thumb = (r) => {
-      const p = esc(mediaUrl(r.servePath || r.url));
-      if (r.kind === 'video') return `<video src="${p}" muted preload="metadata" referrerpolicy="no-referrer" onerror="markMediaExpired(this)"></video>`;
-      if (r.kind === 'audio') return `<div style="display:grid;place-items:center;height:100%;background:oklch(0.78 0.12 320/0.1);border-radius:4px;color:oklch(0.78 0.12 320)">${ICONS.audio}</div>`;
-      return `<img src="${p}" alt="" referrerpolicy="no-referrer" onerror="markMediaExpired(this)"/>`;
-    };
     const fmtTs = ts => { try { return ts ? new Date(ts).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}) : ''; } catch { return ''; } };
 
+    const fileThumb = (src, kind) => {
+      const p = esc(mediaUrl(src));
+      if (kind === 'video') return `<video src="${p}" muted preload="metadata" referrerpolicy="no-referrer" onerror="markMediaExpired(this)"></video>`;
+      if (kind === 'audio') return `<div style="display:grid;place-items:center;height:100%;background:oklch(0.78 0.12 320/0.1);border-radius:4px;color:oklch(0.78 0.12 320)">${ICONS.audio}</div>`;
+      return `<img src="${p}" alt="" referrerpolicy="no-referrer" onerror="markMediaExpired(this)"/>`;
+    };
+
     let html = '';
-    let totalOutputs = 0;
-    let totalUploads = 0;
+    let total = 0;
 
     for (const n of nodes.values()) {
-      const label = NODE_SPECS[n.type]?.title || n.type;
+      const nodeTitle = n.title || NODE_SPECS[n.type]?.title || n.type;
       const results = n.results || [];
-      if (results.length) {
-        totalOutputs += results.length;
-        html += `<div class="side-section-title">${esc(label)}</div>`;
-        // Show newest first
-        for (let i = results.length - 1; i >= 0; i--) {
-          const r = results[i];
-          if (!r?.url) continue;
-          const runNum = i + 1;
-          const isLatest = i === results.length - 1;
-          const t = fmtTs(r.ts);
-          const fileHref = esc(mediaUrl(r.servePath || r.url));
-          const audioPlayer = r.kind === 'audio'
-            ? `<audio src="${fileHref}" controls style="width:100%;margin:4px 0;border-radius:4px"></audio>`
-            : '';
-          html += `<div class="file-item">
-            <div class="file-thumb">${thumb(r)}</div>
-            <div class="file-info">
-              <div class="file-name">Run ${runNum}${isLatest ? ' <span style="color:var(--amber);font-size:9px">LATEST</span>' : ''}</div>
-              <div class="file-sub">${r.kind}${t ? ' · ' + t : ''}</div>
-              ${audioPlayer}
-              <div class="file-actions">
-                <a class="file-link" href="${fileHref}" target="_blank" download>↓ download</a>
-                <a class="file-link" href="${fileHref}" target="_blank">↗ open</a>
-              </div>
-            </div>
-          </div>`;
-        }
-      }
-      if (n.uploadUrl) {
-        totalUploads++;
-      }
-    }
+      const hasUpload = !!(n.uploadUrl);
+      if (!results.length && !hasUpload) continue;
+      total += results.length + (hasUpload ? 1 : 0);
 
-    // Uploads section
-    if (totalUploads) {
-      html += '<div class="side-section-title">Uploads</div>';
-      for (const n of nodes.values()) {
-        if (!n.uploadUrl) continue;
-        const label = NODE_SPECS[n.type]?.title || n.type;
-        const kind = n.type === 'audio' ? 'audio' : 'image';
+      html += `<div class="side-section-title">${esc(nodeTitle)}</div>`;
+
+      // Upload entry first (it's the source material)
+      if (hasUpload) {
+        const uploadKind = n.type === 'video' ? 'video' : n.type === 'audio' ? 'audio' : 'image';
+        const href = esc(mediaUrl(n.uploadUrl));
         html += `<div class="file-item">
-          <div class="file-thumb">${thumb(n.uploadUrl, kind)}</div>
+          <div class="file-thumb">${fileThumb(n.uploadUrl, uploadKind)}</div>
           <div class="file-info">
-            <div class="file-name">${esc(label)}</div>
-            <div class="file-sub">${kind}</div>
+            <div class="file-name">Upload <span style="color:var(--fg-3);font-size:9px">SOURCE</span></div>
+            <div class="file-sub">${uploadKind}</div>
+            <div class="file-actions">
+              <a class="file-link" href="${href}" target="_blank" download>↓ download</a>
+              <a class="file-link" href="${href}" target="_blank">↗ open</a>
+            </div>
+          </div>
+        </div>`;
+      }
+
+      // Generated results, newest first
+      for (let i = results.length - 1; i >= 0; i--) {
+        const r = results[i];
+        const src = r.servePath || r.url;
+        if (!src) continue;
+        const runNum = i + 1;
+        const isLatest = i === results.length - 1;
+        const t = fmtTs(r.ts);
+        const href = esc(mediaUrl(src));
+        const audioPlayer = r.kind === 'audio'
+          ? `<audio src="${href}" controls style="width:100%;margin:4px 0;border-radius:4px"></audio>`
+          : '';
+        html += `<div class="file-item">
+          <div class="file-thumb">${fileThumb(src, r.kind)}</div>
+          <div class="file-info">
+            <div class="file-name">Run ${runNum}${isLatest ? ' <span style="color:var(--amber);font-size:9px">LATEST</span>' : ''}</div>
+            <div class="file-sub">${r.kind}${t ? ' · ' + t : ''}</div>
+            ${audioPlayer}
+            <div class="file-actions">
+              <a class="file-link" href="${href}" target="_blank" download>↓ download</a>
+              <a class="file-link" href="${href}" target="_blank">↗ open</a>
+            </div>
           </div>
         </div>`;
       }
     }
 
-    if (totalOutputs === 0 && totalUploads === 0) {
+    if (total === 0) {
       panel.innerHTML = '<div class="side-empty">No files yet.<br>Run nodes to generate outputs,<br>or upload via image/audio nodes.</div>';
       return;
     }
