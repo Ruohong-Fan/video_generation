@@ -237,10 +237,37 @@ body {
 .minimap-viewport { position: absolute; border: 1px solid var(--amber); background: oklch(0.78 0.145 70 / 0.1); pointer-events: none; }
 
 /* ── Canvas ─────────────────────────────────────────────────────────────── */
+/* ── Panel collapse ─────────────────────────────────────────────────────── */
+.side-left, .side-right { transition: transform 0.2s ease; }
+.side-left.collapsed  { transform: translateX(-260px); }
+.side-right.collapsed { transform: translateX(320px); }
+.panel-toggle {
+  position: absolute; top: 50%; transform: translateY(-50%);
+  width: 18px; height: 42px;
+  background: var(--bg-2); border: 1px solid var(--line);
+  display: flex; align-items: center; justify-content: center;
+  color: var(--fg-3); cursor: pointer; z-index: 81;
+  transition: color 0.12s, background 0.12s;
+}
+.panel-toggle:hover { color: var(--fg-0); background: var(--bg-3); }
+.panel-toggle-left  { right: -18px; border-left: none; border-radius: 0 4px 4px 0; }
+.panel-toggle-right { left: -18px;  border-right: none; border-radius: 4px 0 0 4px; }
+.panel-toggle svg { width: 10px; height: 10px; }
+.side-left.collapsed  .panel-toggle-left  { right: -18px; }
+.side-right.collapsed .panel-toggle-right { left: -18px; }
+
+/* ── Node title inline edit ─────────────────────────────────────────────── */
+.node-title-input {
+  flex: 1; min-width: 0; font-size: 12px; font-weight: 600; color: var(--fg-0);
+  background: var(--bg-3); border: 1px solid var(--amber-dim); border-radius: 3px;
+  padding: 0 4px; height: 20px; outline: none; font-family: var(--type-ui);
+}
+
 .canvas-wrap {
   position: fixed;
   top: 52px;
   left: 260px; right: 280px; bottom: 0;
+  transition: left 0.2s ease, right 0.2s ease;
   overflow: hidden;
   cursor: grab;
   background:
@@ -250,6 +277,8 @@ body {
 .canvas-wrap.panning { cursor: grabbing; }
 .canvas-wrap.mode-select { cursor: crosshair; }
 .canvas-wrap.mode-select.panning { cursor: grabbing; }
+body.left-collapsed  .canvas-wrap { left: 0; }
+body.right-collapsed .canvas-wrap { right: 0; }
 .canvas {
   position: absolute;
   top: 0; left: 0;
@@ -331,9 +360,14 @@ body {
   background: var(--bg-0); overflow: hidden;
   border-bottom: 1px solid var(--line-soft);
 }
-.node-preview img, .node-preview video {
-  width: 100%; height: 100%; object-fit: cover; display: block;
+.node-preview video { width: 100%; height: 100%; object-fit: cover; display: block; }
+.video-play-badge {
+  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+  background: oklch(0 0 0 / 0.35); opacity: 1; transition: opacity 0.15s; pointer-events: none;
 }
+.video-play-badge svg { width: 28px; height: 28px; filter: drop-shadow(0 1px 3px oklch(0 0 0 / 0.5)); }
+.node-preview.playing .video-play-badge { opacity: 0; }
+.node-preview.playing:hover .video-play-badge { opacity: 0.6; }
 .node-preview.empty {
   display: grid; place-items: center;
   background:
@@ -927,7 +961,10 @@ body {
   </div>
 </div>
 
-<div class="side-left">
+<div class="side-left" id="side-left">
+  <button class="panel-toggle panel-toggle-left" id="toggle-left" title="Toggle panel">
+    <svg viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" id="toggle-left-icon"><path d="M6 2L3 5l3 3"/></svg>
+  </button>
   <div class="side-tabs">
     <button class="side-tab active" id="tab-library" onclick="switchSideTab('library')">Library</button>
     <button class="side-tab" id="tab-files" onclick="switchSideTab('files')">Files</button>
@@ -998,7 +1035,10 @@ body {
 </div>
 
 
-<div class="side-right">
+<div class="side-right" id="side-right">
+  <button class="panel-toggle panel-toggle-right" id="toggle-right" title="Toggle panel">
+    <svg viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" id="toggle-right-icon"><path d="M4 2l3 3-3 3"/></svg>
+  </button>
   <div class="side-tabs" id="right-tabs">
     <button class="side-tab active" data-rtab="inputs" onclick="switchRightTab('inputs')">Inputs<span class="tab-count" id="tab-inputs-count" style="display:none">0</span></button>
     <button class="side-tab" data-rtab="params" onclick="switchRightTab('params')">Params</button>
@@ -1211,6 +1251,42 @@ body {
     el.querySelector('[data-action=del]')?.addEventListener('pointerdown', e => e.stopPropagation());
     el.querySelector('[data-action=del]')?.addEventListener('click', e => { e.stopPropagation(); deleteNode(node.id); });
 
+    // Inline rename on double-click of node title
+    el.querySelector('.node-title')?.addEventListener('dblclick', e => {
+      e.stopPropagation();
+      const titleEl = e.currentTarget;
+      const input = document.createElement('input');
+      input.className = 'node-title-input';
+      input.value = node.title || NODE_SPECS[node.type]?.title || '';
+      titleEl.replaceWith(input);
+      input.focus(); input.select();
+      const commit = () => {
+        const val = input.value.trim();
+        node.title = val || null;
+        renderNode(node);
+        scheduleSave();
+      };
+      input.addEventListener('blur', commit);
+      input.addEventListener('keydown', e2 => {
+        if (e2.key === 'Enter') { e2.preventDefault(); commit(); }
+        if (e2.key === 'Escape') { e2.preventDefault(); renderNode(node); }
+      });
+      input.addEventListener('pointerdown', e2 => e2.stopPropagation());
+    });
+
+    // Video thumbnail play/pause on click
+    el.querySelector('[data-video-preview]')?.addEventListener('click', e => {
+      e.stopPropagation();
+      const preview = e.currentTarget;
+      const vid = preview.querySelector('video');
+      if (!vid) return;
+      if (vid.paused) { vid.play(); preview.classList.add('playing'); }
+      else { vid.pause(); preview.classList.remove('playing'); }
+    });
+    el.querySelector('[data-video-preview] video')?.addEventListener('ended', e => {
+      e.target.closest('[data-video-preview]')?.classList.remove('playing');
+    });
+
     // Selection + drag start on pointerdown anywhere on the node card
     el.addEventListener('pointerdown', (e) => {
       if (e.button === 2) return;
@@ -1292,10 +1368,11 @@ body {
     const aspectStyle = previewAspectStyle(node);
     if (last?.url || last?.localPath || last?.servePath) {
       const u = mediaUrl(last.servePath || last.url);
+      const playBadge = `<div class="video-play-badge"><svg viewBox="0 0 16 16" fill="white"><path d="M5 3l9 5-9 5V3z"/></svg></div>`;
       const media = last.kind === 'video'
-        ? `<video controls preload="metadata" muted playsinline referrerpolicy="no-referrer" style="width:100%;height:100%;object-fit:cover;display:block"><source src="${esc(u)}" type="video/mp4"/></video>`
+        ? `<video preload="metadata" muted playsinline referrerpolicy="no-referrer" style="width:100%;height:100%;object-fit:cover;display:block"><source src="${esc(u)}" type="video/mp4"/></video>${playBadge}`
         : `<img src="${esc(u)}" alt="" referrerpolicy="no-referrer" style="width:100%;height:100%;object-fit:cover;display:block"/>`;
-      return `<div class="node-output-wrap"><div class="node-preview"${aspectStyle}>${media}</div>${countBadge}</div>`;
+      return `<div class="node-output-wrap"><div class="node-preview"${aspectStyle} data-video-preview>${media}</div>${countBadge}</div>`;
     }
     if ((node.type === 'image' || node.type === 'video') && node.uploadUrl) {
       return `<div class="node-preview"${aspectStyle}><img src="${esc(mediaUrl(node.uploadUrl))}" alt="" referrerpolicy="no-referrer" style="width:100%;height:100%;object-fit:cover;display:block"/></div>`;
@@ -2072,6 +2149,23 @@ body {
   document.getElementById('btn-run-all').addEventListener('click', () => {
     if (!nodes.size) { toast('Canvas is empty'); return; }
     runGraph([...nodes.keys()]);
+  });
+
+  // ── Panel toggle ────────────────────────────────────────────────────────
+  const sideLeft  = document.getElementById('side-left');
+  const sideRight = document.getElementById('side-right');
+  const iconLeft  = document.getElementById('toggle-left-icon');
+  const iconRight = document.getElementById('toggle-right-icon');
+
+  document.getElementById('toggle-left').addEventListener('click', () => {
+    const collapsed = sideLeft.classList.toggle('collapsed');
+    document.body.classList.toggle('left-collapsed', collapsed);
+    iconLeft.querySelector('path').setAttribute('d', collapsed ? 'M4 2l3 3-3 3' : 'M6 2L3 5l3 3');
+  });
+  document.getElementById('toggle-right').addEventListener('click', () => {
+    const collapsed = sideRight.classList.toggle('collapsed');
+    document.body.classList.toggle('right-collapsed', collapsed);
+    iconRight.querySelector('path').setAttribute('d', collapsed ? 'M6 2L3 5l3 3' : 'M4 2l3 3-3 3');
   });
 
   // ── Credits ─────────────────────────────────────────────────────────────
