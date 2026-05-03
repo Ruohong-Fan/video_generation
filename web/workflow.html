@@ -2780,7 +2780,7 @@ body.right-collapsed .canvas-wrap { right: 0; }
     const node = selNode;
     const spec = NODE_SPECS[node.type];
     const ups = upstreamNodes(node.id);
-    const imageUps  = ups.filter(u => u.type === 'image');
+    const imageUps  = ups.filter(u => u.type === 'image' || u.type === 'video');
     const isPassive = PASSIVE_TYPES.has(node.type);
     const sel = (opts, cur) => opts.map(([v,l]) => `<option value="${v}"${cur===v?' selected':''}>${l}</option>`).join('');
 
@@ -2883,9 +2883,12 @@ body.right-collapsed .canvas-wrap { right: 0; }
     if (node.type === 'image' || node.type === 'video') {
       let thumbs = '';
       for (const iu of imageUps) {
-        const imgLast = iu.results?.[iu.results.length - 1];
-        if (imgLast?.servePath || imgLast?.url) {
-          thumbs += `<div class="insp-thumb"><img src="${esc(mediaUrl(imgLast.servePath||imgLast.url))}" alt="" referrerpolicy="no-referrer"/><div class="insp-thumb-label">Ref</div></div>`;
+        const refLast = iu.results?.[iu.results.length - 1];
+        const t = resultThumb(refLast);
+        if (t) {
+          thumbs += `<div class="insp-thumb">${t}<div class="insp-thumb-label">Ref</div></div>`;
+        } else if (iu.uploadUrl) {
+          thumbs += `<div class="insp-thumb"><img src="${esc(mediaUrl(iu.uploadUrl))}" alt="" referrerpolicy="no-referrer"/><div class="insp-thumb-label">Upload</div></div>`;
         } else {
           thumbs += `<div class="insp-thumb"><div class="insp-thumb-pending">⏳</div><div class="insp-thumb-label">Run first</div></div>`;
         }
