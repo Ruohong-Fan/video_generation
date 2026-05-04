@@ -399,6 +399,32 @@ body.right-collapsed .canvas-wrap { right: 0; }
 .wave { flex: 1; display: flex; align-items: center; gap: 2px; height: 32px; }
 .wave span { flex: 1; background: var(--amber); border-radius: 1px; opacity: 0.6; min-height: 2px; }
 .wave span.active { opacity: 1; }
+/* ── Edit node filmstrip ────────────────────────────────────────────────── */
+.node-edit-strip {
+  display: flex; gap: 3px; padding: 6px 8px 4px; flex-wrap: nowrap;
+  overflow: hidden;
+}
+.node-edit-clip {
+  flex: 1; min-width: 0; aspect-ratio: 16/9;
+  border-radius: 3px; overflow: hidden;
+  background: var(--bg-0); border: 1px solid var(--line-soft);
+  position: relative;
+}
+.node-edit-clip video, .node-edit-clip img {
+  width: 100%; height: 100%; object-fit: cover; display: block;
+}
+.node-edit-clip-label {
+  position: absolute; bottom: 0; left: 0; right: 0;
+  font-size: 8px; padding: 2px 3px;
+  background: linear-gradient(to top, oklch(0 0 0 / 0.7), transparent);
+  color: white; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-family: var(--type-mono);
+}
+.node-edit-audio-note {
+  display: flex; align-items: center; gap: 4px;
+  padding: 2px 8px 5px; font-size: 9px; color: var(--amber);
+  font-family: var(--type-mono); letter-spacing: 0.05em;
+}
 .node-output-wrap { position: relative; }
 .node-output-count {
   position: absolute; bottom: 6px; right: 6px;
@@ -1036,6 +1062,10 @@ body.right-collapsed .canvas-wrap { right: 0; }
           <div class="lib-card-icon">🎵</div>
           <div><div class="lib-card-name">Audio</div><div class="lib-card-desc">Generate music (Jimeng)</div></div>
         </button>
+        <button class="lib-card" onclick="addNodeFromLibrary('edit')">
+          <div class="lib-card-icon">✂️</div>
+          <div><div class="lib-card-name">Edit</div><div class="lib-card-desc">AI trim · speed · concat</div></div>
+        </button>
       </div>
     </div>
     <div id="panel-files" style="display:none"></div>
@@ -1078,6 +1108,10 @@ body.right-collapsed .canvas-wrap { right: 0; }
   <div class="add-menu-item" data-node-type="audio">
     <span class="icon">🎵</span>
     <div><div>Audio</div><div class="sub">Generate music or upload a clip</div></div>
+  </div>
+  <div class="add-menu-item" data-node-type="edit">
+    <span class="icon">✂️</span>
+    <div><div>Edit</div><div class="sub">AI-planned trim · speed · concat</div></div>
   </div>
 </div>
 
@@ -1125,6 +1159,7 @@ body.right-collapsed .canvas-wrap { right: 0; }
     image: { title: 'Image', hasIn: true,  hasOut: true },
     video: { title: 'Video', hasIn: true,  hasOut: true },
     audio: { title: 'Audio', hasIn: true,  hasOut: true },
+    edit:  { title: 'Edit',  hasIn: true,  hasOut: true },
   };
 
   // SVG icons for node types and actions
@@ -1144,6 +1179,7 @@ body.right-collapsed .canvas-wrap { right: 0; }
     fit:    `<svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M3 6V3h3M10 3h3v3M13 10v3h-3M6 13H3v-3"/></svg>`,
     refresh:`<svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M2 8A6 6 0 1 0 3.5 3.5"/><path d="M2 4V8h4"/></svg>`,
     pause:  `<svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor"><rect x="3" y="3" width="3.5" height="10" rx="1"/><rect x="9.5" y="3" width="3.5" height="10" rx="1"/></svg>`,
+    edit:   `<svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 13l2-1 7-7-1-1-7 7-1 2z"/><path d="M11 4l1 1"/><path d="M9 6l1 1"/></svg>`,
   };
 
   // ── DOM references ──────────────────────────────────────────────────────
@@ -1291,7 +1327,7 @@ body.right-collapsed .canvas-wrap { right: 0; }
       ${progressBar}
       <div class="node-foot">
         ${nodeStatusHtml(node)}
-        <span>${esc(node.type === 'video' ? `${videoMode(node)} · ${node.params.modelVersion || ''}` : '')}</span>
+        <span>${esc(node.type === 'video' ? `${videoMode(node)} · ${node.params.modelVersion || ''}` : node.type === 'edit' ? `${upstreamNodes(node.id).filter(u=>u.type==='video').length} clips` : '')}</span>
       </div>
     `;
     canvas.appendChild(el);
@@ -1420,6 +1456,35 @@ body.right-collapsed .canvas-wrap { right: 0; }
       if (node.status === 'running') return `<div class="node-preview empty">Generating…</div>`;
       if (node.status === 'queued')  return `<div class="node-preview empty">Queued…</div>`;
       return `<div class="node-preview empty">Type a prompt or upload a file</div>`;
+    }
+
+    // Edit node: show output if done, else filmstrip of upstream clips
+    if (node.type === 'edit') {
+      if (last?.url || last?.servePath) {
+        const u = mediaUrl(last.servePath || last.url);
+        const playBadge = `<div class="video-play-badge"><svg viewBox="0 0 16 16" fill="white"><path d="M5 3l9 5-9 5V3z"/></svg></div>`;
+        return `<div class="node-output-wrap"><div class="node-preview" style="aspect-ratio:16/9" data-video-preview>
+          <video preload="metadata" muted playsinline referrerpolicy="no-referrer" style="width:100%;height:100%;object-fit:cover;display:block"><source src="${esc(u)}" type="video/mp4"/></video>${playBadge}
+        </div>${countBadge}</div>`;
+      }
+      if (node.status === 'running') return `<div class="node-preview empty">Editing…</div>`;
+      if (node.status === 'queued')  return `<div class="node-preview empty">Queued…</div>`;
+      const videoUps = upstreamNodes(node.id).filter(u => u.type === 'video');
+      const audioUps = upstreamNodes(node.id).filter(u => u.type === 'audio');
+      if (!videoUps.length) return `<div class="node-preview empty">Connect Video nodes to edit</div>`;
+      const stripItems = videoUps.map(u => {
+        const uLast = u.results?.[u.results.length - 1];
+        const src = uLast ? (uLast.servePath || uLast.url) : (u.uploadUrl || null);
+        const mediaEl = src
+          ? (uLast?.kind === 'video'
+              ? `<video src="${esc(mediaUrl(src))}" muted preload="metadata" style="width:100%;height:100%;object-fit:cover;display:block"></video>`
+              : `<img src="${esc(mediaUrl(src))}" style="width:100%;height:100%;object-fit:cover;display:block"/>`)
+          : `<div style="display:grid;place-items:center;height:100%;color:var(--fg-3)">${ICONS.video}</div>`;
+        return `<div class="node-edit-clip">${mediaEl}<div class="node-edit-clip-label">${esc(u.title || 'Video')}</div></div>`;
+      }).join('');
+      const audioNote = audioUps.length
+        ? `<div class="node-edit-audio-note">${ICONS.audio} +${audioUps.length} audio</div>` : '';
+      return `<div class="node-edit-strip">${stripItems}</div>${audioNote}`;
     }
 
     const aspectStyle = previewAspectStyle(node);
@@ -1634,6 +1699,25 @@ body.right-collapsed .canvas-wrap { right: 0; }
         endpoint = '/api/text2video';
         body = { prompt: videoPrompt, duration: node.params.duration, ratio: node.params.ratio, resolution: node.params.resolution, model_version: node.params.modelVersion };
       }
+    } else if (node.type === 'edit') {
+      const up = upstreamNodes(node.id);
+      const clips = [];
+      let audioPath = null;
+      for (const u of up) {
+        if (u.type === 'video') {
+          const last = u.results?.[u.results.length - 1];
+          // Prefer local serve paths over CDN URLs
+          const path = last?.servePath || last?.localPath || u.uploadPath || last?.url || u.uploadUrl || null;
+          if (path) clips.push({ path, label: u.title || 'Video' });
+        } else if (u.type === 'audio') {
+          const last = u.results?.[u.results.length - 1];
+          const path = last?.servePath || last?.localPath || u.uploadPath || last?.url || u.uploadUrl || null;
+          if (path && !audioPath) audioPath = path;
+        }
+      }
+      if (!clips.length) throw new Error('Connect at least one Video node');
+      endpoint = '/api/video_edit';
+      body = { clips, audio_path: audioPath, instructions: node.prompt || '' };
     } else {
       throw new Error('Unsupported node type: ' + node.type);
     }
@@ -1738,13 +1822,14 @@ body.right-collapsed .canvas-wrap { right: 0; }
       setNodeStatus(id, 'running', { taskId });
       const task = await pollUntilDone(taskId, id);
       const url = extractOutputUrl(task);
-      const kind = node.type === 'video' ? 'video' : node.type === 'audio' ? 'audio' : 'image';
+      const kind = (node.type === 'video' || node.type === 'edit') ? 'video' : node.type === 'audio' ? 'audio' : 'image';
       // localPath = CLI's own saved file (for passing back to CLI as --image input)
       // servePath = server-downloaded /uploads/ copy (for browser display)
       const localPath = task?.result?.data?.local_path || task?.result?.local_path || null;
       const servePath = task?.result?.data?.serve_path || task?.result?.serve_path || null;
+      const editPlan = node.type === 'edit' ? (task?.result?.edit_plan || null) : null;
       const newResults = [...(node.results || [])];
-      if (url || localPath || servePath) newResults.push({ url, kind, localPath, servePath, ts: Date.now() });
+      if (url || localPath || servePath) newResults.push({ url, kind, localPath, servePath, editPlan, ts: Date.now() });
       setNodeStatus(id, 'done', { results: newResults, error: null, queueIdx: null });
       toast(`${node.type} done`, 'success');
     } catch (err) {
@@ -3039,9 +3124,49 @@ body.right-collapsed .canvas-wrap { right: 0; }
       </div>`;
     }
 
+    // Edit node params
+    if (node.type === 'edit') {
+      f += `<div class="field">
+        <label class="field-label">Instructions</label>
+        <textarea class="field-textarea" data-field="prompt" rows="4"
+          placeholder="Trim the intro of clip 1 to 3s, double the speed of clip 2, add a fade in…">${esc(node.prompt)}</textarea>
+        <div class="field-helper">The AI will read your instructions and generate an edit plan. Leave blank to auto-combine all clips.</div>
+      </div>`;
+      // Show connected clips
+      const editClips = upstreamNodes(node.id).filter(u => u.type === 'video');
+      const editAudio = upstreamNodes(node.id).filter(u => u.type === 'audio');
+      if (editClips.length) {
+        const clipList = editClips.map((u, i) => {
+          const uLast = u.results?.[u.results.length - 1];
+          const dur = uLast ? '' : (u.uploadUrl ? '(uploaded)' : '(not run)');
+          return `<div style="display:flex;align-items:center;gap:6px;padding:4px 0;border-bottom:1px solid var(--line-soft)">
+            <span style="font-family:var(--type-mono);font-size:10px;color:var(--amber);min-width:16px">${i}</span>
+            <span style="flex:1;font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(u.title||'Video')}</span>
+            <span style="font-size:10px;color:var(--fg-3)">${esc(dur)}</span>
+          </div>`;
+        }).join('');
+        f += `<div class="field">
+          <label class="field-label">Clips (${editClips.length})${editAudio.length ? ` · +${editAudio.length} audio` : ''}</label>
+          ${clipList}
+        </div>`;
+      }
+      // Show edit plan if available
+      const lastEditResult = (node.results||[]).slice().reverse().find(r => r?.editPlan);
+      if (lastEditResult?.editPlan) {
+        const plan = lastEditResult.editPlan;
+        const planSummary = (plan.clips||[]).map((c, i) =>
+          `<span style="color:var(--amber)">${c.index}</span> ${c.trim_start||0}–${c.trim_end??'end'}s${c.speed&&c.speed!==1?' ×'+c.speed:''}${c.mute?' 🔇':''}`
+        ).join(', ');
+        f += `<div class="field">
+          <label class="field-label">Last edit plan <span style="color:var(--fg-3);font-size:10px">AI generated</span></label>
+          <div style="font-family:var(--type-mono);font-size:10px;color:var(--fg-2);background:var(--bg-0);padding:8px;border-radius:4px;overflow:auto;max-height:100px;white-space:pre-wrap;word-break:break-all">${esc(planSummary||JSON.stringify(plan,null,2))}</div>
+        </div>`;
+      }
+    }
+
     // Status
     let statusHtml = '';
-    if (node.status === 'running') statusHtml = `<div class="insp-status">Rendering…</div>`;
+    if (node.status === 'running') statusHtml = `<div class="insp-status">${node.type === 'edit' ? 'Editing…' : 'Rendering…'}</div>`;
     else if (node.status === 'queued') statusHtml = `<div class="insp-status">Queued${node.queueIdx!=null?' #'+node.queueIdx:''}…</div>`;
     else if (node.status === 'error' && node.error) statusHtml = `<div class="insp-status error">⚠ ${esc(node.error)}</div>`;
 

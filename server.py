@@ -924,6 +924,283 @@ def _extract_doubao_text(body: dict) -> str:
     return ""
 
 
+# ── Video Edit (FFmpeg + LLM edit plan) ───────────────────────────────────────
+
+import re as _re
+
+
+def _resolve_clip_path(ref: str | None) -> str | None:
+    """Resolve a clip reference (serve path, upload path, or URL) to a local file."""
+    if not ref:
+        return None
+    if ref.startswith("/uploads/"):
+        local = UPLOAD_DIR / ref.removeprefix("/uploads/")
+        return str(local) if local.exists() else None
+    if ref.startswith("/") and Path(ref).exists():
+        return ref
+    if ref.startswith(("http://", "https://")):
+        downloaded = _download_media(ref, hint_ext=".mp4")
+        return downloaded if downloaded and not downloaded.startswith("http") else None
+    if Path(ref).exists():
+        return ref
+    return None
+
+
+def _probe_duration(path: str) -> float | None:
+    """Return video duration in seconds using ffprobe, or None on failure."""
+    try:
+        probe = subprocess.run(
+            ["ffprobe", "-v", "quiet", "-print_format", "json",
+             "-show_format", "-show_streams", path],
+            capture_output=True, text=True, timeout=20,
+        )
+        info = json.loads(probe.stdout)
+        for s in info.get("streams", []):
+            if s.get("codec_type") == "video":
+                d = s.get("duration")
+                if d:
+                    return round(float(d), 3)
+        d = info.get("format", {}).get("duration")
+        return round(float(d), 3) if d else None
+    except Exception:
+        return None
+
+
+def _generate_edit_plan(clips: list[str], clip_meta: list[dict],
+                        audio_path: str | None, instructions: str, api_key: str) -> dict:
+    clips_desc = "\n".join(
+        f"  Clip {m['index']}: {m.get('duration', '?')}s"
+        for m in clip_meta
+    )
+    audio_line = "\nBackground audio: available" if audio_path else ""
+    prompt = (
+        "You are a professional video editor. Generate a video edit plan as JSON.\n\n"
+        f"Available clips (0-indexed):\n{clips_desc}{audio_line}\n\n"
+        f"Instructions: {instructions or 'Combine all clips into a smooth, cohesive final video.'}\n\n"
+        "Output ONLY valid JSON — no markdown fences, no explanation:\n"
+        '{"clips":['
+        '{"index":0,"trim_start":0.0,"trim_end":null,"speed":1.0,"mute":false}'
+        '],"fade_in":0.3,"fade_out":0.0,"background_audio_volume":0.3}\n\n'
+        "Rules: speed 0.25-4.0; trim_end null = use until end of clip; "
+        "include only the clips you want (can reorder or repeat); "
+        "mute:true silences clip audio; fade_in/fade_out in seconds (0 to skip)."
+    )
+    payload = {
+        "model": DOUBAO_MODEL,
+        "messages": [{"role": "user", "content": [{"type": "text", "text": prompt}]}],
+    }
+    resp = requests.post(
+        DOUBAO_URL,
+        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+        json=payload,
+        timeout=60,
+    )
+    resp.raise_for_status()
+    text = _extract_doubao_text(resp.json())
+    m = _re.search(r"\{[\s\S]*\}", text)
+    if not m:
+        raise ValueError(f"No JSON in LLM response: {text[:300]}")
+    plan = json.loads(m.group())
+    if not isinstance(plan.get("clips"), list):
+        raise ValueError("Plan missing 'clips' array")
+    return plan
+
+
+def _atempo_chain(speed: float) -> list[str]:
+    """Build a chain of atempo filters for speeds outside the 0.5-2.0 range."""
+    parts: list[str] = []
+    s = speed
+    while s > 2.0:
+        parts.append("atempo=2.0")
+        s /= 2.0
+    while s < 0.5:
+        parts.append("atempo=0.5")
+        s *= 2.0
+    if abs(s - 1.0) > 0.01:
+        parts.append(f"atempo={s:.4f}")
+    return parts
+
+
+def _execute_ffmpeg_edit(clips: list[str], audio_path: str | None, plan: dict, output_path: str) -> None:
+    """Process clips per edit plan and write the final video to output_path."""
+    import shutil
+    import tempfile
+
+    plan_clips = plan.get("clips") or []
+    if not plan_clips:
+        raise ValueError("Edit plan has no clips")
+
+    _env = {**os.environ, "PATH": f"{os.environ.get('HOME', '')}/.local/bin:{os.environ.get('PATH', '')}"}
+
+    def run_ff(cmd: list[str], timeout: int = 300) -> None:
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, env=_env)
+        if r.returncode != 0:
+            raise RuntimeError((r.stderr or r.stdout or "")[-800:])
+
+    tmp = Path(tempfile.mkdtemp())
+    try:
+        processed: list[str] = []
+
+        for i, pc in enumerate(plan_clips):
+            ci = int(pc.get("index", i))
+            if ci >= len(clips) or not clips[ci]:
+                continue
+            src = clips[ci]
+            if not Path(src).exists():
+                raise ValueError(f"Clip file not found: {src}")
+
+            trim_s = max(0.0, float(pc.get("trim_start") or 0))
+            trim_e = pc.get("trim_end")
+            speed = max(0.25, min(4.0, float(pc.get("speed") or 1.0)))
+            mute = bool(pc.get("mute"))
+
+            out_tmp = str(tmp / f"c{i:02d}.mp4")
+
+            # Check whether the source has an audio stream
+            probe = subprocess.run(
+                ["ffprobe", "-v", "quiet", "-select_streams", "a",
+                 "-show_entries", "stream=codec_name", "-of", "csv=p=0", src],
+                capture_output=True, text=True, timeout=15, env=_env,
+            )
+            has_audio = bool(probe.stdout.strip())
+
+            cmd = ["ffmpeg", "-y", "-loglevel", "warning", "-ss", str(trim_s)]
+            if trim_e is not None:
+                cmd += ["-t", str(max(0.1, float(trim_e) - trim_s))]
+
+            needs_null_audio = mute or not has_audio
+            if needs_null_audio:
+                cmd += ["-i", src, "-f", "lavfi", "-i",
+                        "anullsrc=channel_layout=stereo:sample_rate=44100"]
+                vf = f"setpts={1.0/speed:.6f}*PTS" if abs(speed - 1.0) > 0.01 else None
+                if vf:
+                    cmd += ["-filter_complex", f"[0:v]{vf}[vout]",
+                            "-map", "[vout]", "-map", "1:a"]
+                else:
+                    cmd += ["-map", "0:v", "-map", "1:a"]
+            else:
+                cmd += ["-i", src]
+                vf = f"setpts={1.0/speed:.6f}*PTS" if abs(speed - 1.0) > 0.01 else None
+                af_parts = _atempo_chain(speed)
+                if vf and af_parts:
+                    cmd += ["-vf", vf, "-af", ",".join(af_parts)]
+                elif vf:
+                    cmd += ["-vf", vf]
+                elif af_parts:
+                    cmd += ["-af", ",".join(af_parts)]
+
+            cmd += [
+                "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+                "-c:a", "aac", "-b:a", "128k", "-ar", "44100", "-ac", "2",
+                "-shortest", "-movflags", "+faststart", out_tmp,
+            ]
+            run_ff(cmd)
+            if Path(out_tmp).exists() and Path(out_tmp).stat().st_size > 0:
+                processed.append(out_tmp)
+
+        if not processed:
+            raise ValueError("No clips were processed successfully")
+
+        fade_in = float(plan.get("fade_in") or 0)
+        bg_vol = max(0.0, min(1.0, float(plan.get("background_audio_volume") or 0.3)))
+        bg_audio = audio_path if (audio_path and Path(audio_path).exists()) else None
+
+        # Single clip with no extras — just copy
+        if len(processed) == 1 and not bg_audio and fade_in == 0:
+            shutil.copy2(processed[0], output_path)
+            return
+
+        # Build final FFmpeg command using concat + optional fade + optional bg audio
+        cmd = ["ffmpeg", "-y", "-loglevel", "warning"]
+        for p in processed:
+            cmd += ["-i", p]
+        if bg_audio:
+            cmd += ["-i", bg_audio]
+
+        n = len(processed)
+        concat_in = "".join(f"[{j}:v:0][{j}:a:0]" for j in range(n))
+        fc: list[str] = [f"{concat_in}concat=n={n}:v=1:a=1[cv][ca]"]
+        vch, ach = "[cv]", "[ca]"
+
+        if fade_in > 0:
+            fc.append(f"{vch}fade=t=in:st=0:d={fade_in:.2f}[vf]")
+            fc.append(f"{ach}afade=t=in:st=0:d={fade_in:.2f}[af]")
+            vch, ach = "[vf]", "[af]"
+
+        if bg_audio:
+            fc.append(
+                f"{ach}[{n}:a:0]amix=inputs=2:duration=first:"
+                f"weights=1|{bg_vol:.2f}[amix]"
+            )
+            ach = "[amix]"
+
+        cmd += ["-filter_complex", ";".join(fc)]
+        cmd += ["-map", vch, "-map", ach]
+        cmd += [
+            "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+            "-c:a", "aac", "-b:a", "192k",
+            "-movflags", "+faststart", output_path,
+        ]
+        run_ff(cmd, timeout=600)
+
+        if not Path(output_path).exists():
+            raise RuntimeError("FFmpeg produced no output file")
+
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def _run_video_edit_task(task_id: str, clips: list[str], audio_path: str | None,
+                         instructions: str, api_key: str) -> None:
+    tasks[task_id]["status"] = "running"
+    save_tasks()
+    try:
+        # Probe clip durations for the LLM
+        clip_meta = [{"index": i, "duration": _probe_duration(p)} for i, p in enumerate(clips)]
+
+        # Generate edit plan (LLM or fallback)
+        edit_plan: dict | None = None
+        if api_key:
+            try:
+                edit_plan = _generate_edit_plan(clips, clip_meta, audio_path, instructions, api_key)
+                print(f"[video_edit] LLM plan: {json.dumps(edit_plan)}", flush=True)
+            except Exception as exc:
+                print(f"[video_edit] LLM plan failed ({exc}); using default", flush=True)
+
+        if not edit_plan:
+            edit_plan = {
+                "clips": [
+                    {"index": i, "trim_start": 0, "trim_end": m.get("duration"),
+                     "speed": 1.0, "mute": False}
+                    for i, m in enumerate(clip_meta)
+                ],
+                "fade_in": 0.3,
+                "fade_out": 0.0,
+                "background_audio_volume": 0.3,
+            }
+
+        tasks[task_id]["edit_plan"] = edit_plan
+        save_tasks()
+
+        output_path = str(UPLOAD_DIR / f"edit_{uuid.uuid4()}.mp4")
+        _execute_ffmpeg_edit(clips, audio_path, edit_plan, output_path)
+
+        serve_path = "/uploads/" + Path(output_path).name
+        tasks[task_id]["status"] = "done"
+        tasks[task_id]["result"] = {
+            "url": serve_path,
+            "serve_path": serve_path,
+            "local_path": output_path,
+            "edit_plan": edit_plan,
+        }
+        tasks[task_id]["error"] = None
+        save_tasks()
+    except Exception as exc:
+        tasks[task_id]["status"] = "error"
+        tasks[task_id]["error"] = str(exc)
+        save_tasks()
+
+
 # ── API: Upload and Workflow ──────────────────────────────────────────────────
 
 @app.post("/api/upload")
@@ -980,6 +1257,45 @@ def multiframe2video():
     if prompt:
         cmd.append(f"--prompt={prompt}")
     return jsonify(_start_task(cmd, f"multiframe2video: {first_frame.filename} → {last_frame.filename}"))
+
+
+@app.post("/api/video_edit")
+def video_edit():
+    """LLM-planned video editing: trim, speed, mute, concatenate, optional bg audio."""
+    api_key = os.environ.get("ARK_API_KEY", "").strip()
+    data = request.get_json(force=True)
+    raw_clips = data.get("clips") or []
+    audio_ref = (data.get("audio_path") or "").strip()
+    instructions = (data.get("instructions") or "").strip()
+
+    resolved: list[str] = []
+    for c in raw_clips:
+        ref = (c.get("path") or c.get("url") or "").strip()
+        local = _resolve_clip_path(ref)
+        if not local:
+            return jsonify({"ok": False, "error": f"Clip not found: {ref}"}), 400
+        resolved.append(local)
+
+    if not resolved:
+        return jsonify({"ok": False, "error": "At least one video clip is required"}), 400
+
+    resolved_audio = _resolve_clip_path(audio_ref) if audio_ref else None
+
+    task_id = str(uuid.uuid4())
+    tasks[task_id] = {
+        "status": "queued",
+        "label": f"video_edit: {len(resolved)} clip(s)",
+        "result": None,
+        "error": None,
+        "created_at": time.time(),
+    }
+    save_tasks()
+    threading.Thread(
+        target=_run_video_edit_task,
+        args=(task_id, resolved, resolved_audio, instructions, api_key),
+        daemon=True,
+    ).start()
+    return jsonify({"ok": True, "task_id": task_id})
 
 
 # ── API: Projects ─────────────────────────────────────────────────────────────
