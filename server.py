@@ -983,7 +983,9 @@ def _generate_edit_plan(clips: list[str], clip_meta: list[dict],
         '],"fade_in":0.3,"fade_out":0.0,"background_audio_volume":0.3}\n\n'
         "Rules: speed 0.25-4.0; trim_end null = use until end of clip; "
         "include only the clips you want (can reorder or repeat); "
-        "mute:true silences clip audio; fade_in/fade_out in seconds (0 to skip)."
+        "mute defaults to false — KEEP original audio unless instructions explicitly say to remove it; "
+        "only set mute:true when the user asks to silence or remove audio from a clip; "
+        "fade_in/fade_out in seconds (0 to skip)."
     )
     payload = {
         "model": DOUBAO_MODEL,
@@ -1170,7 +1172,8 @@ def _run_video_edit_task(task_id: str, clips: list[str], audio_path: str | None,
         if not edit_plan:
             edit_plan = {
                 "clips": [
-                    {"index": i, "trim_start": 0, "trim_end": m.get("duration"),
+                    {"index": i, "trim_start": 0,
+                     "trim_end": m["duration"] if m.get("duration") else None,
                      "speed": 1.0, "mute": False}
                     for i, m in enumerate(clip_meta)
                 ],

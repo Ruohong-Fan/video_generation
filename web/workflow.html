@@ -1384,6 +1384,13 @@ body.right-collapsed .canvas-wrap { right: 0; }
       e.target.closest('[data-video-preview]')?.classList.remove('playing');
     });
 
+    // Seek all video thumbnails to first frame so they don't appear black
+    el.querySelectorAll('video[preload="metadata"]').forEach(v => {
+      const seek = () => { try { v.currentTime = 0.01; } catch (_) {} };
+      if (v.readyState >= 1) seek();
+      else v.addEventListener('loadedmetadata', seek, { once: true });
+    });
+
     // Selection + drag start on pointerdown anywhere on the node card
     el.addEventListener('pointerdown', (e) => {
       if (e.button === 2) return;
@@ -1467,7 +1474,14 @@ body.right-collapsed .canvas-wrap { right: 0; }
       if (last?.url || last?.servePath) {
         const u = mediaUrl(last.servePath || last.url);
         const playBadge = `<div class="video-play-badge"><svg viewBox="0 0 16 16" fill="white"><path d="M5 3l9 5-9 5V3z"/></svg></div>`;
-        return `<div class="node-output-wrap"><div class="node-preview" style="aspect-ratio:16/9" data-video-preview>
+        // Derive ratio from first upstream video node's params, fall back to 16:9
+        const firstVidUp = upstreamNodes(node.id).find(u => u.type === 'video');
+        const editRatio = firstVidUp?.params?.ratio || '16:9';
+        const editRatioParts = editRatio.split(':').map(Number);
+        const editAspect = (editRatioParts.length === 2 && editRatioParts[0] && editRatioParts[1])
+          ? `aspect-ratio:${editRatioParts[0]}/${editRatioParts[1]}`
+          : 'aspect-ratio:16/9';
+        return `<div class="node-output-wrap"><div class="node-preview" style="${editAspect}" data-video-preview>
           <video preload="metadata" muted playsinline referrerpolicy="no-referrer" style="width:100%;height:100%;object-fit:cover;display:block"><source src="${esc(u)}" type="video/mp4"/></video>${playBadge}
         </div>${countBadge}</div>`;
       }
@@ -2648,6 +2662,13 @@ body.right-collapsed .canvas-wrap { right: 0; }
       return;
     }
     panel.innerHTML = html;
+
+    // Seek video thumbnails to first frame so they don't appear black
+    panel.querySelectorAll('.file-thumb video').forEach(v => {
+      const seek = () => { try { v.currentTime = 0.01; } catch (_) {} };
+      if (v.readyState >= 1) seek();
+      else v.addEventListener('loadedmetadata', seek, { once: true });
+    });
   }
 
   function addNodeFromLibrary(type) {
