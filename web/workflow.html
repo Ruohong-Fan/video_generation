@@ -916,22 +916,6 @@ body.right-collapsed .canvas-wrap { right: 0; }
 }
 .insp-status.error { color: var(--err); background: oklch(0.70 0.18 25 / 0.1); }
 .insp-run-count { font-size: 10px; color: var(--fg-3); font-family: var(--type-mono); text-align: right; }
-.insp-thumb-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(72px, 1fr)); gap: 6px; }
-.insp-thumb {
-  position: relative; border-radius: 5px; overflow: hidden;
-  background: var(--bg-0); aspect-ratio: 1; border: 1px solid var(--bg-3);
-}
-.insp-thumb img, .insp-thumb video { width: 100%; height: 100%; object-fit: cover; display: block; }
-.insp-thumb-label {
-  position: absolute; bottom: 0; left: 0; right: 0;
-  font-size: 9px; color: #fff; background: oklch(0 0 0 / 0.55);
-  padding: 2px 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-}
-.insp-thumb-pending {
-  display: flex; align-items: center; justify-content: center;
-  width: 100%; height: 100%; font-size: 20px; color: var(--fg-3);
-}
-.insp-ref-note { font-size: 10px; color: var(--fg-3); margin-bottom: 6px; line-height: 1.4; font-style: italic; }
 .file-thumb-expired {
   display: flex; align-items: center; justify-content: center; flex-direction: column;
   width: 100%; height: 100%; gap: 4px;
@@ -3365,38 +3349,6 @@ body.right-collapsed .canvas-wrap { right: 0; }
             <span class="btn primary" style="width:100%;justify-content:center;font-size:12px;cursor:pointer">${ICONS.upload} Choose file</span>
           </label>
           <div class="field-helper" style="text-align:center;margin-top:6px">Or drag a file onto the node.</div>
-        </div>`;
-      }
-    }
-
-    // Image references (for image/video generation nodes)
-    if (node.type === 'image' || node.type === 'video') {
-      const allImageUps = ups.filter(u =>
-        u.type === 'image' || u.type === 'video' ||
-        (u.type === 'upload' && (u.uploadKind === 'image' || u.uploadKind === 'video'))
-      );
-      let thumbs = '';
-      for (const iu of allImageUps) {
-        if (iu.type === 'upload') {
-          const ref = iu.uploadUrl;
-          if (ref) thumbs += `<div class="insp-thumb"><img src="${esc(mediaUrl(ref))}" alt="" referrerpolicy="no-referrer"/><div class="insp-thumb-label">Upload</div></div>`;
-        } else {
-          const refLast = iu.results?.[iu.results.length - 1];
-          const t = resultThumb(refLast);
-          if (t) {
-            thumbs += `<div class="insp-thumb">${t}<div class="insp-thumb-label">Ref</div></div>`;
-          } else if (iu.uploadUrl) {
-            thumbs += `<div class="insp-thumb"><img src="${esc(mediaUrl(iu.uploadUrl))}" alt="" referrerpolicy="no-referrer"/><div class="insp-thumb-label">Upload</div></div>`;
-          } else {
-            thumbs += `<div class="insp-thumb"><div class="insp-thumb-pending">⏳</div><div class="insp-thumb-label">Run first</div></div>`;
-          }
-        }
-      }
-      const sectionLabel = node.type === 'video' ? 'Visual references' : 'Source images';
-      if (allImageUps.length > 0) {
-        f += `<div class="field">
-          <label class="field-label">${sectionLabel} <span style="color:var(--ok);font-size:10px">✓ ${allImageUps.length}</span></label>
-          ${thumbs ? `<div class="insp-thumb-grid">${thumbs}</div>` : ''}
         </div>`;
       }
     }
