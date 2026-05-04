@@ -1314,6 +1314,7 @@ body.right-collapsed .canvas-wrap { right: 0; }
       uploadUrl: null,
       uploadPath: null,
       uploadKind: null,  // upload node: 'image' | 'video' | 'audio'
+      uploadRatio: null, // upload node video: detected '16/9' style ratio string
       uploadText: null,  // text node: content of an uploaded text file
     };
     nodes.set(id, node);
@@ -1398,7 +1399,7 @@ body.right-collapsed .canvas-wrap { right: 0; }
           const resp = await fetch('/api/upload', { method: 'POST', body: fd });
           const d = await resp.json();
           if (d.ok) {
-            node.uploadUrl = d.url; node.uploadPath = d.path || null; node.uploadKind = kind;
+            node.uploadUrl = d.url; node.uploadPath = d.path || null; node.uploadKind = kind; node.uploadRatio = null;
             renderNode(node); renderRightPanel(); scheduleSave();
             if (document.getElementById('panel-files')?.style.display !== 'none') renderFilesPanel();
             toast('Upload done', 'success');
@@ -1462,11 +1463,24 @@ body.right-collapsed .canvas-wrap { right: 0; }
       e.target.closest('[data-video-preview]')?.classList.remove('playing');
     });
 
-    // Seek all video thumbnails to first frame so they don't appear black
+    // Seek all video thumbnails to first frame; also detect real ratio for upload video nodes
     el.querySelectorAll('video[preload="metadata"]').forEach(v => {
       const seek = () => { try { v.currentTime = 0.01; } catch (_) {} };
-      if (v.readyState >= 1) seek();
-      else v.addEventListener('loadedmetadata', seek, { once: true });
+      const detectRatio = () => {
+        if (node.type === 'upload' && node.uploadKind === 'video' && v.videoWidth && v.videoHeight) {
+          const ratio = `${v.videoWidth}/${v.videoHeight}`;
+          if (node.uploadRatio !== ratio) {
+            node.uploadRatio = ratio;
+            // Update the preview container's aspect-ratio in-place — no full re-render needed
+            const preview = v.closest('[data-upload-preview]');
+            if (preview) preview.style.aspectRatio = ratio;
+            scheduleSave();
+          }
+        }
+      };
+      const onMeta = () => { seek(); detectRatio(); };
+      if (v.readyState >= 1) onMeta();
+      else v.addEventListener('loadedmetadata', onMeta, { once: true });
     });
 
     // Selection + drag start on pointerdown anywhere on the node card
@@ -1520,7 +1534,8 @@ body.right-collapsed .canvas-wrap { right: 0; }
       const u = esc(mediaUrl(node.uploadUrl));
       if (kind === 'video') {
         const playBadge = `<div class="video-play-badge"><svg viewBox="0 0 16 16" fill="white"><path d="M5 3l9 5-9 5V3z"/></svg></div>`;
-        return `<div class="node-output-wrap"><div class="node-upload-preview node-preview" style="aspect-ratio:16/9" data-video-preview>
+        const ratioStyle = node.uploadRatio ? `aspect-ratio:${node.uploadRatio}` : 'aspect-ratio:16/9';
+        return `<div class="node-output-wrap"><div class="node-upload-preview node-preview" style="${ratioStyle}" data-video-preview data-upload-preview>
           <video preload="metadata" muted playsinline style="width:100%;height:100%;object-fit:cover;display:block"><source src="${u}" type="video/mp4"/></video>${playBadge}
           <button class="node-upload-replace" data-upload-replace>Replace</button>
         </div></div>`;
@@ -2494,7 +2509,7 @@ body.right-collapsed .canvas-wrap { right: 0; }
         title: n.title, prompt: n.prompt, params: n.params,
         status: n.status === 'running' || n.status === 'queued' ? 'idle' : n.status,
         results: n.results || [], uploadUrl: n.uploadUrl, uploadPath: n.uploadPath,
-        uploadKind: n.uploadKind || null, uploadText: n.uploadText || null,
+        uploadKind: n.uploadKind || null, uploadRatio: n.uploadRatio || null, uploadText: n.uploadText || null,
       })),
       edges: edges.map(e => ({ id: e.id, fromId: e.fromId, toId: e.toId })),
       view: { x: view.x, y: view.y, scale: view.scale },
@@ -2572,6 +2587,7 @@ body.right-collapsed .canvas-wrap { right: 0; }
             uploadUrl: n.uploadUrl || null,
             uploadPath: n.uploadPath || null,
             uploadKind: n.uploadKind || null,
+            uploadRatio: n.uploadRatio || null,
             uploadText: n.uploadText || null,
           });
           renderNode(nodes.get(n.id));
@@ -2996,7 +3012,7 @@ body.right-collapsed .canvas-wrap { right: 0; }
       </div>`;
 
       panel.querySelector('#upload-remove')?.addEventListener('click', () => {
-        selNode.uploadUrl = null; selNode.uploadPath = null; selNode.uploadKind = null;
+        selNode.uploadUrl = null; selNode.uploadPath = null; selNode.uploadKind = null; selNode.uploadRatio = null;
         renderNode(selNode); renderRightPanel(); scheduleSave();
       });
       panel.querySelector('#upload-file-input')?.addEventListener('change', async e => {
@@ -3008,7 +3024,7 @@ body.right-collapsed .canvas-wrap { right: 0; }
           const resp = await fetch('/api/upload', { method: 'POST', body: fd });
           const d = await resp.json();
           if (d.ok) {
-            selNode.uploadUrl = d.url; selNode.uploadPath = d.path || null; selNode.uploadKind = fileKind;
+            selNode.uploadUrl = d.url; selNode.uploadPath = d.path || null; selNode.uploadKind = fileKind; selNode.uploadRatio = null;
             renderNode(selNode); renderRightPanel(); scheduleSave();
             if (document.getElementById('panel-files')?.style.display !== 'none') renderFilesPanel();
             toast('Upload done', 'success');
@@ -3440,7 +3456,7 @@ body.right-collapsed .canvas-wrap { right: 0; }
     });
     // Clear-upload button (upload node)
     panel.querySelector('[data-clear-upload]')?.addEventListener('click', () => {
-      node.uploadUrl = null; node.uploadPath = null; node.uploadKind = null;
+      node.uploadUrl = null; node.uploadPath = null; node.uploadKind = null; node.uploadRatio = null;
       renderNode(node); renderRightPanel(); scheduleSave();
     });
   }
