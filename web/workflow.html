@@ -986,6 +986,30 @@ body.right-collapsed .canvas-wrap { right: 0; }
 .inputs-upload-btn:hover { border-color: var(--amber-dim); color: var(--fg-1); }
 .inputs-upload-input { display: none; }
 
+/* ── Upload node ────────────────────────────────────────────────────────── */
+.node-upload-drop {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 5px; padding: 18px 12px; margin: 6px 8px 8px;
+  border: 1.5px dashed var(--line); border-radius: 6px;
+  cursor: pointer; text-align: center; color: var(--fg-3);
+  transition: border-color 0.15s, background 0.15s, color 0.15s;
+}
+.node-upload-drop:hover, .node.upload-drag-over .node-upload-drop {
+  border-color: var(--amber-dim); background: var(--amber-glow); color: var(--fg-1);
+}
+.node-upload-drop svg { width: 18px; height: 18px; opacity: 0.55; }
+.node-upload-drop-hint { font-size: 10px; font-family: var(--type-mono); line-height: 1.5; }
+.node-upload-drop-hint small { display: block; color: var(--fg-3); font-size: 9px; }
+.node-upload-preview { position: relative; }
+.node-upload-replace {
+  position: absolute; top: 5px; right: 5px; z-index: 2;
+  background: oklch(0 0 0 / 0.6); color: #fff;
+  border: none; border-radius: 4px; font-size: 9px; padding: 3px 7px;
+  font-family: var(--type-mono); cursor: pointer;
+  opacity: 0; transition: opacity 0.15s; pointer-events: auto;
+}
+.node-upload-preview:hover .node-upload-replace { opacity: 1; }
+
 /* ── Empty state ────────────────────────────────────────────────────────── */
 .empty-state { padding: 40px 20px; text-align: center; color: var(--fg-3); }
 .empty-state-title {
@@ -1046,6 +1070,10 @@ body.right-collapsed .canvas-wrap { right: 0; }
     <div id="panel-library">
       <div class="side-section-title">Add nodes</div>
       <div class="lib-grid">
+        <button class="lib-card" onclick="addNodeFromLibrary('upload')">
+          <div class="lib-card-icon">📁</div>
+          <div><div class="lib-card-name">Upload</div><div class="lib-card-desc">Image · video · audio source</div></div>
+        </button>
         <button class="lib-card" onclick="addNodeFromLibrary('text')">
           <div class="lib-card-icon">📝</div>
           <div><div class="lib-card-name">Text</div><div class="lib-card-desc">Generate script (Doubao)</div></div>
@@ -1060,7 +1088,7 @@ body.right-collapsed .canvas-wrap { right: 0; }
         </button>
         <button class="lib-card" onclick="addNodeFromLibrary('audio')">
           <div class="lib-card-icon">🎵</div>
-          <div><div class="lib-card-name">Audio</div><div class="lib-card-desc">Generate music (Jimeng)</div></div>
+          <div><div class="lib-card-name">Audio</div><div class="lib-card-desc">Generate music</div></div>
         </button>
         <button class="lib-card" onclick="addNodeFromLibrary('edit')">
           <div class="lib-card-icon">✂️</div>
@@ -1093,6 +1121,10 @@ body.right-collapsed .canvas-wrap { right: 0; }
 </div>
 
 <div class="add-menu" id="add-menu">
+  <div class="add-menu-item" data-node-type="upload">
+    <span class="icon">📁</span>
+    <div><div>Upload</div><div class="sub">Image · video · audio source</div></div>
+  </div>
   <div class="add-menu-item" data-node-type="text">
     <span class="icon">📝</span>
     <div><div>Text</div><div class="sub">Multi-modal → script (Doubao)</div></div>
@@ -1107,7 +1139,7 @@ body.right-collapsed .canvas-wrap { right: 0; }
   </div>
   <div class="add-menu-item" data-node-type="audio">
     <span class="icon">🎵</span>
-    <div><div>Audio</div><div class="sub">Generate music or upload a clip</div></div>
+    <div><div>Audio</div><div class="sub">Generate music</div></div>
   </div>
   <div class="add-menu-item" data-node-type="edit">
     <span class="icon">✂️</span>
@@ -1155,6 +1187,7 @@ body.right-collapsed .canvas-wrap { right: 0; }
   let inputsGroupBy = 'type';
 
   const NODE_SPECS = {
+    upload:{ title: 'Upload', hasIn: false, hasOut: true },
     text:  { title: 'Text',  hasIn: true,  hasOut: true },
     image: { title: 'Image', hasIn: true,  hasOut: true },
     video: { title: 'Video', hasIn: true,  hasOut: true },
@@ -1267,7 +1300,7 @@ body.right-collapsed .canvas-wrap { right: 0; }
       id, type, x, y,
       title: spec.title + (typeCount > 0 ? ' ' + (typeCount + 1) : ''),
       prompt: '',
-      params: {
+      params: type === 'upload' ? {} : {
         duration: type === 'audio' ? '30' : '5',
         ratio: '16:9',
         resolution: type === 'video' ? '720P' : '2k',
@@ -1280,6 +1313,7 @@ body.right-collapsed .canvas-wrap { right: 0; }
       error: null,
       uploadUrl: null,
       uploadPath: null,
+      uploadKind: null,  // upload node: 'image' | 'video' | 'audio'
       uploadText: null,  // text node: content of an uploaded text file
     };
     nodes.set(id, node);
@@ -1318,7 +1352,9 @@ body.right-collapsed .canvas-wrap { right: 0; }
         <span class="node-badge">${ICONS[node.type] || ''}${esc(spec.title)}</span>
         <span class="node-title">${esc(nodeTitle)}</span>
         <div class="node-actions">
-          ${!isPassive ? `<button class="node-action run" data-action="run" title="Run">${ICONS.play}</button>` : ''}
+          ${node.type === 'upload'
+            ? `<button class="node-action" data-action="upload" title="Choose file">${ICONS.upload}</button>`
+            : (!isPassive ? `<button class="node-action run" data-action="run" title="Run">${ICONS.play}</button>` : '')}
           <button class="node-action" data-action="dup" title="Duplicate">${ICONS.dup}</button>
           <button class="node-action delete" data-action="del" title="Delete">${ICONS.trash}</button>
         </div>
@@ -1327,7 +1363,12 @@ body.right-collapsed .canvas-wrap { right: 0; }
       ${progressBar}
       <div class="node-foot">
         ${nodeStatusHtml(node)}
-        <span>${esc(node.type === 'video' ? `${videoMode(node)} · ${node.params.modelVersion || ''}` : node.type === 'edit' ? `${upstreamNodes(node.id).filter(u=>u.type==='video').length} clips` : '')}</span>
+        <span>${esc(
+          node.type === 'video' ? `${videoMode(node)} · ${node.params.modelVersion || ''}`
+          : node.type === 'edit' ? `${upstreamNodes(node.id).filter(u => u.type === 'video' || (u.type === 'upload' && u.uploadKind === 'video')).length} clips`
+          : node.type === 'upload' ? (node.uploadKind || 'image · video · audio')
+          : ''
+        )}</span>
       </div>
     `;
     canvas.appendChild(el);
@@ -1343,6 +1384,43 @@ body.right-collapsed .canvas-wrap { right: 0; }
     el.querySelector('[data-action=dup]')?.addEventListener('click', e => { e.stopPropagation(); duplicateNode(node.id); });
     el.querySelector('[data-action=del]')?.addEventListener('pointerdown', e => e.stopPropagation());
     el.querySelector('[data-action=del]')?.addEventListener('click', e => { e.stopPropagation(); deleteNode(node.id); });
+
+    // Upload node: file picker + drag-and-drop
+    if (node.type === 'upload') {
+      const doUpload = async (file) => {
+        if (!file) return;
+        const kind = file.type.startsWith('video/') ? 'video'
+                   : file.type.startsWith('audio/') ? 'audio'
+                   : 'image';
+        const fd = new FormData(); fd.append('file', file);
+        toast('Uploading…');
+        try {
+          const resp = await fetch('/api/upload', { method: 'POST', body: fd });
+          const d = await resp.json();
+          if (d.ok) {
+            node.uploadUrl = d.url; node.uploadPath = d.path || null; node.uploadKind = kind;
+            renderNode(node); renderRightPanel(); scheduleSave();
+            if (document.getElementById('panel-files')?.style.display !== 'none') renderFilesPanel();
+            toast('Upload done', 'success');
+          } else { toast('Upload failed', 'error'); }
+        } catch { toast('Upload failed', 'error'); }
+      };
+      const openPicker = () => {
+        const inp = document.createElement('input');
+        inp.type = 'file'; inp.accept = 'image/*,video/*,audio/*';
+        inp.addEventListener('change', () => doUpload(inp.files[0]));
+        inp.click();
+      };
+      el.querySelector('[data-action=upload]')?.addEventListener('pointerdown', e => e.stopPropagation());
+      el.querySelector('[data-action=upload]')?.addEventListener('click', e => { e.stopPropagation(); openPicker(); });
+      el.querySelector('[data-upload-zone]')?.addEventListener('pointerdown', e => e.stopPropagation());
+      el.querySelector('[data-upload-zone]')?.addEventListener('click', e => { e.stopPropagation(); openPicker(); });
+      el.querySelector('[data-upload-replace]')?.addEventListener('pointerdown', e => e.stopPropagation());
+      el.querySelector('[data-upload-replace]')?.addEventListener('click', e => { e.stopPropagation(); e.preventDefault(); openPicker(); });
+      el.addEventListener('dragover', e => { if ([...e.dataTransfer.types].includes('Files')) { e.preventDefault(); el.classList.add('upload-drag-over'); } });
+      el.addEventListener('dragleave', e => { if (!el.contains(e.relatedTarget)) el.classList.remove('upload-drag-over'); });
+      el.addEventListener('drop', e => { e.preventDefault(); el.classList.remove('upload-drag-over'); doUpload(e.dataTransfer?.files[0]); });
+    }
 
     // Inline rename on double-click of node title
     el.querySelector('.node-title')?.addEventListener('dblclick', e => {
@@ -1394,8 +1472,8 @@ body.right-collapsed .canvas-wrap { right: 0; }
     // Selection + drag start on pointerdown anywhere on the node card
     el.addEventListener('pointerdown', (e) => {
       if (e.button === 2) return;
-      // Let buttons, inputs, handles, checkbox, and video previews handle their own events
-      if (e.target.closest('button, input, textarea, select, .handle, [data-action=check], [data-video-preview]')) return;
+      // Let buttons, inputs, handles, checkbox, video previews, and upload zones handle their own events
+      if (e.target.closest('button, input, textarea, select, .handle, [data-action=check], [data-video-preview], [data-upload-zone]')) return;
       e.stopPropagation();
       e.preventDefault();
       if (e.shiftKey) {
@@ -1429,6 +1507,42 @@ body.right-collapsed .canvas-wrap { right: 0; }
     const countBadge = count > 1
       ? `<div class="node-output-count">${count} outputs — see Files</div>`
       : '';
+
+    // Upload node: source-only, no generation
+    if (node.type === 'upload') {
+      if (!node.uploadUrl) {
+        return `<div class="node-upload-drop" data-upload-zone>
+          <div>${ICONS.upload}</div>
+          <div class="node-upload-drop-hint">Drop or click to upload<small>image · video · audio</small></div>
+        </div>`;
+      }
+      const kind = node.uploadKind;
+      const u = esc(mediaUrl(node.uploadUrl));
+      if (kind === 'video') {
+        const playBadge = `<div class="video-play-badge"><svg viewBox="0 0 16 16" fill="white"><path d="M5 3l9 5-9 5V3z"/></svg></div>`;
+        return `<div class="node-output-wrap"><div class="node-upload-preview node-preview" style="aspect-ratio:16/9" data-video-preview>
+          <video preload="metadata" muted playsinline style="width:100%;height:100%;object-fit:cover;display:block"><source src="${u}" type="video/mp4"/></video>${playBadge}
+          <button class="node-upload-replace" data-upload-replace>Replace</button>
+        </div></div>`;
+      }
+      if (kind === 'audio') {
+        const bars = 28;
+        const waveBars = Array.from({ length: bars }, (_, i) => {
+          const h = 10 + 20 * Math.abs(Math.sin(i * 0.6 + (node.id.charCodeAt(1) || 1))) + 5 * Math.abs(Math.sin(i * 1.3));
+          return `<span style="height:${h}px"></span>`;
+        }).join('');
+        return `<div class="node-audio-body">
+          <audio id="aud-${node.id}" src="${u}" preload="none" style="display:none"></audio>
+          <button class="node-action" style="width:28px;height:28px;border-radius:50%;background:var(--amber);color:oklch(0.18 0.03 65);flex-shrink:0" title="Play" data-audio-play="${esc(node.id)}">${ICONS.play}</button>
+          <div class="wave">${waveBars}</div>
+        </div>`;
+      }
+      // image (default)
+      return `<div class="node-upload-preview node-preview">
+        <img src="${u}" alt="" style="width:100%;height:100%;object-fit:cover;display:block"/>
+        <button class="node-upload-replace" data-upload-replace>Replace</button>
+      </div>`;
+    }
 
     if (node.type === 'text') {
       // Prefer the most recent generated output; fall back to the user's instruction.
@@ -1487,14 +1601,15 @@ body.right-collapsed .canvas-wrap { right: 0; }
       }
       if (node.status === 'running') return `<div class="node-preview empty">Editing…</div>`;
       if (node.status === 'queued')  return `<div class="node-preview empty">Queued…</div>`;
-      const videoUps = upstreamNodes(node.id).filter(u => u.type === 'video');
-      const audioUps = upstreamNodes(node.id).filter(u => u.type === 'audio');
-      if (!videoUps.length) return `<div class="node-preview empty">Connect Video nodes to edit</div>`;
+      const videoUps = upstreamNodes(node.id).filter(u => u.type === 'video' || (u.type === 'upload' && u.uploadKind === 'video'));
+      const audioUps = upstreamNodes(node.id).filter(u => u.type === 'audio' || (u.type === 'upload' && u.uploadKind === 'audio'));
+      if (!videoUps.length) return `<div class="node-preview empty">Connect Video or Upload nodes to edit</div>`;
       const stripItems = videoUps.map(u => {
         const uLast = u.results?.[u.results.length - 1];
         const src = uLast ? (uLast.servePath || uLast.url) : (u.uploadUrl || null);
+        const isVid = uLast?.kind === 'video' || u.type === 'upload';
         const mediaEl = src
-          ? (uLast?.kind === 'video'
+          ? (isVid
               ? `<video src="${esc(mediaUrl(src))}" muted preload="metadata" style="width:100%;height:100%;object-fit:cover;display:block"></video>`
               : `<img src="${esc(mediaUrl(src))}" style="width:100%;height:100%;object-fit:cover;display:block"/>`)
           : `<div style="display:grid;place-items:center;height:100%;color:var(--fg-3)">${ICONS.video}</div>`;
@@ -1587,6 +1702,7 @@ body.right-collapsed .canvas-wrap { right: 0; }
     if (node.type !== 'video') return '';
     if (node.uploadPath || node.uploadUrl) return 'I2V';
     for (const u of upstreamNodes(node.id)) {
+      if (u.type === 'upload' && (u.uploadKind === 'image' || u.uploadKind === 'video')) return 'I2V';
       if (u.type !== 'image') continue;
       const last = u.results?.[u.results.length - 1];
       if (last?.kind === 'image' && (last.localPath || last.url)) return 'I2V';
@@ -1612,6 +1728,10 @@ body.right-collapsed .canvas-wrap { right: 0; }
         const t = textNodeOutput(u);
         if (t) prompt = t;
       }
+      if (u.type === 'upload' && (u.uploadKind === 'image' || u.uploadKind === 'video')) {
+        const ref = u.uploadPath || u.uploadUrl;
+        if (ref) imageRefs.push(ref);
+      }
       if (u.type === 'image') {
         const uLast = u.results?.[u.results.length - 1];
         if (uLast?.kind === 'image') {
@@ -1623,7 +1743,7 @@ body.right-collapsed .canvas-wrap { right: 0; }
         if (u.prompt) imagePrompts.push(u.prompt);
       }
     }
-    // Node's own upload appended after upstream results
+    // Node's own upload (legacy — from before Upload node existed)
     if (node.uploadPath) imageRefs.push(node.uploadPath);
     else if (node.uploadUrl) imageRefs.push(node.uploadUrl);
     return { prompt, imageRefs, imagePrompts };
@@ -1635,7 +1755,13 @@ body.right-collapsed .canvas-wrap { right: 0; }
     const inputs = [];
     for (const u of up) {
       const label = u.title || NODE_SPECS[u.type]?.title || u.type;
-      if (u.type === 'text') {
+      if (u.type === 'upload') {
+        const ref = u.uploadPath || u.uploadUrl;
+        if (!ref) continue;
+        if (u.uploadKind === 'image') inputs.push({ type: 'image', url: ref, label });
+        else if (u.uploadKind === 'video') inputs.push({ type: 'video', url: ref, label });
+        else if (u.uploadKind === 'audio') inputs.push({ type: 'text', content: `[${label}] (audio: ${ref})` });
+      } else if (u.type === 'text') {
         const t = textNodeOutput(u);
         if (t) inputs.push({ type: 'text', content: `[${label}]\n${t}` });
         if (u.uploadText) inputs.push({ type: 'text', content: `[${label} · uploaded text]\n${u.uploadText}` });
@@ -1656,8 +1782,8 @@ body.right-collapsed .canvas-wrap { right: 0; }
     return inputs;
   }
 
-  // All node types are now active (have a Run button and call an API).
-  const PASSIVE_TYPES = new Set();
+  // Upload nodes are passive sources — they hold a file rather than generating one.
+  const PASSIVE_TYPES = new Set(['upload']);
 
   async function startTask(node) {
     const { prompt, imageRefs, imagePrompts } = collectInputs(node);
@@ -1722,9 +1848,12 @@ body.right-collapsed .canvas-wrap { right: 0; }
       const clips = [];
       let audioPath = null;
       for (const u of up) {
-        if (u.type === 'video') {
+        if (u.type === 'upload') {
+          const path = u.uploadPath || u.uploadUrl || null;
+          if (u.uploadKind === 'video' && path) clips.push({ path, label: u.title || 'Upload' });
+          else if (u.uploadKind === 'audio' && path && !audioPath) audioPath = path;
+        } else if (u.type === 'video') {
           const last = u.results?.[u.results.length - 1];
-          // Prefer local serve paths over CDN URLs
           const path = last?.servePath || last?.localPath || u.uploadPath || last?.url || u.uploadUrl || null;
           if (path) clips.push({ path, label: u.title || 'Video' });
         } else if (u.type === 'audio') {
@@ -1733,7 +1862,7 @@ body.right-collapsed .canvas-wrap { right: 0; }
           if (path && !audioPath) audioPath = path;
         }
       }
-      if (!clips.length) throw new Error('Connect at least one Video node');
+      if (!clips.length) throw new Error('Connect at least one Video or Upload (video) node');
       endpoint = '/api/video_edit';
       body = { clips, audio_path: audioPath, instructions: node.prompt || '' };
     } else {
@@ -1815,8 +1944,13 @@ body.right-collapsed .canvas-wrap { right: 0; }
   async function runNode(id) {
     const node = nodes.get(id);
     if (!node) return;
+    if (node.type === 'upload') {
+      // Upload nodes don't generate — use the upload button (↑) in the node header
+      toast('Use the upload button on the node to choose a file', '');
+      return;
+    }
     if (PASSIVE_TYPES.has(node.type)) {
-      toast('Audio nodes provide data to downstream — no run needed');
+      toast('This node type provides data — no generation needed', '');
       return;
     }
     if (node.status === 'running' || node.status === 'queued') {
@@ -2359,7 +2493,8 @@ body.right-collapsed .canvas-wrap { right: 0; }
         id: n.id, type: n.type, x: n.x, y: n.y,
         title: n.title, prompt: n.prompt, params: n.params,
         status: n.status === 'running' || n.status === 'queued' ? 'idle' : n.status,
-        results: n.results || [], uploadUrl: n.uploadUrl, uploadPath: n.uploadPath, uploadText: n.uploadText || null,
+        results: n.results || [], uploadUrl: n.uploadUrl, uploadPath: n.uploadPath,
+        uploadKind: n.uploadKind || null, uploadText: n.uploadText || null,
       })),
       edges: edges.map(e => ({ id: e.id, fromId: e.fromId, toId: e.toId })),
       view: { x: view.x, y: view.y, scale: view.scale },
@@ -2436,6 +2571,7 @@ body.right-collapsed .canvas-wrap { right: 0; }
             error: n.error || null,
             uploadUrl: n.uploadUrl || null,
             uploadPath: n.uploadPath || null,
+            uploadKind: n.uploadKind || null,
             uploadText: n.uploadText || null,
           });
           renderNode(nodes.get(n.id));
@@ -2607,13 +2743,32 @@ body.right-collapsed .canvas-wrap { right: 0; }
     for (const n of nodes.values()) {
       const nodeTitle = n.title || NODE_SPECS[n.type]?.title || n.type;
       const results = n.results || [];
-      const hasUpload = !!(n.uploadUrl);
-      if (!results.length && !hasUpload) continue;
-      total += results.length + (hasUpload ? 1 : 0);
+      // Upload node: uploadUrl is its primary file (not a "legacy" upload)
+      const hasUpload = !!(n.uploadUrl) && n.type !== 'upload';
+      const isUploadNode = n.type === 'upload' && n.uploadUrl;
+      if (!results.length && !hasUpload && !isUploadNode) continue;
+      total += results.length + (hasUpload || isUploadNode ? 1 : 0);
 
       html += `<div class="side-section-title">${esc(nodeTitle)}</div>`;
 
-      // Upload entry first (it's the source material)
+      // Upload node: show its file as the primary entry
+      if (isUploadNode) {
+        const uploadKind = n.uploadKind || 'image';
+        const href = esc(mediaUrl(n.uploadUrl));
+        html += `<div class="file-item">
+          <div class="file-thumb">${fileThumb(n.uploadUrl, uploadKind)}</div>
+          <div class="file-info">
+            <div class="file-name">${esc(n.uploadUrl.split('/').pop())} <span style="color:var(--amber);font-size:9px">SOURCE</span></div>
+            <div class="file-sub">${esc(uploadKind)}</div>
+            <div class="file-actions">
+              <a class="file-link" href="${href}" target="_blank" download>↓ download</a>
+              <a class="file-link" href="${href}" target="_blank">↗ open</a>
+            </div>
+          </div>
+        </div>`;
+      }
+
+      // Legacy: non-upload nodes with uploadUrl (backward compat)
       if (hasUpload) {
         const uploadKind = n.type === 'video' ? 'video' : n.type === 'audio' ? 'audio' : 'image';
         const href = esc(mediaUrl(n.uploadUrl));
@@ -2658,7 +2813,7 @@ body.right-collapsed .canvas-wrap { right: 0; }
     }
 
     if (total === 0) {
-      panel.innerHTML = '<div class="side-empty">No files yet.<br>Run nodes to generate outputs,<br>or upload via image/audio nodes.</div>';
+      panel.innerHTML = '<div class="side-empty">No files yet.<br>Run nodes to generate outputs,<br>or add an Upload node as a source.</div>';
       return;
     }
     panel.innerHTML = html;
@@ -2764,8 +2919,8 @@ body.right-collapsed .canvas-wrap { right: 0; }
       return node.type === inputsFilter;
     });
 
-    const TYPE_ORDER = ['text','image','video','audio'];
-    const TYPE_LABEL = { text:'Text prompts', image:'Images', video:'Videos', audio:'Audio' };
+    const TYPE_ORDER = ['upload','text','image','video','audio'];
+    const TYPE_LABEL = { upload:'Uploads', text:'Text prompts', image:'Images', video:'Videos', audio:'Audio' };
 
     // Filter chips
     const chipHtml = (type, label, count) => {
@@ -2797,40 +2952,71 @@ body.right-collapsed .canvas-wrap { right: 0; }
       }).join('');
     }
 
-    // ── Upload section ──────────────────────────────────────────────────────
-    const ACCEPT = { text: '.txt,.md,.csv,.json', image: 'image/*', video: 'video/*', audio: 'audio/*' };
-    const UPLOAD_LABEL = { text: 'Text / document', image: 'Image', video: 'Video', audio: 'Audio' };
-    const hasUpload = !!(selNode.uploadUrl || selNode.uploadText);
-    const uploadPreviewHtml = (() => {
-      if (!hasUpload) return '';
-      let thumb = '';
-      if (selNode.uploadText) {
-        thumb = `<div class="inputs-upload-thumb" style="background:var(--bg-3);color:var(--fg-3);font-size:16px">📄</div>`;
-      } else if (selNode.type === 'video') {
-        thumb = `<div class="inputs-upload-thumb"><video src="${esc(mediaUrl(selNode.uploadUrl))}" muted preload="metadata"></video></div>`;
-      } else if (selNode.type === 'audio') {
-        thumb = `<div class="inputs-upload-thumb" style="background:var(--bg-3);color:var(--fg-3);font-size:16px">🎵</div>`;
-      } else {
-        thumb = `<div class="inputs-upload-thumb"><img src="${esc(mediaUrl(selNode.uploadUrl))}" alt=""/></div>`;
+    // Upload node: show upload controls instead of upstream connections
+    if (selNode.type === 'upload') {
+      const kind = selNode.uploadKind;
+      const url = selNode.uploadUrl;
+      let previewHtml = '';
+      if (url) {
+        const kindLabel = kind || 'file';
+        const fname = url.split('/').pop();
+        let thumb = '';
+        if (kind === 'video') thumb = `<div class="inputs-upload-thumb"><video src="${esc(mediaUrl(url))}" muted preload="metadata"></video></div>`;
+        else if (kind === 'audio') thumb = `<div class="inputs-upload-thumb" style="background:var(--bg-3);color:var(--fg-3);font-size:16px">${ICONS.audio}</div>`;
+        else thumb = `<div class="inputs-upload-thumb"><img src="${esc(mediaUrl(url))}" alt=""/></div>`;
+        previewHtml = `<div class="inputs-upload-preview">
+          ${thumb}
+          <div class="inputs-upload-info">
+            <div class="inputs-upload-name">${esc(fname)}</div>
+            <div class="inputs-upload-meta">${esc(kindLabel)}</div>
+          </div>
+          <button class="inputs-upload-remove" id="upload-remove" title="Remove">✕</button>
+        </div>`;
       }
-      const name = selNode.uploadUrl ? selNode.uploadUrl.split('/').pop() : '(text content)';
-      return `<div class="inputs-upload-preview">
-        ${thumb}
-        <div class="inputs-upload-info">
-          <div class="inputs-upload-name">${esc(name)}</div>
-          <div class="inputs-upload-meta">${UPLOAD_LABEL[selNode.type]}</div>
+      panel.innerHTML = `<div class="upstream" style="display:flex;flex-direction:column;height:100%">
+        <div class="upstream-head">
+          <div class="upstream-target">
+            <span class="upstream-target-badge">${ICONS.upload}</span>
+            <div class="upstream-target-meta">
+              <div class="upstream-target-label">Source node</div>
+              <div class="upstream-target-title">${esc(selNode.title || 'Upload')}</div>
+            </div>
+          </div>
         </div>
-        <button class="inputs-upload-remove" id="upload-remove" title="Remove upload">✕</button>
+        <div class="upstream-body" style="flex:1;overflow-y:auto">
+          <div class="inputs-upload" style="margin:12px 10px 0">
+            <div class="inputs-upload-title">File</div>
+            ${previewHtml}
+            <label>
+              <input type="file" class="inputs-upload-input" id="upload-file-input" accept="image/*,video/*,audio/*"/>
+              <span class="inputs-upload-btn">+ Choose file (image · video · audio)</span>
+            </label>
+          </div>
+        </div>
       </div>`;
-    })();
-    const uploadSectionHtml = `<div class="inputs-upload">
-      <div class="inputs-upload-title">Upload</div>
-      ${uploadPreviewHtml}
-      <label>
-        <input type="file" class="inputs-upload-input" id="upload-file-input" accept="${ACCEPT[selNode.type] || '*'}"/>
-        <span class="inputs-upload-btn">+ Choose ${UPLOAD_LABEL[selNode.type] || 'file'}</span>
-      </label>
-    </div>`;
+
+      panel.querySelector('#upload-remove')?.addEventListener('click', () => {
+        selNode.uploadUrl = null; selNode.uploadPath = null; selNode.uploadKind = null;
+        renderNode(selNode); renderRightPanel(); scheduleSave();
+      });
+      panel.querySelector('#upload-file-input')?.addEventListener('change', async e => {
+        const f = e.target.files[0]; if (!f) return;
+        const fileKind = f.type.startsWith('video/') ? 'video' : f.type.startsWith('audio/') ? 'audio' : 'image';
+        const fd = new FormData(); fd.append('file', f);
+        toast('Uploading…');
+        try {
+          const resp = await fetch('/api/upload', { method: 'POST', body: fd });
+          const d = await resp.json();
+          if (d.ok) {
+            selNode.uploadUrl = d.url; selNode.uploadPath = d.path || null; selNode.uploadKind = fileKind;
+            renderNode(selNode); renderRightPanel(); scheduleSave();
+            if (document.getElementById('panel-files')?.style.display !== 'none') renderFilesPanel();
+            toast('Upload done', 'success');
+          } else { toast('Upload failed', 'error'); }
+        } catch { toast('Upload failed', 'error'); }
+      });
+      return;
+    }
 
     panel.innerHTML = `<div class="upstream" style="display:flex;flex-direction:column;height:100%">
       <div class="upstream-head">
@@ -2848,7 +3034,6 @@ body.right-collapsed .canvas-wrap { right: 0; }
         ${filterRow}
       </div>
       <div class="upstream-body" style="flex:1">${groupsHtml}</div>
-      ${uploadSectionHtml}
     </div>`;
 
     // Wire filter chip clicks
@@ -2866,39 +3051,6 @@ body.right-collapsed .canvas-wrap { right: 0; }
         const el = btn.closest('.input-text');
         if (el) { el.classList.toggle('expanded'); btn.textContent = el.classList.contains('expanded') ? 'less' : 'more'; }
       });
-    });
-
-    // Remove upload
-    panel.querySelector('#upload-remove')?.addEventListener('click', () => {
-      selNode.uploadUrl = null; selNode.uploadPath = null; selNode.uploadText = null;
-      renderNode(selNode); renderRightPanel(); scheduleSave();
-    });
-
-    // File upload
-    panel.querySelector('#upload-file-input')?.addEventListener('change', async e => {
-      const f = e.target.files[0];
-      if (!f) return;
-      // Text nodes: read content directly; no server upload needed
-      if (selNode.type === 'text') {
-        const text = await f.text();
-        selNode.uploadText = text;
-        selNode.uploadUrl = null; selNode.uploadPath = null;
-        renderNode(selNode); renderRightPanel(); scheduleSave();
-        toast('Text file loaded', 'success');
-        return;
-      }
-      const fd = new FormData(); fd.append('file', f);
-      toast('Uploading…');
-      try {
-        const resp = await fetch('/api/upload', { method: 'POST', body: fd });
-        const d = await resp.json();
-        if (d.ok) {
-          selNode.uploadUrl = d.url; selNode.uploadPath = d.path || null; selNode.uploadText = null;
-          renderNode(selNode); renderRightPanel(); scheduleSave();
-          if (document.getElementById('panel-files')?.style.display !== 'none') renderFilesPanel();
-          toast('Upload done', 'success');
-        } else { toast('Upload failed', 'error'); }
-      } catch { toast('Upload failed', 'error'); }
     });
   }
 
@@ -2945,6 +3097,19 @@ body.right-collapsed .canvas-wrap { right: 0; }
           <div class="input-audio-meta"><span>Audio</span></div>
         </div>
       </div>`;
+    } else if (node.type === 'upload') {
+      const src = node.uploadUrl;
+      const kind = node.uploadKind;
+      const mediaEl = src
+        ? (kind === 'video'
+            ? `<video src="${esc(mediaUrl_(src))}" muted preload="metadata" referrerpolicy="no-referrer"></video>`
+            : kind === 'audio'
+              ? `<div style="display:grid;place-items:center;height:100%;color:var(--fg-2)">${ICONS.audio}</div>`
+              : `<img src="${esc(mediaUrl_(src))}" alt="" referrerpolicy="no-referrer"/>`)
+        : null;
+      mediaHtml = `<div class="input-media image">
+        ${mediaEl || `<div class="input-media-placeholder">UPLOAD</div>`}
+      </div>`;
     } else if (node.type === 'video' || node.type === 'image') {
       const mediaSrc = last ? (last.servePath || last.url) : null;
       const uploadSrc = node.uploadUrl || null;
@@ -2977,7 +3142,7 @@ body.right-collapsed .canvas-wrap { right: 0; }
         <span class="input-meta">${esc(metaStr)}</span>
         <div class="input-card-actions">
           <button class="input-action" data-jump="${esc(node.id)}" title="Reveal on canvas">${ICONS.fit}</button>
-          <button class="input-action" title="Re-run" onclick="runNode('${esc(node.id)}')">${ICONS.refresh}</button>
+          ${node.type !== 'upload' ? `<button class="input-action" title="Re-run" onclick="runNode('${esc(node.id)}')">${ICONS.refresh}</button>` : ''}
         </div>
       </div>
     </div>`;
@@ -3095,32 +3260,67 @@ body.right-collapsed .canvas-wrap { right: 0; }
         </select></div>`;
     }
 
-    // Image references
-    if (node.type === 'image' || node.type === 'video') {
-      let thumbs = '';
-      for (const iu of imageUps) {
-        const refLast = iu.results?.[iu.results.length - 1];
-        const t = resultThumb(refLast);
-        if (t) {
-          thumbs += `<div class="insp-thumb">${t}<div class="insp-thumb-label">Ref</div></div>`;
-        } else if (iu.uploadUrl) {
-          thumbs += `<div class="insp-thumb"><img src="${esc(mediaUrl(iu.uploadUrl))}" alt="" referrerpolicy="no-referrer"/><div class="insp-thumb-label">Upload</div></div>`;
-        } else {
-          thumbs += `<div class="insp-thumb"><div class="insp-thumb-pending">⏳</div><div class="insp-thumb-label">Run first</div></div>`;
+    // Upload node params
+    if (node.type === 'upload') {
+      const kind = node.uploadKind;
+      const url = node.uploadUrl;
+      if (url) {
+        if (kind === 'image') {
+          f += `<div class="field"><label class="field-label">Uploaded image</label>
+            <img src="${esc(mediaUrl(url))}" alt="" referrerpolicy="no-referrer" style="width:100%;border-radius:6px;max-height:160px;object-fit:contain;background:var(--bg-0)"/>
+          </div>`;
+        } else if (kind === 'video') {
+          f += `<div class="field"><label class="field-label">Uploaded video</label>
+            <video src="${esc(mediaUrl(url))}" controls muted style="width:100%;border-radius:6px;max-height:160px;background:var(--bg-0)"></video>
+          </div>`;
+        } else if (kind === 'audio') {
+          f += `<div class="field"><label class="field-label">Uploaded audio</label>
+            <audio src="${esc(mediaUrl(url))}" controls style="width:100%;border-radius:6px"></audio>
+          </div>`;
         }
+        f += `<div class="field"><button class="btn ghost" type="button" data-clear-upload style="font-size:11px;color:var(--err)">Remove file</button></div>`;
+      } else {
+        f += `<div class="field">
+          <div class="field-helper" style="text-align:center;padding:20px 0">
+            Click the ↑ button in the node header,<br>or drag a file onto the node.
+          </div>
+        </div>`;
       }
-      if (node.uploadUrl) {
-        thumbs += `<div class="insp-thumb"><img src="${esc(mediaUrl(node.uploadUrl))}" alt="" referrerpolicy="no-referrer"/><div class="insp-thumb-label">Upload</div></div>`;
-      }
-      const sectionLabel = node.type === 'video' ? 'Visual references' : 'Source images';
-      f += `<div class="field">
-        <label class="field-label">${sectionLabel}${imageUps.length > 0 ? ` <span style="color:var(--ok);font-size:10px">✓ ${imageUps.length}</span>` : ''}</label>
-        ${thumbs ? `<div class="insp-thumb-grid">${thumbs}</div>` : ''}
-        ${node.type === 'image' ? `<input type="file" accept="image/*" data-upload style="font-size:11px;color:var(--fg-2);margin-top:6px;cursor:pointer"/>` : ''}
-      </div>`;
     }
 
-    // Audio: prompt + duration + generated preview + optional manual upload
+    // Image references (for image/video generation nodes)
+    if (node.type === 'image' || node.type === 'video') {
+      const allImageUps = ups.filter(u =>
+        u.type === 'image' || u.type === 'video' ||
+        (u.type === 'upload' && (u.uploadKind === 'image' || u.uploadKind === 'video'))
+      );
+      let thumbs = '';
+      for (const iu of allImageUps) {
+        if (iu.type === 'upload') {
+          const ref = iu.uploadUrl;
+          if (ref) thumbs += `<div class="insp-thumb"><img src="${esc(mediaUrl(ref))}" alt="" referrerpolicy="no-referrer"/><div class="insp-thumb-label">Upload</div></div>`;
+        } else {
+          const refLast = iu.results?.[iu.results.length - 1];
+          const t = resultThumb(refLast);
+          if (t) {
+            thumbs += `<div class="insp-thumb">${t}<div class="insp-thumb-label">Ref</div></div>`;
+          } else if (iu.uploadUrl) {
+            thumbs += `<div class="insp-thumb"><img src="${esc(mediaUrl(iu.uploadUrl))}" alt="" referrerpolicy="no-referrer"/><div class="insp-thumb-label">Upload</div></div>`;
+          } else {
+            thumbs += `<div class="insp-thumb"><div class="insp-thumb-pending">⏳</div><div class="insp-thumb-label">Run first</div></div>`;
+          }
+        }
+      }
+      const sectionLabel = node.type === 'video' ? 'Visual references' : 'Source images';
+      if (allImageUps.length > 0) {
+        f += `<div class="field">
+          <label class="field-label">${sectionLabel} <span style="color:var(--ok);font-size:10px">✓ ${allImageUps.length}</span></label>
+          ${thumbs ? `<div class="insp-thumb-grid">${thumbs}</div>` : ''}
+        </div>`;
+      }
+    }
+
+    // Audio: prompt + duration + generated preview
     if (node.type === 'audio') {
       f += `<div class="field">
         <label class="field-label">Prompt</label>
@@ -3134,7 +3334,6 @@ body.right-collapsed .canvas-wrap { right: 0; }
           ${['15','30','60'].map(d => `<button class="chip${(node.params.duration||'30')===d?' active':''}" data-field="duration" data-val="${d}">${d}s</button>`).join('')}
         </div>
       </div>`;
-      // Show generated audio player if a result exists
       const lastAudio = (node.results||[]).slice().reverse().find(r => r?.kind === 'audio');
       if (lastAudio) {
         const src = esc(mediaUrl(lastAudio.servePath || lastAudio.url));
@@ -3143,11 +3342,6 @@ body.right-collapsed .canvas-wrap { right: 0; }
           <audio src="${src}" controls style="width:100%;border-radius:6px"></audio>
         </div>`;
       }
-      // Manual upload as override
-      f += `<div class="field"><label class="field-label" style="color:var(--fg-3)">Or upload a file</label>
-        ${node.uploadUrl ? `<audio src="${esc(mediaUrl(node.uploadUrl))}" controls style="width:100%;margin-bottom:6px;border-radius:6px"></audio>` : ''}
-        <input type="file" accept="audio/*" data-upload style="font-size:11px;color:var(--fg-2);cursor:pointer"/>
-      </div>`;
     }
 
     // Edit node params
@@ -3158,9 +3352,9 @@ body.right-collapsed .canvas-wrap { right: 0; }
           placeholder="Trim the intro of clip 1 to 3s, double the speed of clip 2, add a fade in…">${esc(node.prompt)}</textarea>
         <div class="field-helper">The AI will read your instructions and generate an edit plan. Leave blank to auto-combine all clips.</div>
       </div>`;
-      // Show connected clips
-      const editClips = upstreamNodes(node.id).filter(u => u.type === 'video');
-      const editAudio = upstreamNodes(node.id).filter(u => u.type === 'audio');
+      // Show connected clips (video and upload-video nodes)
+      const editClips = upstreamNodes(node.id).filter(u => u.type === 'video' || (u.type === 'upload' && u.uploadKind === 'video'));
+      const editAudio = upstreamNodes(node.id).filter(u => u.type === 'audio' || (u.type === 'upload' && u.uploadKind === 'audio'));
       if (editClips.length) {
         const clipList = editClips.map((u, i) => {
           const uLast = u.results?.[u.results.length - 1];
@@ -3244,21 +3438,10 @@ body.right-collapsed .canvas-wrap { right: 0; }
         () => toast('Copy failed', 'error'),
       );
     });
-    // File upload
-    panel.querySelectorAll('[data-upload]').forEach(input => {
-      input.addEventListener('change', async e => {
-        const f = e.target.files[0];
-        if (!f) return;
-        const fd = new FormData(); fd.append('file', f);
-        toast('Uploading…');
-        const resp = await fetch('/api/upload', { method: 'POST', body: fd });
-        const d = await resp.json();
-        if (d.ok) {
-          node.uploadUrl = d.url; node.uploadPath = d.path || null;
-          renderNode(node); renderRightPanel();
-          if (document.getElementById('panel-files')?.style.display !== 'none') renderFilesPanel();
-        } else { toast('Upload failed', 'error'); }
-      });
+    // Clear-upload button (upload node)
+    panel.querySelector('[data-clear-upload]')?.addEventListener('click', () => {
+      node.uploadUrl = null; node.uploadPath = null; node.uploadKind = null;
+      renderNode(node); renderRightPanel(); scheduleSave();
     });
   }
 
