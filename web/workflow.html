@@ -1367,9 +1367,13 @@ body.right-collapsed .canvas-wrap { right: 0; }
       input.addEventListener('pointerdown', e2 => e2.stopPropagation());
     });
 
-    // Video thumbnail play/pause on click
+    // Video thumbnail play/pause on click (must run BEFORE the pointerdown drag handler)
+    el.querySelector('[data-video-preview]')?.addEventListener('pointerdown', e => {
+      e.stopPropagation(); // prevent canvas pan from firing
+    });
     el.querySelector('[data-video-preview]')?.addEventListener('click', e => {
       e.stopPropagation();
+      if (!selected.has(node.id)) selectOnly(node.id);
       const preview = e.currentTarget;
       const vid = preview.querySelector('video');
       if (!vid) return;
@@ -1383,8 +1387,8 @@ body.right-collapsed .canvas-wrap { right: 0; }
     // Selection + drag start on pointerdown anywhere on the node card
     el.addEventListener('pointerdown', (e) => {
       if (e.button === 2) return;
-      // Let buttons, inputs, handles, and the checkbox handle their own pointer events
-      if (e.target.closest('button, input, textarea, select, .handle, [data-action=check]')) return;
+      // Let buttons, inputs, handles, checkbox, and video previews handle their own events
+      if (e.target.closest('button, input, textarea, select, .handle, [data-action=check], [data-video-preview]')) return;
       e.stopPropagation();
       e.preventDefault();
       if (e.shiftKey) {
@@ -1725,10 +1729,11 @@ body.right-collapsed .canvas-wrap { right: 0; }
     const resp = await fetch(endpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
       body: JSON.stringify(body),
     });
-    const data = await resp.json();
-    if (!data.ok) throw new Error(data.error || 'Submit failed');
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok || !data.ok) throw new Error(data.error || `Request failed (HTTP ${resp.status})`);
     return data.task_id;
   }
 
@@ -2675,7 +2680,7 @@ body.right-collapsed .canvas-wrap { right: 0; }
     const selNode = selId ? nodes.get(selId) : null;
 
     // Update tab counts
-    const upCount = selNode ? computeUpstreamAll(selNode.id).length : 0;
+    const upCount = selNode ? upstreamNodes(selNode.id).length : 0;
     const queueCount = [...nodes.values()].filter(n => n.status === 'running' || n.status === 'queued').length;
     const inputsCountEl = document.getElementById('tab-inputs-count');
     const queueCountEl  = document.getElementById('tab-queue-count');
