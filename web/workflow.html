@@ -1709,7 +1709,9 @@ body.right-collapsed .canvas-wrap { right: 0; }
     if (override && override !== 'auto') return override;
     if (node.uploadPath || node.uploadUrl) return 'I2V';
     for (const u of upstreamNodes(node.id)) {
-      if (u.type === 'upload' && (u.uploadKind === 'image' || u.uploadKind === 'video')) return 'I2V';
+      // Only image-typed uploads count — video/audio uploads cannot serve as
+      // an I2V first frame and would break the dreamina --image flag.
+      if (u.type === 'upload' && u.uploadKind === 'image') return 'I2V';
       if (u.type !== 'image') continue;
       const last = u.results?.[u.results.length - 1];
       if (last?.kind === 'image' && (last.localPath || last.url)) return 'I2V';
@@ -1727,17 +1729,24 @@ body.right-collapsed .canvas-wrap { right: 0; }
 
   function collectInputs(node) {
     const up = upstreamNodes(node.id);
-    let prompt = node.prompt || '';
+    const userPrompt = node.prompt || '';
+    let textNodePrompt = '';
     const imageRefs = [];
     const imagePrompts = [];
+    const audioRefs = [];
     for (const u of up) {
       if (u.type === 'text') {
         const t = textNodeOutput(u);
-        if (t) prompt = t;
+        if (t) textNodePrompt = t;  // collected separately so the user's typed prompt can win
       }
-      if (u.type === 'upload' && (u.uploadKind === 'image' || u.uploadKind === 'video')) {
+      if (u.type === 'upload') {
         const ref = u.uploadPath || u.uploadUrl;
-        if (ref) imageRefs.push(ref);
+        if (!ref) continue;
+        if (u.uploadKind === 'image') imageRefs.push(ref);
+        else if (u.uploadKind === 'audio') audioRefs.push(ref);
+        // Video uploads are deliberately NOT image refs — passing a .mp4 as
+        // --image to the Jimeng CLI fails; users should use the Edit node for
+        // existing video material.
       }
       if (u.type === 'image') {
         const uLast = u.results?.[u.results.length - 1];
@@ -1749,11 +1758,19 @@ body.right-collapsed .canvas-wrap { right: 0; }
         }
         if (u.prompt) imagePrompts.push(u.prompt);
       }
+      if (u.type === 'audio') {
+        const uLast = u.results?.[u.results.length - 1];
+        const ref = uLast?.servePath || uLast?.localPath || uLast?.url || u.uploadPath || u.uploadUrl || null;
+        if (ref) audioRefs.push(ref);
+      }
     }
-    // Node's own upload (legacy — from before Upload node existed)
+    // Node's own upload (legacy — from before Upload node existed). Image only;
+    // a node-level audio/video upload doesn't apply to T2V/I2V/MM2V.
     if (node.uploadPath) imageRefs.push(node.uploadPath);
     else if (node.uploadUrl) imageRefs.push(node.uploadUrl);
-    return { prompt, imageRefs, imagePrompts };
+    // User's typed prompt wins; the upstream Text node only fills the gap.
+    const prompt = userPrompt || textNodePrompt;
+    return { prompt, imageRefs, imagePrompts, audioRefs };
   }
 
   // Walk upstream and pack everything into the multi-modal payload Doubao expects.
@@ -1793,8 +1810,9 @@ body.right-collapsed .canvas-wrap { right: 0; }
   const PASSIVE_TYPES = new Set(['upload']);
 
   async function startTask(node) {
-    const { prompt, imageRefs, imagePrompts } = collectInputs(node);
+    const { prompt, imageRefs, imagePrompts, audioRefs } = collectInputs(node);
     const imageRef = imageRefs[0] || null;
+    const audioRef = audioRefs?.[0] || null;
     let endpoint, body;
 
     if (node.type === 'text') {
@@ -1844,6 +1862,7 @@ body.right-collapsed .canvas-wrap { right: 0; }
           prompt: mmPrompt,
           duration: node.params.duration,
           model_version: node.params.modelVersion,
+          audio_path: audioRef,
         };
       } else if (mode === 'I2V') {
         if (!imageRef) throw new Error('I2V mode requires an image reference (connect an Image/Upload node or upload a file)');
@@ -1854,13 +1873,14 @@ body.right-collapsed .canvas-wrap { right: 0; }
           prompt: prompt || imagePrompts.join(', '),
           duration: node.params.duration,
           model_version: node.params.modelVersion,
+          audio_path: audioRef,
         };
       } else {
         // T2V mode — text only.
         const videoPrompt = prompt || imagePrompts.join(', ');
         if (!videoPrompt) throw new Error('prompt required (connect a Text or Image node, or type one)');
         endpoint = '/api/text2video';
-        body = { prompt: videoPrompt, duration: node.params.duration, ratio: node.params.ratio, resolution: node.params.resolution, model_version: node.params.modelVersion };
+        body = { prompt: videoPrompt, duration: node.params.duration, ratio: node.params.ratio, resolution: node.params.resolution, model_version: node.params.modelVersion, audio_path: audioRef };
       }
     } else if (node.type === 'edit') {
       const up = upstreamNodes(node.id);

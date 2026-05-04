@@ -211,7 +211,7 @@ def _should_keep_polling(result_data: dict | None, submit_id: str | None) -> boo
 
 # ── Task runner ───────────────────────────────────────────────────────────────
 
-def run_task(task_id: str, cmd: list[str]):
+def run_task(task_id: str, cmd: list[str], post_process=None):
     tasks[task_id]["status"] = "running"
     save_tasks()
 
@@ -275,6 +275,11 @@ def run_task(task_id: str, cmd: list[str]):
         tasks[task_id]["result"] = result_data
         tasks[task_id]["error"] = None
         tasks[task_id].pop("queue_idx", None)
+        if post_process:
+            try:
+                post_process(task_id)
+            except Exception as exc:
+                print(f"[task {task_id}] post-process failed: {exc}", flush=True)
         _cache_task_output(tasks[task_id])
     elif submit_id and _should_keep_polling(result_data, submit_id):
         tasks[task_id]["status"] = "queued"
@@ -295,7 +300,7 @@ def run_task(task_id: str, cmd: list[str]):
     save_tasks()
 
 
-def _start_task(cmd: list[str], label: str) -> dict:
+def _start_task(cmd: list[str], label: str, post_process=None) -> dict:
     task_id = str(uuid.uuid4())
     tasks[task_id] = {
         "status": "queued",
@@ -305,7 +310,7 @@ def _start_task(cmd: list[str], label: str) -> dict:
         "created_at": time.time(),
     }
     save_tasks()
-    thread = threading.Thread(target=run_task, args=(task_id, cmd), daemon=True)
+    thread = threading.Thread(target=run_task, args=(task_id, cmd, post_process), daemon=True)
     thread.start()
     return {"ok": True, "task_id": task_id}
 
@@ -454,6 +459,67 @@ def query_result(submit_id: str):
 
 # ── API: Generation ───────────────────────────────────────────────────────────
 
+def _mux_audio_post_process(audio_path: str):
+    """Build a post_process callback that muxes `audio_path` onto the task's
+    generated video and rewrites the task result to point at the local muxed file.
+    Best-effort: if anything fails, the original CDN result is left untouched.
+    """
+    def _post(task_id: str) -> None:
+        if not audio_path or not Path(audio_path).exists():
+            return
+        task = tasks.get(task_id)
+        if not isinstance(task, dict):
+            return
+        result_data = task.get("result")
+        video_url = _extract_output_url(result_data) if isinstance(result_data, dict) else None
+        if not video_url:
+            return
+        local_video = _download_media(video_url, hint_ext=".mp4")
+        if not local_video or local_video.startswith("http"):
+            print(f"[mux_audio] failed to download generated video {video_url}", flush=True)
+            return
+        out_path = UPLOAD_DIR / f"muxed_{uuid.uuid4()}.mp4"
+        cmd = [
+            "ffmpeg", "-y", "-loglevel", "warning",
+            "-i", local_video,
+            "-i", audio_path,
+            "-map", "0:v:0", "-map", "1:a:0",
+            "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
+            "-shortest", "-movflags", "+faststart",
+            str(out_path),
+        ]
+        try:
+            subprocess.run(cmd, check=True, capture_output=True, text=True, timeout=300)
+        except Exception as exc:
+            print(f"[mux_audio] ffmpeg failed: {exc}", flush=True)
+            return
+        if not out_path.exists() or out_path.stat().st_size == 0:
+            return
+        serve_path = "/uploads/" + out_path.name
+        # Preserve original CDN URL but redirect playback to the muxed local file.
+        merged = dict(result_data) if isinstance(result_data, dict) else {}
+        merged["serve_path"] = serve_path
+        merged["local_path"] = str(out_path)
+        merged["original_url"] = video_url
+        merged["audio_muxed"] = True
+        task["result"] = merged
+        print(f"[mux_audio] {video_url} + {audio_path} → {serve_path}", flush=True)
+    return _post
+
+
+def _resolve_audio_for_mux(request) -> str | None:
+    """Pull `audio_path` from a video-generation request body (JSON or multipart)
+    and resolve it to a local file path. Returns None when no audio was supplied."""
+    if request.content_type and "multipart" in request.content_type:
+        ref = (request.form.get("audio_path") or "").strip()
+    else:
+        data = request.get_json(silent=True) or {}
+        ref = (data.get("audio_path") or "").strip() if isinstance(data, dict) else ""
+    if not ref:
+        return None
+    return _resolve_clip_path(ref)
+
+
 @app.post("/api/text2video")
 def text2video():
     data = request.get_json(force=True)
@@ -471,7 +537,9 @@ def text2video():
     ]
     if model_version:
         cmd.append(f"--model_version={model_version}")
-    return jsonify(_start_task(cmd, f"text2video: {prompt[:60]}"))
+    audio_path = _resolve_audio_for_mux(request)
+    post = _mux_audio_post_process(audio_path) if audio_path else None
+    return jsonify(_start_task(cmd, f"text2video: {prompt[:60]}", post_process=post))
 
 
 @app.post("/api/text2image")
@@ -905,7 +973,9 @@ def image2video():
         cmd.append(f"--prompt={prompt}")
     if model_version:
         cmd.append(f"--model_version={model_version}")
-    return jsonify(_start_task(cmd, f"image2video: {prompt[:60] or image_ref[-40:]}"))
+    audio_path = _resolve_audio_for_mux(request)
+    post = _mux_audio_post_process(audio_path) if audio_path else None
+    return jsonify(_start_task(cmd, f"image2video: {prompt[:60] or image_ref[-40:]}", post_process=post))
 
 
 @app.post("/api/multimodal2video")
@@ -927,7 +997,9 @@ def multimodal2video():
     ]
     if model_version:
         cmd.append(f"--model_version={model_version}")
-    return jsonify(_start_task(cmd, f"multimodal2video: {prompt[:60]}"))
+    audio_path = _resolve_audio_for_mux(request)
+    post = _mux_audio_post_process(audio_path) if audio_path else None
+    return jsonify(_start_task(cmd, f"multimodal2video: {prompt[:60]}", post_process=post))
 
 
 @app.post("/api/image2image")
