@@ -593,7 +593,7 @@ def _run_minimax_audio_task(task_id: str, text: str, duration: str, api_key: str
 
         status = qbody.get("status", "")
         print(f"[minimax] poll status={status}", flush=True)
-        if status == "Succeeded":
+        if status in ("Success", "Succeeded"):
             file_id = qbody.get("file_id") or file_id
             break
         if status not in ("Processing", "Pending", ""):
