@@ -748,24 +748,29 @@ _AUDIO_EXTS = {".mp3", ".wav", ".m4a", ".aac", ".flac", ".ogg", ".opus", ".webm"
 
 
 def _extract_audio_from_tar(tar_path: str) -> str | None:
-    """Extract the first audio file from a tar archive into uploads/.
-    Returns the new local path, or None on failure. Removes the tar on success.
+    """Extract the audio file from a tar archive into uploads/.
+    Prefers members with a known audio extension; falls back to the largest
+    file if no extension matches. Returns the new local path, or None on
+    failure. Removes the tar on success.
     """
     import tarfile
 
     try:
         src = Path(tar_path)
         with tarfile.open(src, "r:*") as tf:
+            members = [m for m in tf.getmembers() if m.isfile()]
+            if not members:
+                return None
             audio_member = next(
-                (
-                    m for m in tf.getmembers()
-                    if m.isfile() and Path(m.name).suffix.lower() in _AUDIO_EXTS
-                ),
+                (m for m in members if Path(m.name).suffix.lower() in _AUDIO_EXTS),
                 None,
             )
             if audio_member is None:
-                return None
-            suffix = Path(audio_member.name).suffix.lower() or ".mp3"
+                # Fall back to the largest file (audio dominates a TTS bundle).
+                audio_member = max(members, key=lambda m: m.size)
+            suffix = Path(audio_member.name).suffix.lower()
+            if suffix not in _AUDIO_EXTS:
+                suffix = ".mp3"
             out_path = UPLOAD_DIR / f"dl_{uuid.uuid4()}{suffix}"
             extracted = tf.extractfile(audio_member)
             if extracted is None:
