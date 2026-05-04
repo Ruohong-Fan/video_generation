@@ -651,7 +651,9 @@ body.right-collapsed .canvas-wrap { right: 0; }
   display: flex; flex-direction: column;
   z-index: 80; font-family: var(--type-ui); overflow: hidden;
 }
-#right-panel-content { flex: 1; display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+#right-panel-content { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; }
+.rp-divider { border: none; border-top: 1px solid var(--line-soft); margin: 0; }
+.rp-inputs-head { padding: 10px 14px 6px; font-size: 10px; font-family: var(--type-mono); color: var(--fg-3); letter-spacing: 0.08em; text-transform: uppercase; }
 
 /* shared tab count badge */
 .tab-count {
@@ -1149,12 +1151,6 @@ body.right-collapsed .canvas-wrap { right: 0; }
 
 
 <div class="side-right" id="side-right">
-  <div class="side-tabs" id="right-tabs">
-    <button class="side-tab active" data-rtab="inputs" onclick="switchRightTab('inputs')">Inputs<span class="tab-count" id="tab-inputs-count" style="display:none">0</span></button>
-    <button class="side-tab" data-rtab="params" onclick="switchRightTab('params')">Params</button>
-    <button class="side-tab" data-rtab="queue" onclick="switchRightTab('queue')">Queue<span class="tab-count" id="tab-queue-count" style="display:none">0</span></button>
-    <button class="side-tab" data-rtab="done" onclick="switchRightTab('done')">Done</button>
-  </div>
   <div id="right-panel-content"></div>
 </div>
 
@@ -1182,7 +1178,6 @@ body.right-collapsed .canvas-wrap { right: 0; }
 
   // Right-panel state — declared up-front so renderRightPanel() and the
   // initial updateSelInfo() call don't hit a TDZ error.
-  let rightTab = 'inputs';
   let inputsFilter = 'all';
   let inputsGroupBy = 'type';
 
@@ -2225,15 +2220,8 @@ body.right-collapsed .canvas-wrap { right: 0; }
     updateSelInfo();
   }
   function selectOnly(id) {
-    const hadSelection = selected.size > 0;
     clearSelection();
     setSelected(id, true);
-    // On fresh selection (nothing was selected before), switch to Params so the
-    // user immediately sees editable node settings rather than an empty Inputs tab.
-    if (!hadSelection && rightTab !== 'params') {
-      rightTab = 'params';
-      document.querySelectorAll('[data-rtab]').forEach(b => b.classList.toggle('active', b.dataset.rtab === 'params'));
-    }
     updateSelInfo();
   }
   function toggleSelect(id) {
@@ -2848,41 +2836,56 @@ body.right-collapsed .canvas-wrap { right: 0; }
     createNode(type, center.x - 120 + Math.random() * 40, center.y - 60 + Math.random() * 40);
   }
 
-  // ── Right panel tab management ───────────────────────────────────────────
-  // (rightTab is declared at top-of-script with other state)
-
-  function switchRightTab(tab) {
-    rightTab = tab;
-    document.querySelectorAll('[data-rtab]').forEach(b => b.classList.toggle('active', b.dataset.rtab === tab));
-    renderRightPanel();
-  }
-
-  function updateInspector() {
-    renderRightPanel();
-  }
-
-  function renderInspector(nodeId) {
-    renderRightPanel();
-  }
+  function updateInspector() { renderRightPanel(); }
+  function renderInspector(nodeId) { renderRightPanel(); }
 
   function renderRightPanel() {
+    const sideRight = document.getElementById('side-right');
     const panel = document.getElementById('right-panel-content');
     if (!panel) return;
+
     const selId = selected.size === 1 ? [...selected][0] : null;
     const selNode = selId ? nodes.get(selId) : null;
 
-    // Update tab counts
-    const upCount = selNode ? upstreamNodes(selNode.id).length : 0;
-    const queueCount = [...nodes.values()].filter(n => n.status === 'running' || n.status === 'queued').length;
-    const inputsCountEl = document.getElementById('tab-inputs-count');
-    const queueCountEl  = document.getElementById('tab-queue-count');
-    if (inputsCountEl) { inputsCountEl.style.display = upCount > 0 ? '' : 'none'; inputsCountEl.textContent = upCount; }
-    if (queueCountEl)  { queueCountEl.style.display  = queueCount > 0 ? '' : 'none'; queueCountEl.textContent = queueCount; }
+    // Auto-hide when no single node is selected
+    const show = !!selNode;
+    sideRight?.classList.toggle('collapsed', !show);
+    document.body.classList.toggle('right-collapsed', !show);
+    if (!show) { panel.innerHTML = ''; return; }
 
-    if (rightTab === 'inputs') renderInputsTab(panel, selNode);
-    else if (rightTab === 'params') renderParamsTab(panel, selNode);
-    else if (rightTab === 'queue') renderQueueTab(panel);
-    else if (rightTab === 'done')  renderDoneTab(panel);
+    // Combined panel: params on top, then upstream inputs below
+    panel.innerHTML = '<div id="rp-params"></div><div id="rp-inputs"></div>';
+    renderParamsTab(document.getElementById('rp-params'), selNode);
+    renderInputsSection(document.getElementById('rp-inputs'), selNode);
+  }
+
+  // Compact upstream-connections section shown below params in the combined panel.
+  // Upload nodes have no inputs; all others show their connected upstream nodes.
+  function renderInputsSection(div, node) {
+    if (!div) return;
+    const up = upstreamNodes(node.id);
+    if (node.type === 'upload' || !up.length) { div.innerHTML = ''; return; }
+
+    const TYPE_ORDER = ['upload', 'text', 'image', 'video', 'audio'];
+    const TYPE_LABEL = { upload: 'Uploads', text: 'Text', image: 'Images', video: 'Videos', audio: 'Audio' };
+    const groups = TYPE_ORDER.map(t => {
+      const items = up.filter(u => u.type === t).map(u => ({ node: u, depth: 1 }));
+      return items.length ? upstreamGroupHtml(TYPE_LABEL[t], t, items) : '';
+    }).join('');
+
+    div.innerHTML = `<hr class="rp-divider"/><div class="rp-inputs-head">Inputs · ${up.length}</div>${groups}`;
+    div.querySelectorAll('[data-jump]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const id = btn.dataset.jump;
+        clearSelection(); setSelected(id, true); updateSelInfo();
+      });
+    });
+    div.querySelectorAll('[data-iexpand]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const el = btn.closest('.input-text');
+        if (el) { el.classList.toggle('expanded'); btn.textContent = el.classList.contains('expanded') ? 'less' : 'more'; }
+      });
+    });
   }
 
   // ── Upstream computation ──────────────────────────────────────────────────
@@ -3294,12 +3297,18 @@ body.right-collapsed .canvas-wrap { right: 0; }
             <audio src="${esc(mediaUrl(url))}" controls style="width:100%;border-radius:6px"></audio>
           </div>`;
         }
-        f += `<div class="field"><button class="btn ghost" type="button" data-clear-upload style="font-size:11px;color:var(--err)">Remove file</button></div>`;
+        f += `<div class="field" style="display:flex;gap:6px">
+          <label style="flex:1"><input type="file" accept="image/*,video/*,audio/*" data-upload-replace-input style="display:none"/>
+            <span class="btn ghost" style="width:100%;justify-content:center;font-size:11px;cursor:pointer">Replace</span>
+          </label>
+          <button class="btn ghost" type="button" data-clear-upload style="font-size:11px;color:var(--err)">Remove</button>
+        </div>`;
       } else {
         f += `<div class="field">
-          <div class="field-helper" style="text-align:center;padding:20px 0">
-            Click the ↑ button in the node header,<br>or drag a file onto the node.
-          </div>
+          <label style="display:block"><input type="file" accept="image/*,video/*,audio/*" data-upload-replace-input style="display:none"/>
+            <span class="btn primary" style="width:100%;justify-content:center;font-size:12px;cursor:pointer">${ICONS.upload} Choose file</span>
+          </label>
+          <div class="field-helper" style="text-align:center;margin-top:6px">Or drag a file onto the node.</div>
         </div>`;
       }
     }
@@ -3458,6 +3467,23 @@ body.right-collapsed .canvas-wrap { right: 0; }
     panel.querySelector('[data-clear-upload]')?.addEventListener('click', () => {
       node.uploadUrl = null; node.uploadPath = null; node.uploadKind = null; node.uploadRatio = null;
       renderNode(node); renderRightPanel(); scheduleSave();
+    });
+    // Replace/choose file input (upload node params)
+    panel.querySelector('[data-upload-replace-input]')?.addEventListener('change', async e => {
+      const file = e.target.files[0]; if (!file) return;
+      const kind = file.type.startsWith('video/') ? 'video' : file.type.startsWith('audio/') ? 'audio' : 'image';
+      const fd = new FormData(); fd.append('file', file);
+      toast('Uploading…');
+      try {
+        const resp = await fetch('/api/upload', { method: 'POST', body: fd });
+        const d = await resp.json();
+        if (d.ok) {
+          node.uploadUrl = d.url; node.uploadPath = d.path || null; node.uploadKind = kind; node.uploadRatio = null;
+          renderNode(node); renderRightPanel(); scheduleSave();
+          if (document.getElementById('panel-files')?.style.display !== 'none') renderFilesPanel();
+          toast('Upload done', 'success');
+        } else { toast('Upload failed', 'error'); }
+      } catch { toast('Upload failed', 'error'); }
     });
   }
 
