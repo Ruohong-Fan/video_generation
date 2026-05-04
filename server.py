@@ -617,14 +617,26 @@ def _run_minimax_audio_task(task_id: str, text: str, duration: str, api_key: str
     except Exception as exc:
         return fail(f"MiniMax file retrieve failed: {exc}")
 
-    audio_url = fbody.get("audio_url") or fbody.get("download_url")
+    file_info = fbody.get("file") if isinstance(fbody.get("file"), dict) else {}
+    audio_url = (
+        file_info.get("download_url")
+        or file_info.get("audio_url")
+        or fbody.get("audio_url")
+        or fbody.get("download_url")
+    )
+    filename = file_info.get("filename") or ""
     if not audio_url:
         return fail(f"MiniMax file retrieve returned no audio_url: {fbody}")
 
-    # 4. Download audio to uploads/ for local serving
-    local_path = _download_media(audio_url, hint_ext=".mp3")
+    # 4. Download audio to uploads/ for local serving.
+    # The async TTS endpoint packages the audio inside a .tar archive — extract it.
+    is_tar = filename.lower().endswith(".tar") or urlparse(audio_url).path.lower().endswith(".tar")
+    local_path = _download_media(audio_url, hint_ext=".tar" if is_tar else ".mp3")
+    if local_path and not local_path.startswith("http") and is_tar:
+        local_path = _extract_audio_from_tar(local_path)
+
     if not local_path or local_path.startswith("http"):
-        # Serve the CDN URL directly if download failed
+        # Serve the CDN URL directly if download/extract failed
         tasks[task_id]["status"] = "done"
         tasks[task_id]["result"] = {"url": audio_url}
         tasks[task_id]["error"] = None
@@ -730,6 +742,48 @@ def _download_media(url: str, hint_ext: str = "") -> str:
 
 # Keep old name as alias so existing callers don't break
 _download_image = _download_media
+
+
+_AUDIO_EXTS = {".mp3", ".wav", ".m4a", ".aac", ".flac", ".ogg", ".opus", ".webm"}
+
+
+def _extract_audio_from_tar(tar_path: str) -> str | None:
+    """Extract the first audio file from a tar archive into uploads/.
+    Returns the new local path, or None on failure. Removes the tar on success.
+    """
+    import tarfile
+
+    try:
+        src = Path(tar_path)
+        with tarfile.open(src, "r:*") as tf:
+            audio_member = next(
+                (
+                    m for m in tf.getmembers()
+                    if m.isfile() and Path(m.name).suffix.lower() in _AUDIO_EXTS
+                ),
+                None,
+            )
+            if audio_member is None:
+                return None
+            suffix = Path(audio_member.name).suffix.lower() or ".mp3"
+            out_path = UPLOAD_DIR / f"dl_{uuid.uuid4()}{suffix}"
+            extracted = tf.extractfile(audio_member)
+            if extracted is None:
+                return None
+            with open(out_path, "wb") as f:
+                while True:
+                    chunk = extracted.read(65536)
+                    if not chunk:
+                        break
+                    f.write(chunk)
+        try:
+            src.unlink()
+        except OSError:
+            pass
+        return str(out_path)
+    except Exception as exc:
+        print(f"[minimax] tar extract failed: {exc}", flush=True)
+        return None
 
 
 def _extract_output_url(result_data: dict) -> str | None:
