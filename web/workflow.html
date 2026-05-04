@@ -1308,6 +1308,7 @@ body.right-collapsed .canvas-wrap { right: 0; }
         ratio: '16:9',
         resolution: type === 'video' ? '720P' : '2k',
         modelVersion: 'seedance2.0',
+        videoMode: 'auto',  // video node: 'auto' | 'T2V' | 'I2V' | 'MM2V'
       },
       status: 'idle',
       results: [],    // [{ url, kind, localPath, ts }] — newest last
@@ -1714,10 +1715,14 @@ body.right-collapsed .canvas-wrap { right: 0; }
     return edges.filter(e => e.toId === id).map(e => nodes.get(e.fromId)).filter(Boolean);
   }
 
-  // 'I2V' if a Video node has any usable image reference upstream/uploaded,
-  // otherwise 'T2V'. Used for the node-foot mode badge.
+  // Returns the effective generation mode for a video node:
+  //   'MM2V' / 'I2V' / 'T2V' depending on the explicit override (when not 'auto')
+  //   or, in auto mode, derived from whether any image reference is connected.
+  // Used for the node-foot mode badge and the run dispatcher.
   function videoMode(node) {
     if (node.type !== 'video') return '';
+    const override = node.params?.videoMode;
+    if (override && override !== 'auto') return override;
     if (node.uploadPath || node.uploadUrl) return 'I2V';
     for (const u of upstreamNodes(node.id)) {
       if (u.type === 'upload' && (u.uploadKind === 'image' || u.uploadKind === 'video')) return 'I2V';
@@ -1844,9 +1849,21 @@ body.right-collapsed .canvas-wrap { right: 0; }
         body = { prompt, ratio: node.params.ratio, resolution: node.params.resolution };
       }
     } else if (node.type === 'video') {
-      if (imageRef) {
-        // I2V mode — animate the upstream/uploaded image. Prompt becomes
-        // the motion description (optional but recommended).
+      const mode = videoMode(node);
+      if (mode === 'MM2V') {
+        if (!imageRef) throw new Error('multimodal mode requires an image reference (connect an Image/Upload node or upload a file)');
+        const mmPrompt = prompt || imagePrompts.join(', ');
+        if (!mmPrompt) throw new Error('multimodal mode requires a prompt');
+        endpoint = '/api/multimodal2video';
+        body = {
+          image: imageRef,
+          prompt: mmPrompt,
+          duration: node.params.duration,
+          model_version: node.params.modelVersion,
+        };
+      } else if (mode === 'I2V') {
+        if (!imageRef) throw new Error('I2V mode requires an image reference (connect an Image/Upload node or upload a file)');
+        // Animate the upstream/uploaded image. Prompt becomes the motion description.
         endpoint = '/api/image2video';
         body = {
           image: imageRef,
@@ -3217,20 +3234,26 @@ body.right-collapsed .canvas-wrap { right: 0; }
 
     // Prompt
     if (['text','image','video'].includes(node.type)) {
-      const isI2V = node.type === 'video' && videoMode(node) === 'I2V';
+      const vMode = node.type === 'video' ? videoMode(node) : '';
       const ph = {
         text:'Write a 30s product script highlighting the selling points above…',
         image:'A misty mountain at dawn…',
-        video: isI2V ? 'Camera slowly pushes in, leaves rustle in the breeze…' : 'A fox sitting in a snowy forest, cinematic 4K…',
+        video: vMode === 'MM2V' ? 'Describe the scene; the reference image guides style/subject…'
+             : vMode === 'I2V'  ? 'Camera slowly pushes in, leaves rustle in the breeze…'
+                                : 'A fox sitting in a snowy forest, cinematic 4K…',
       }[node.type] || '';
       const lbl = node.type === 'text' ? 'Instruction' : 'Prompt';
       let helper = '';
       if (node.type === 'text') {
         helper = `<div class="field-helper">The model receives all upstream inputs (text · images · video refs) plus this instruction.</div>`;
       } else if (node.type === 'video') {
-        helper = isI2V
-          ? `<div class="field-helper" style="color:var(--amber)">I2V mode — describes motion applied to the upstream image (optional).</div>`
-          : `<div class="field-helper">T2V mode — connect an Image node to switch to I2V (animate that image).</div>`;
+        const helperText = {
+          MM2V: 'Multimodal (全能参考) — uses the reference image plus this prompt to compose a brand-new scene.',
+          I2V:  'I2V mode — describes motion applied to the upstream image (optional).',
+          T2V:  'T2V mode — connect an Image node to switch to I2V, or pick MM2V to combine image + prompt.',
+        }[vMode] || '';
+        const color = vMode === 'T2V' ? '' : 'color:var(--amber)';
+        helper = `<div class="field-helper" style="${color}">${helperText}</div>`;
       }
       f += `<div class="field">
         <label class="field-label">${lbl}</label>
@@ -3249,6 +3272,24 @@ body.right-collapsed .canvas-wrap { right: 0; }
           <button class="btn ghost" type="button" data-action="copy-text" style="margin-top:6px;font-size:11px">Copy</button>
         </div>`;
       }
+    }
+
+    // Mode chips (video) — Auto auto-detects T2V/I2V from connections; MM2V is multimodal2video (全能参考)
+    if (node.type === 'video') {
+      const cur = node.params.videoMode || 'auto';
+      const effective = videoMode(node);
+      const modes = [
+        ['auto', cur === 'auto' ? `Auto · ${effective}` : 'Auto'],
+        ['T2V',  'T2V'],
+        ['I2V',  'I2V'],
+        ['MM2V', 'MM2V (全能参考)'],
+      ];
+      f += `<div class="field">
+        <label class="field-label">Mode</label>
+        <div class="chip-row">
+          ${modes.map(([v,l]) => `<button class="chip${cur===v?' active':''}" data-field="videoMode" data-val="${v}">${esc(l)}</button>`).join('')}
+        </div>
+      </div>`;
     }
 
     // Duration chips (video)
@@ -3466,6 +3507,8 @@ body.right-collapsed .canvas-wrap { right: 0; }
         node.params[field] = btn.dataset.val;
         panel.querySelectorAll(`.chip[data-field="${field}"]`).forEach(b => b.classList.toggle('active', b === btn));
         scheduleSave();
+        // videoMode change affects prompt placeholder/helper and the node-foot badge — re-render
+        if (field === 'videoMode') { renderNode(node); renderRightPanel(); }
       });
     });
     // Run button

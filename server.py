@@ -908,6 +908,28 @@ def image2video():
     return jsonify(_start_task(cmd, f"image2video: {prompt[:60] or image_ref[-40:]}"))
 
 
+@app.post("/api/multimodal2video")
+def multimodal2video():
+    prompt = _get_param(request, "prompt", "").strip()
+    duration = _get_param(request, "duration", "5")
+    model_version = _get_param(request, "model_version", "").strip()
+    image_ref = _resolve_image_input(request)
+    if not image_ref:
+        return jsonify({"ok": False, "error": "image is required for multimodal2video — upload failed or URL could not be downloaded"}), 400
+    if not prompt:
+        return jsonify({"ok": False, "error": "prompt is required for multimodal2video"}), 400
+    cmd = [
+        "dreamina", "multimodal2video",
+        f"--image={image_ref}",
+        f"--prompt={prompt}",
+        f"--duration={duration}",
+        "--poll=240",
+    ]
+    if model_version:
+        cmd.append(f"--model_version={model_version}")
+    return jsonify(_start_task(cmd, f"multimodal2video: {prompt[:60]}"))
+
+
 @app.post("/api/image2image")
 def image2image():
     prompt = _get_param(request, "prompt", "").strip()
