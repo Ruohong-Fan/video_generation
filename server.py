@@ -497,13 +497,146 @@ def text2audio():
     duration = str(data.get("duration", "30")).strip()
     if not prompt:
         return jsonify({"ok": False, "error": "prompt is required"}), 400
-    cmd = [
-        "dreamina", "text2audio",
-        f"--prompt={prompt}",
-        f"--duration={duration}",
-        "--poll=120",
-    ]
-    return jsonify(_start_task(cmd, f"text2audio: {prompt[:60]}"))
+
+    api_key = os.environ.get("MINIMAX_API_KEY", "").strip()
+    if not api_key:
+        return jsonify({
+            "ok": False,
+            "error": "MINIMAX_API_KEY is not set. Export it before starting the server.",
+        }), 500
+
+    task_id = str(uuid.uuid4())
+    tasks[task_id] = {
+        "status": "queued",
+        "label": f"text2audio: {prompt[:60]}",
+        "result": None,
+        "error": None,
+        "created_at": time.time(),
+    }
+    save_tasks()
+    thread = threading.Thread(
+        target=_run_minimax_audio_task,
+        args=(task_id, prompt, duration, api_key),
+        daemon=True,
+    )
+    thread.start()
+    return jsonify({"ok": True, "task_id": task_id})
+
+
+# ── MiniMax TTS async implementation ─────────────────────────────────────────
+
+MINIMAX_CREATE_URL = "https://api.minimax.io/v1/t2a_async_v2"
+MINIMAX_QUERY_URL  = "https://api.minimax.io/v1/query/t2a_async_query_v2"
+MINIMAX_FILE_URL   = "https://api.minimax.io/v1/files/retrieve"
+MINIMAX_MODEL      = os.environ.get("MINIMAX_MODEL", "speech-02-hd")
+MINIMAX_VOICE_ID   = os.environ.get("MINIMAX_VOICE_ID", "English_expressive_narrator")
+
+
+def _run_minimax_audio_task(task_id: str, text: str, duration: str, api_key: str) -> None:
+    """Create a MiniMax TTS task, poll until done, download the audio, update tasks."""
+    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+
+    def fail(msg: str) -> None:
+        tasks[task_id]["status"] = "error"
+        tasks[task_id]["error"] = msg
+        save_tasks()
+
+    # 1. Create async task
+    try:
+        tasks[task_id]["status"] = "running"
+        save_tasks()
+        resp = requests.post(
+            MINIMAX_CREATE_URL,
+            headers=headers,
+            json={
+                "model": MINIMAX_MODEL,
+                "text": text,
+                "voice_setting": {"voice_id": MINIMAX_VOICE_ID, "speed": 1.0, "vol": 10},
+                "audio_setting": {"format": "mp3", "audio_sample_rate": 32000, "bitrate": 128000},
+            },
+            timeout=30,
+        )
+        resp.raise_for_status()
+        body = resp.json()
+    except Exception as exc:
+        return fail(f"MiniMax create request failed: {exc}")
+
+    base = body.get("base_resp", {})
+    if base.get("status_code", 0) != 0:
+        return fail(f"MiniMax error: {base.get('status_msg', body)}")
+
+    mm_task_id = body.get("task_id")
+    file_id    = body.get("file_id")
+    if not mm_task_id:
+        return fail(f"MiniMax did not return a task_id: {body}")
+
+    print(f"[minimax] task_id={mm_task_id} file_id={file_id}", flush=True)
+
+    # 2. Poll until Succeeded (up to ~5 min)
+    deadline = time.time() + 300
+    poll_interval = 3
+    while time.time() < deadline:
+        time.sleep(poll_interval)
+        poll_interval = min(poll_interval * 1.5, 15)  # back off gently
+        try:
+            qr = requests.get(
+                MINIMAX_QUERY_URL,
+                headers={"Authorization": f"Bearer {api_key}"},
+                params={"task_id": mm_task_id},
+                timeout=15,
+            )
+            qr.raise_for_status()
+            qbody = qr.json()
+        except Exception as exc:
+            print(f"[minimax] poll error: {exc}", flush=True)
+            continue
+
+        status = qbody.get("status", "")
+        print(f"[minimax] poll status={status}", flush=True)
+        if status == "Succeeded":
+            file_id = qbody.get("file_id") or file_id
+            break
+        if status not in ("Processing", "Pending", ""):
+            return fail(f"MiniMax task failed with status: {status} — {qbody}")
+    else:
+        return fail("MiniMax TTS timed out after 5 minutes")
+
+    if not file_id:
+        return fail("MiniMax task succeeded but returned no file_id")
+
+    # 3. Retrieve audio URL
+    try:
+        fr = requests.get(
+            MINIMAX_FILE_URL,
+            headers={"Authorization": f"Bearer {api_key}"},
+            params={"file_id": file_id},
+            timeout=15,
+        )
+        fr.raise_for_status()
+        fbody = fr.json()
+    except Exception as exc:
+        return fail(f"MiniMax file retrieve failed: {exc}")
+
+    audio_url = fbody.get("audio_url") or fbody.get("download_url")
+    if not audio_url:
+        return fail(f"MiniMax file retrieve returned no audio_url: {fbody}")
+
+    # 4. Download audio to uploads/ for local serving
+    local_path = _download_media(audio_url, hint_ext=".mp3")
+    if not local_path or local_path.startswith("http"):
+        # Serve the CDN URL directly if download failed
+        tasks[task_id]["status"] = "done"
+        tasks[task_id]["result"] = {"url": audio_url}
+        tasks[task_id]["error"] = None
+        save_tasks()
+        return
+
+    serve_path = "/uploads/" + Path(local_path).name
+    tasks[task_id]["status"] = "done"
+    tasks[task_id]["result"] = {"url": audio_url, "serve_path": serve_path}
+    tasks[task_id]["error"] = None
+    save_tasks()
+    print(f"[minimax] done → {serve_path}", flush=True)
 
 
 def _resolve_image_input(request) -> str | None:
