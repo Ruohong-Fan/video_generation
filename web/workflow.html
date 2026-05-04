@@ -631,6 +631,14 @@ body.right-collapsed .canvas-wrap { right: 0; }
 .file-thumb img, .file-thumb video {
   width: 100%; height: 100%; object-fit: cover; display: block;
 }
+.file-thumb-placeholder {
+  width: 100%; height: 100%; display: grid; place-items: center;
+  color: var(--fg-3); border-radius: 4px;
+  background: repeating-linear-gradient(45deg,
+    oklch(0.22 0.01 65), oklch(0.22 0.01 65) 4px,
+    oklch(0.25 0.012 65) 4px, oklch(0.25 0.012 65) 8px);
+}
+.file-thumb-placeholder svg { width: 16px; height: 16px; }
 .file-info { flex: 1; min-width: 0; }
 .file-name { font-size: 11px; font-weight: 500; color: var(--fg-0); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .file-sub { font-size: 10px; color: var(--fg-3); margin-top: 2px; font-family: var(--type-mono); }
@@ -2737,7 +2745,7 @@ body.right-collapsed .canvas-wrap { right: 0; }
     const fileThumb = (src, kind) => {
       const p = esc(mediaUrl(src));
       if (kind === 'video') return `<video src="${p}" muted preload="metadata" referrerpolicy="no-referrer" onerror="markMediaExpired(this)"></video>`;
-      if (kind === 'audio') return `<div style="display:grid;place-items:center;height:100%;background:oklch(0.78 0.12 320/0.1);border-radius:4px;color:oklch(0.78 0.12 320)">${ICONS.audio}</div>`;
+      if (kind === 'audio' || kind === 'text') return `<div class="file-thumb-placeholder">${ICONS[kind]||''}</div>`;
       return `<img src="${p}" alt="" referrerpolicy="no-referrer" onerror="markMediaExpired(this)"/>`;
     };
 
@@ -2798,15 +2806,11 @@ body.right-collapsed .canvas-wrap { right: 0; }
         const isLatest = i === results.length - 1;
         const t = fmtTs(r.ts);
         const href = esc(mediaUrl(src));
-        const audioPlayer = r.kind === 'audio'
-          ? `<audio src="${href}" controls style="width:100%;margin:4px 0;border-radius:4px"></audio>`
-          : '';
         html += `<div class="file-item">
           <div class="file-thumb">${fileThumb(src, r.kind)}</div>
           <div class="file-info">
             <div class="file-name">Run ${runNum}${isLatest ? ' <span style="color:var(--amber);font-size:9px">LATEST</span>' : ''}</div>
             <div class="file-sub">${r.kind}${t ? ' · ' + t : ''}</div>
-            ${audioPlayer}
             <div class="file-actions">
               <a class="file-link" href="${href}" target="_blank" download>↓ download</a>
               <a class="file-link" href="${href}" target="_blank">↗ open</a>
@@ -3186,11 +3190,22 @@ body.right-collapsed .canvas-wrap { right: 0; }
 
     // Thumbnail / preview header
     const last = (node.results||[])[(node.results||[]).length-1];
-    const thumbHtml = (last && resultThumb(last))
-      ? `<div class="inspector-thumb">${resultThumb(last)}</div>`
-      : node.uploadUrl
-        ? `<img class="inspector-thumb" src="${esc(mediaUrl(node.uploadUrl))}" alt="" referrerpolicy="no-referrer"/>`
-        : `<div class="inspector-thumb placeholder">${ICONS[node.type]||''}</div>`;
+    const lastSrc = last?.servePath || last?.url;
+    const placeholderIcon = (() => {
+      if (last?.kind === 'audio' || last?.kind === 'text') return ICONS[last.kind];
+      if (node.type === 'upload' && node.uploadKind) return ICONS[node.uploadKind] || ICONS.upload;
+      return ICONS[node.type] || '';
+    })();
+    let thumbHtml;
+    if (last && (last.kind === 'image' || last.kind === 'video') && lastSrc) {
+      thumbHtml = `<div class="inspector-thumb">${resultThumb(last)}</div>`;
+    } else if (node.uploadUrl && node.uploadKind === 'video') {
+      thumbHtml = `<div class="inspector-thumb"><video src="${esc(mediaUrl(node.uploadUrl))}" muted preload="metadata" referrerpolicy="no-referrer"></video></div>`;
+    } else if (node.uploadUrl && (node.uploadKind === 'image' || !node.uploadKind)) {
+      thumbHtml = `<img class="inspector-thumb" src="${esc(mediaUrl(node.uploadUrl))}" alt="" referrerpolicy="no-referrer"/>`;
+    } else {
+      thumbHtml = `<div class="inspector-thumb placeholder">${placeholderIcon}</div>`;
+    }
 
     let f = '';
 
@@ -3426,6 +3441,13 @@ body.right-collapsed .canvas-wrap { right: 0; }
         ${rcHtml}
         ${!isPassive ? `<button class="btn primary" style="width:100%;justify-content:center" data-action="run">${ICONS.play} Run this node</button>` : ''}
       </div>`;
+
+    // Seek inspector-head video to first frame so it doesn't show as a black box
+    panel.querySelectorAll('.inspector-thumb video').forEach(v => {
+      const seek = () => { try { v.currentTime = 0.01; } catch (_) {} };
+      if (v.readyState >= 1) seek();
+      else v.addEventListener('loadedmetadata', seek, { once: true });
+    });
 
     // Wire input/select changes
     panel.querySelectorAll('[data-field]').forEach(el => {
