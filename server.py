@@ -574,6 +574,18 @@ def _resolve_audio_for_mux(request) -> str | None:
     return _resolve_clip_path(ref)
 
 
+def _resolve_video_ref(request) -> str | None:
+    """Pull a `video_path` (camera-motion reference) from the request body."""
+    if request.content_type and "multipart" in request.content_type:
+        ref = (request.form.get("video_path") or "").strip()
+    else:
+        data = request.get_json(silent=True) or {}
+        ref = (data.get("video_path") or "").strip() if isinstance(data, dict) else ""
+    if not ref:
+        return None
+    return _resolve_clip_path(ref)
+
+
 @app.post("/api/text2video")
 def text2video():
     data = request.get_json(force=True)
@@ -1021,8 +1033,8 @@ def image2video():
     image_ref = _resolve_image_input(request)
     if not image_ref:
         return jsonify({"ok": False, "error": "image is required — upload failed or URL could not be downloaded (it may have expired)"}), 400
-    # The CLI infers the output ratio from the input image, so re-frame the
-    # image to the user's selected ratio first.
+    # Re-frame the image to the requested ratio; the CLI also takes --ratio,
+    # but giving it a source that already matches avoids any internal letterbox.
     if ratio:
         image_ref = _crop_image_to_ratio(image_ref, ratio)
     cmd = [
@@ -1031,13 +1043,15 @@ def image2video():
         f"--duration={duration}",
         "--poll=240",
     ]
+    if ratio:
+        cmd.append(f"--ratio={ratio}")
     if prompt:
         cmd.append(f"--prompt={prompt}")
     if model_version:
         cmd.append(f"--model_version={model_version}")
+    # image2video: --ratio is supported (consistent with multimodal2video). The
+    # --audio flag isn't confirmed for image2video, so keep ffmpeg post-mux.
     audio_path = _resolve_audio_for_mux(request)
-    # Pre-cropping the image *should* make the CLI honour the ratio, but
-    # the CLI sometimes still emits 16:9 — finalize the output as a guard.
     post = _video_finalize_post_process(ratio=ratio, audio_path=audio_path)
     return jsonify(_start_task(cmd, f"image2video: {prompt[:60] or image_ref[-40:]}", post_process=post))
 
@@ -1062,10 +1076,18 @@ def multimodal2video():
         f"--duration={duration}",
         "--poll=240",
     ]
+    if ratio:
+        cmd.append(f"--ratio={ratio}")
     if model_version:
         cmd.append(f"--model_version={model_version}")
     audio_path = _resolve_audio_for_mux(request)
-    post = _video_finalize_post_process(ratio=ratio, audio_path=audio_path)
+    if audio_path:
+        cmd.append(f"--audio={audio_path}")
+    # Optional video reference for camera-motion guidance (multimodal2video accepts --video)
+    video_ref = _resolve_video_ref(request)
+    if video_ref:
+        cmd.append(f"--video={video_ref}")
+    post = _video_finalize_post_process(ratio=ratio, audio_path=None)
     return jsonify(_start_task(cmd, f"multimodal2video: {prompt[:60]}", post_process=post))
 
 

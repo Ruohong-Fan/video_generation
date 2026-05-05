@@ -1734,6 +1734,7 @@ body.right-collapsed .canvas-wrap { right: 0; }
     const imageRefs = [];
     const imagePrompts = [];
     const audioRefs = [];
+    const videoRefs = [];  // camera-motion references (multimodal2video --video)
     for (const u of up) {
       if (u.type === 'text') {
         const t = textNodeOutput(u);
@@ -1744,9 +1745,7 @@ body.right-collapsed .canvas-wrap { right: 0; }
         if (!ref) continue;
         if (u.uploadKind === 'image') imageRefs.push(ref);
         else if (u.uploadKind === 'audio') audioRefs.push(ref);
-        // Video uploads are deliberately NOT image refs — passing a .mp4 as
-        // --image to the Jimeng CLI fails; users should use the Edit node for
-        // existing video material.
+        else if (u.uploadKind === 'video') videoRefs.push(ref);
       }
       if (u.type === 'image') {
         const uLast = u.results?.[u.results.length - 1];
@@ -1763,6 +1762,11 @@ body.right-collapsed .canvas-wrap { right: 0; }
         const ref = uLast?.servePath || uLast?.localPath || uLast?.url || u.uploadPath || u.uploadUrl || null;
         if (ref) audioRefs.push(ref);
       }
+      if (u.type === 'video') {
+        const uLast = u.results?.[u.results.length - 1];
+        const ref = uLast?.servePath || uLast?.localPath || uLast?.url || null;
+        if (ref) videoRefs.push(ref);
+      }
     }
     // Node's own upload (legacy — from before Upload node existed). Image only;
     // a node-level audio/video upload doesn't apply to T2V/I2V/MM2V.
@@ -1770,7 +1774,7 @@ body.right-collapsed .canvas-wrap { right: 0; }
     else if (node.uploadUrl) imageRefs.push(node.uploadUrl);
     // User's typed prompt wins; the upstream Text node only fills the gap.
     const prompt = userPrompt || textNodePrompt;
-    return { prompt, imageRefs, imagePrompts, audioRefs };
+    return { prompt, imageRefs, imagePrompts, audioRefs, videoRefs };
   }
 
   // Walk upstream and pack everything into the multi-modal payload Doubao expects.
@@ -1810,9 +1814,10 @@ body.right-collapsed .canvas-wrap { right: 0; }
   const PASSIVE_TYPES = new Set(['upload']);
 
   async function startTask(node) {
-    const { prompt, imageRefs, imagePrompts, audioRefs } = collectInputs(node);
+    const { prompt, imageRefs, imagePrompts, audioRefs, videoRefs } = collectInputs(node);
     const imageRef = imageRefs[0] || null;
     const audioRef = audioRefs?.[0] || null;
+    const videoRef = videoRefs?.[0] || null;
     let endpoint, body;
 
     if (node.type === 'text') {
@@ -1864,6 +1869,7 @@ body.right-collapsed .canvas-wrap { right: 0; }
           ratio: node.params.ratio,
           model_version: node.params.modelVersion,
           audio_path: audioRef,
+          video_path: videoRef,  // optional camera-motion reference
         };
       } else if (mode === 'I2V') {
         if (!imageRef) throw new Error('I2V mode requires an image reference (connect an Image/Upload node or upload a file)');
