@@ -959,10 +959,15 @@ def download_url_endpoint():
 def image2video():
     prompt = _get_param(request, "prompt", "").strip()
     duration = _get_param(request, "duration", "5")
+    ratio = _get_param(request, "ratio", "").strip()
     model_version = _get_param(request, "model_version", "").strip()
     image_ref = _resolve_image_input(request)
     if not image_ref:
         return jsonify({"ok": False, "error": "image is required — upload failed or URL could not be downloaded (it may have expired)"}), 400
+    # The CLI infers the output ratio from the input image, so re-frame the
+    # image to the user's selected ratio first.
+    if ratio:
+        image_ref = _crop_image_to_ratio(image_ref, ratio)
     cmd = [
         "dreamina", "image2video",
         f"--image={image_ref}",
@@ -982,12 +987,15 @@ def image2video():
 def multimodal2video():
     prompt = _get_param(request, "prompt", "").strip()
     duration = _get_param(request, "duration", "5")
+    ratio = _get_param(request, "ratio", "").strip()
     model_version = _get_param(request, "model_version", "").strip()
     image_ref = _resolve_image_input(request)
     if not image_ref:
         return jsonify({"ok": False, "error": "image is required for multimodal2video — upload failed or URL could not be downloaded"}), 400
     if not prompt:
         return jsonify({"ok": False, "error": "prompt is required for multimodal2video"}), 400
+    if ratio:
+        image_ref = _crop_image_to_ratio(image_ref, ratio)
     cmd = [
         "dreamina", "multimodal2video",
         f"--image={image_ref}",
@@ -1250,6 +1258,86 @@ def _probe_duration(path: str) -> float | None:
         return round(float(d), 3) if d else None
     except Exception:
         return None
+
+
+def _probe_image_size(path: str) -> tuple[int, int] | None:
+    """Return (width, height) of an image (or first video frame), or None on failure."""
+    try:
+        probe = subprocess.run(
+            ["ffprobe", "-v", "quiet", "-print_format", "json",
+             "-select_streams", "v:0", "-show_entries", "stream=width,height", path],
+            capture_output=True, text=True, timeout=10,
+        )
+        info = json.loads(probe.stdout)
+        streams = info.get("streams") or []
+        if not streams:
+            return None
+        w, h = streams[0].get("width"), streams[0].get("height")
+        if not w or not h:
+            return None
+        return int(w), int(h)
+    except Exception:
+        return None
+
+
+def _crop_image_to_ratio(image_path: str, ratio: str) -> str:
+    """Center-crop `image_path` so its width:height matches `ratio` (e.g. "9:16").
+    Returns a new path on success; returns the original path if the image already
+    matches the ratio, the ratio is invalid, or anything goes wrong (so callers can
+    fall through safely without breaking the upstream CLI call)."""
+    try:
+        rw_str, rh_str = ratio.split(":", 1)
+        rw, rh = float(rw_str), float(rh_str)
+        if rw <= 0 or rh <= 0:
+            return image_path
+    except Exception:
+        return image_path
+
+    size = _probe_image_size(image_path)
+    if not size:
+        return image_path
+    w, h = size
+    target = rw / rh
+    actual = w / h
+    # Within 1% — leave alone so we don't waste a re-encode for trivial differences.
+    if abs(actual - target) / target < 0.01:
+        return image_path
+
+    if actual > target:
+        # Source is wider than target → crop sides
+        new_w = int(round(h * target))
+        new_w -= new_w % 2  # keep even for x264 friendliness
+        new_h = h - (h % 2)
+        x = (w - new_w) // 2
+        y = 0
+    else:
+        # Source is taller than target → crop top/bottom
+        new_h = int(round(w / target))
+        new_h -= new_h % 2
+        new_w = w - (w % 2)
+        x = 0
+        y = (h - new_h) // 2
+
+    suffix = Path(image_path).suffix.lower() or ".jpg"
+    if suffix not in {".jpg", ".jpeg", ".png", ".webp"}:
+        suffix = ".jpg"
+    out_path = UPLOAD_DIR / f"crop_{uuid.uuid4()}{suffix}"
+    cmd = [
+        "ffmpeg", "-y", "-loglevel", "error",
+        "-i", image_path,
+        "-vf", f"crop={new_w}:{new_h}:{x}:{y}",
+        "-frames:v", "1",
+        str(out_path),
+    ]
+    try:
+        subprocess.run(cmd, check=True, capture_output=True, text=True, timeout=30)
+    except Exception as exc:
+        print(f"[crop_image] ffmpeg failed for {image_path} → {ratio}: {exc}", flush=True)
+        return image_path
+    if not out_path.exists() or out_path.stat().st_size == 0:
+        return image_path
+    print(f"[crop_image] {image_path} ({w}x{h}) → {out_path.name} ({new_w}x{new_h}) for ratio {ratio}", flush=True)
+    return str(out_path)
 
 
 def _generate_edit_plan(clips: list[str], clip_meta: list[dict],

@@ -1861,6 +1861,7 @@ body.right-collapsed .canvas-wrap { right: 0; }
           image: imageRef,
           prompt: mmPrompt,
           duration: node.params.duration,
+          ratio: node.params.ratio,
           model_version: node.params.modelVersion,
           audio_path: audioRef,
         };
@@ -1872,6 +1873,7 @@ body.right-collapsed .canvas-wrap { right: 0; }
           image: imageRef,
           prompt: prompt || imagePrompts.join(', '),
           duration: node.params.duration,
+          ratio: node.params.ratio,
           model_version: node.params.modelVersion,
           audio_path: audioRef,
         };
