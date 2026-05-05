@@ -1573,10 +1573,12 @@ def _drawtext_filter(text: str, position: str = "bottom", size: int = 42,
         "bottom": "h-text_h-max(40,h*0.08)",
     }.get(position, "h-text_h-max(40,h*0.08)")
     color_safe = color.replace(":", "")
+    # In filter_complex, "," and ":" inside an option value confuse the parser
+    # — single-quote any expression that may contain them.
     parts = [
         f"text='{text_esc}'",
-        "x=(w-text_w)/2",
-        f"y={y_expr}",
+        "x='(w-text_w)/2'",
+        f"y='{y_expr}'",
         f"fontsize={int(size)}",
         f"fontcolor={color_safe}",
         "borderw=3",
@@ -1709,7 +1711,7 @@ def _execute_ffmpeg_edit(
                 fc_parts.append(
                     f"[{pip_idx}:v]scale=iw*{pip_scale}:ih*{pip_scale}[pipv]"
                 )
-                fc_parts.append(f"{v_label}[pipv]overlay=x={pip_x}:y={pip_y}{pip_enable}[vout]")
+                fc_parts.append(f"{v_label}[pipv]overlay=x='{pip_x}':y='{pip_y}'{pip_enable}[vout]")
                 v_label = "[vout]"
 
             af_parts = _atempo_chain(speed) if not needs_null_audio else []
@@ -1854,7 +1856,7 @@ def _execute_ffmpeg_edit(
                 f"[{wm_idx}:v]scale=iw*{wm_scale}:-1,format=rgba,"
                 f"colorchannelmixer=aa={wm_opacity}[wm]"
             )
-            fc.append(f"{vch}[wm]overlay=x={wm_x}:y={wm_y}[vwm]")
+            fc.append(f"{vch}[wm]overlay=x='{wm_x}':y='{wm_y}'[vwm]")
             vch = "[vwm]"
         if fade_in > 0:
             fc.append(f"{vch}fade=t=in:st=0:d={fade_in:.2f}[vfi]")
