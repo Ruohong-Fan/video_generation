@@ -1693,12 +1693,16 @@ def _execute_ffmpeg_edit(
                 cmd += ["-i", pip_input_path]
                 pip_idx = (anull_idx + 1) if anull_idx is not None else 1
 
-            # Build filter_complex
+            # Build filter_complex.
+            # NOTE: -map uses raw stream specs ("0:v", "1:a") for direct streams
+            # and "[label]" only for filter outputs. Inside filter_complex, every
+            # input must be bracketed.
             fc_parts: list[str] = []
-            v_label = "[0:v]"
+            v_map = "0:v"   # for -map
+            v_in  = "[0:v]" # for filter_complex input chaining
             if v_chain:
                 fc_parts.append(f"[0:v]{v_chain}[vmain]")
-                v_label = "[vmain]"
+                v_map = "[vmain]"; v_in = "[vmain]"
             if pip_idx is not None:
                 pip_scale = float((pip or {}).get("scale") or 0.25)
                 pip_x = (pip or {}).get("x") or "main_w-overlay_w-20"
@@ -1711,20 +1715,20 @@ def _execute_ffmpeg_edit(
                 fc_parts.append(
                     f"[{pip_idx}:v]scale=iw*{pip_scale}:ih*{pip_scale}[pipv]"
                 )
-                fc_parts.append(f"{v_label}[pipv]overlay=x='{pip_x}':y='{pip_y}'{pip_enable}[vout]")
-                v_label = "[vout]"
+                fc_parts.append(f"{v_in}[pipv]overlay=x='{pip_x}':y='{pip_y}'{pip_enable}[vout]")
+                v_map = "[vout]"; v_in = "[vout]"
 
             af_parts = _atempo_chain(speed) if not needs_null_audio else []
-            a_label = f"[{anull_idx}:a]" if anull_idx is not None else "[0:a]"
+            a_map = f"{anull_idx}:a" if anull_idx is not None else "0:a"
             if af_parts:
                 fc_parts.append(f"[0:a]{','.join(af_parts)}[aout]")
-                a_label = "[aout]"
+                a_map = "[aout]"
 
             if fc_parts:
                 cmd += ["-filter_complex", ";".join(fc_parts),
-                        "-map", v_label, "-map", a_label]
+                        "-map", v_map, "-map", a_map]
             else:
-                cmd += ["-map", "0:v", "-map", a_label]
+                cmd += ["-map", "0:v", "-map", a_map]
 
             cmd += [
                 "-c:v", "libx264", "-preset", "fast", "-crf", "23",
@@ -1839,14 +1843,19 @@ def _execute_ffmpeg_edit(
             wm_idx = None
 
         fc: list[str] = []
-        vch, ach = "[0:v]", "[0:a]"
+        # v_in / a_in are the "current" labels used as filter_complex inputs
+        # (always bracketed). v_map / a_map are what we pass to -map: a raw
+        # stream specifier when nothing has filtered the stream yet, or the
+        # last filter output's bracketed label otherwise.
+        v_in,  a_in  = "[0:v]", "[0:a]"
+        v_map, a_map = "0:v",  "0:a"
         if global_eq:
-            fc.append(f"{vch}{global_eq}[vge]")
-            vch = "[vge]"
+            fc.append(f"{v_in}{global_eq}[vge]")
+            v_in = v_map = "[vge]"
         if sub_file:
             sub_safe = sub_file.replace("\\", "/").replace(":", r"\:").replace("'", r"\'")
-            fc.append(f"{vch}subtitles='{sub_safe}'[vsb]")
-            vch = "[vsb]"
+            fc.append(f"{v_in}subtitles='{sub_safe}'[vsb]")
+            v_in = v_map = "[vsb]"
         if wm_idx is not None:
             wm_scale = float(wm_cfg.get("scale") or 0.15)
             wm_x = wm_cfg.get("x") or "main_w-overlay_w-30"
@@ -1856,25 +1865,27 @@ def _execute_ffmpeg_edit(
                 f"[{wm_idx}:v]scale=iw*{wm_scale}:-1,format=rgba,"
                 f"colorchannelmixer=aa={wm_opacity}[wm]"
             )
-            fc.append(f"{vch}[wm]overlay=x='{wm_x}':y='{wm_y}'[vwm]")
-            vch = "[vwm]"
+            fc.append(f"{v_in}[wm]overlay=x='{wm_x}':y='{wm_y}'[vwm]")
+            v_in = v_map = "[vwm]"
         if fade_in > 0:
-            fc.append(f"{vch}fade=t=in:st=0:d={fade_in:.2f}[vfi]")
-            fc.append(f"{ach}afade=t=in:st=0:d={fade_in:.2f}[afi]")
-            vch, ach = "[vfi]", "[afi]"
+            fc.append(f"{v_in}fade=t=in:st=0:d={fade_in:.2f}[vfi]")
+            fc.append(f"{a_in}afade=t=in:st=0:d={fade_in:.2f}[afi]")
+            v_in = v_map = "[vfi]"
+            a_in = a_map = "[afi]"
         if fade_out > 0 and total_dur > fade_out:
             fo_st = max(0.0, total_dur - fade_out)
-            fc.append(f"{vch}fade=t=out:st={fo_st:.2f}:d={fade_out:.2f}[vfo]")
-            fc.append(f"{ach}afade=t=out:st={fo_st:.2f}:d={fade_out:.2f}[afo]")
-            vch, ach = "[vfo]", "[afo]"
+            fc.append(f"{v_in}fade=t=out:st={fo_st:.2f}:d={fade_out:.2f}[vfo]")
+            fc.append(f"{a_in}afade=t=out:st={fo_st:.2f}:d={fade_out:.2f}[afo]")
+            v_in = v_map = "[vfo]"
+            a_in = a_map = "[afo]"
         if bg_idx is not None:
             fc.append(
-                f"{ach}[{bg_idx}:a]amix=inputs=2:duration=first:weights=1|{bg_vol:.2f}[amix]"
+                f"{a_in}[{bg_idx}:a]amix=inputs=2:duration=first:weights=1|{bg_vol:.2f}[amix]"
             )
-            ach = "[amix]"
+            a_in = a_map = "[amix]"
 
         if fc:
-            cmd += ["-filter_complex", ";".join(fc), "-map", vch, "-map", ach]
+            cmd += ["-filter_complex", ";".join(fc), "-map", v_map, "-map", a_map]
         else:
             cmd += ["-map", "0:v", "-map", "0:a"]
 
