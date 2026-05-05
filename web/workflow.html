@@ -1898,11 +1898,24 @@ body.right-collapsed .canvas-wrap { right: 0; }
       const up = upstreamNodes(node.id);
       const clips = [];
       let audioPath = null;
+      let subtitlePath = null;   // .srt / .vtt / .ass upload → burned-in subtitles
+      let watermarkPath = null;  // image upload or Image node → watermark overlay
       for (const u of up) {
         if (u.type === 'upload') {
           const path = u.uploadPath || u.uploadUrl || null;
-          if (u.uploadKind === 'video' && path) clips.push({ path, label: u.title || 'Upload' });
-          else if (u.uploadKind === 'audio' && path && !audioPath) audioPath = path;
+          if (!path) continue;
+          if (u.uploadKind === 'video') {
+            clips.push({ path, label: u.title || 'Upload' });
+          } else if (u.uploadKind === 'audio') {
+            if (!audioPath) audioPath = path;
+          } else if (u.uploadKind === 'image') {
+            if (!watermarkPath) watermarkPath = path;
+          } else {
+            const lower = String(path).toLowerCase();
+            if (!subtitlePath && (lower.endsWith('.srt') || lower.endsWith('.vtt') || lower.endsWith('.ass'))) {
+              subtitlePath = path;
+            }
+          }
         } else if (u.type === 'video') {
           const last = u.results?.[u.results.length - 1];
           const path = last?.servePath || last?.localPath || u.uploadPath || last?.url || u.uploadUrl || null;
@@ -1911,11 +1924,23 @@ body.right-collapsed .canvas-wrap { right: 0; }
           const last = u.results?.[u.results.length - 1];
           const path = last?.servePath || last?.localPath || u.uploadPath || last?.url || u.uploadUrl || null;
           if (path && !audioPath) audioPath = path;
+        } else if (u.type === 'image') {
+          const last = u.results?.[u.results.length - 1];
+          const path = last?.servePath || last?.localPath || u.uploadPath || last?.url || u.uploadUrl || null;
+          if (path && !watermarkPath) watermarkPath = path;
         }
       }
       if (!clips.length) throw new Error('Connect at least one Video or Upload (video) node');
+      // PIP source defaults to a clip the LLM picks via clip_index — only set
+      // pip_path explicitly if the user has more videos than they want as clips.
       endpoint = '/api/video_edit';
-      body = { clips, audio_path: audioPath, instructions: node.prompt || '' };
+      body = {
+        clips,
+        audio_path: audioPath,
+        subtitle_path: subtitlePath,
+        watermark_path: watermarkPath,
+        instructions: node.prompt || '',
+      };
     } else {
       throw new Error('Unsupported node type: ' + node.type);
     }
@@ -3407,9 +3432,9 @@ body.right-collapsed .canvas-wrap { right: 0; }
     if (node.type === 'edit') {
       f += `<div class="field">
         <label class="field-label">Instructions</label>
-        <textarea class="field-textarea" data-field="prompt" rows="4"
-          placeholder="Trim the intro of clip 1 to 3s, double the speed of clip 2, add a fade in…">${esc(node.prompt)}</textarea>
-        <div class="field-helper">The AI will read your instructions and generate an edit plan. Leave blank to auto-combine all clips.</div>
+        <textarea class="field-textarea" data-field="prompt" rows="5"
+          placeholder="Trim clip 1 to 3s · 2x speed on clip 2 · fade-in 0.5s · cinematic cool look · caption 'Chapter One' for first 3s · crossfade 0.5s between clips · watermark bottom-right…">${esc(node.prompt)}</textarea>
+        <div class="field-helper">AI converts instructions into an ffmpeg edit plan. Supports: trim · speed · mute · transitions (fade, wipe, slide, etc.) · color/look · per-clip captions/titles · subtitle burn-in (.srt upload) · watermark (image upload) · picture-in-picture · title card · background audio · fade in/out.</div>
       </div>`;
       // Show connected clips (video and upload-video nodes)
       const editClips = upstreamNodes(node.id).filter(u => u.type === 'video' || (u.type === 'upload' && u.uploadKind === 'video'));

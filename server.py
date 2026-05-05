@@ -1422,25 +1422,59 @@ def _crop_image_to_ratio(image_path: str, ratio: str) -> str:
 
 
 def _generate_edit_plan(clips: list[str], clip_meta: list[dict],
-                        audio_path: str | None, instructions: str, api_key: str) -> dict:
+                        audio_path: str | None, instructions: str, api_key: str,
+                        subtitle_path: str | None = None,
+                        watermark_path: str | None = None,
+                        pip_path: str | None = None) -> dict:
     clips_desc = "\n".join(
         f"  Clip {m['index']}: {m.get('duration', '?')}s"
         for m in clip_meta
     )
-    audio_line = "\nBackground audio: available" if audio_path else ""
+    extras = []
+    if audio_path:     extras.append("Background audio: available (mixed at background_audio_volume)")
+    if subtitle_path:  extras.append("Subtitle file: available (will be burned in automatically)")
+    if watermark_path: extras.append("Watermark image: available (set 'watermark' to position it)")
+    if pip_path:       extras.append("PIP source video: available (set clip's 'pip' to use it)")
+    extras_line = ("\n" + "\n".join(extras)) if extras else ""
+
+    schema_example = (
+        '{"clips":['
+        '{"index":0,"trim_start":0.0,"trim_end":null,"speed":1.0,"mute":false,'
+        '"color":{"brightness":0.0,"contrast":1.0,"saturation":1.0,"gamma":1.0},'
+        '"text":"Optional caption","text_position":"bottom","text_size":42,'
+        '"text_start":0.0,"text_end":3.0,'
+        '"pip":{"clip_index":1,"x":"main_w-overlay_w-20","y":"20","scale":0.25,"start":0.0,"end":3.0}'
+        '}],'
+        '"fade_in":0.3,"fade_out":0.0,'
+        '"background_audio_volume":0.3,'
+        '"transition":{"type":"fade","duration":0.5},'
+        '"global_color":{"brightness":0.0,"contrast":1.05,"saturation":1.1},'
+        '"watermark":{"x":"main_w-overlay_w-30","y":"main_h-overlay_h-30","scale":0.15,"opacity":0.85},'
+        '"title":{"text":"Chapter One","duration":2.0,"size":72,"color":"white"}}'
+    )
+
+    rules = [
+        "speed 0.25-4.0; trim_end null = use until end of clip",
+        "include only the clips you want (can reorder or repeat)",
+        "mute defaults to false — KEEP original audio unless told to remove it",
+        "fade_in / fade_out in seconds (0 to skip)",
+        "color fields: brightness -1..1, contrast 0..2, saturation 0..3, gamma 0.1..10. Omit any field that should stay neutral; omit the whole color object when nothing changes",
+        "per-clip 'text' (or 'title') is a SHORT on-screen caption / lower-third / chapter card. text_position: 'top' | 'center' | 'bottom'. text_start/text_end are seconds from the start of THAT trimmed clip; omit both to display the whole time",
+        "transition.type: fade | fadeblack | fadewhite | dissolve | wipeleft | wiperight | wipeup | wipedown | slideleft | slideright | slideup | slidedown | circleopen | circleclose. duration in seconds (typically 0.3-0.8). Omit the transition object for hard cuts",
+        "global_color is applied AFTER concatenation to the whole video; use it for an overall look",
+        "watermark uses the supplied watermark image — set x/y as ffmpeg overlay expressions (default puts it bottom-right with a 30px margin); only include this object when a watermark image is available",
+        "pip puts another clip-or-PIP-source picture-in-picture on top of the current clip. clip_index references one of the input clips by index; omit clip_index to use the supplied PIP source",
+        "title prepends a centered title card (black background) at the start of the final video",
+    ]
+
     prompt = (
         "You are a professional video editor. Generate a video edit plan as JSON.\n\n"
-        f"Available clips (0-indexed):\n{clips_desc}{audio_line}\n\n"
+        f"Available clips (0-indexed):\n{clips_desc}{extras_line}\n\n"
         f"Instructions: {instructions or 'Combine all clips into a smooth, cohesive final video.'}\n\n"
-        "Output ONLY valid JSON — no markdown fences, no explanation:\n"
-        '{"clips":['
-        '{"index":0,"trim_start":0.0,"trim_end":null,"speed":1.0,"mute":false}'
-        '],"fade_in":0.3,"fade_out":0.0,"background_audio_volume":0.3}\n\n'
-        "Rules: speed 0.25-4.0; trim_end null = use until end of clip; "
-        "include only the clips you want (can reorder or repeat); "
-        "mute defaults to false — KEEP original audio unless instructions explicitly say to remove it; "
-        "only set mute:true when the user asks to silence or remove audio from a clip; "
-        "fade_in/fade_out in seconds (0 to skip)."
+        "Output ONLY valid JSON — no markdown fences, no explanation. Schema example:\n"
+        f"{schema_example}\n\n"
+        "Rules:\n- " + "\n- ".join(rules) + "\n\n"
+        "Only include fields you actually want to change from defaults. Keep the JSON compact."
     )
     payload = {
         "model": DOUBAO_MODEL,
@@ -1478,8 +1512,96 @@ def _atempo_chain(speed: float) -> list[str]:
     return parts
 
 
-def _execute_ffmpeg_edit(clips: list[str], audio_path: str | None, plan: dict, output_path: str) -> None:
-    """Process clips per edit plan and write the final video to output_path."""
+# ── Edit-plan filter helpers ────────────────────────────────────────────────
+
+_XFADE_TYPES = {
+    "fade", "fadeblack", "fadewhite", "dissolve",
+    "wipeleft", "wiperight", "wipeup", "wipedown",
+    "slideleft", "slideright", "slideup", "slidedown",
+    "circleopen", "circleclose", "radial",
+    "smoothleft", "smoothright", "smoothup", "smoothdown",
+    "pixelize", "diagtl", "diagtr", "diagbl", "diagbr",
+}
+
+
+def _ffmpeg_escape_text(text: str) -> str:
+    """Escape user-supplied text for the ffmpeg drawtext filter."""
+    return (
+        text.replace("\\", "\\\\")
+            .replace(":", "\\:")
+            .replace("'", "’")  # smart quote — drawtext mangles raw apostrophes
+            .replace(",", "\\,")
+            .replace("[", "\\[")
+            .replace("]", "\\]")
+            .replace(";", "\\;")
+            .replace("%", "\\%")
+    )
+
+
+def _eq_filter(color: dict | None) -> str | None:
+    """Build an `eq=…` filter from a color dict, or None when there's nothing to do."""
+    if not isinstance(color, dict):
+        return None
+    parts: list[str] = []
+    for key, lo, hi, ident in (
+        ("brightness", -1.0, 1.0, 0.0),
+        ("contrast",    0.0, 2.0, 1.0),
+        ("saturation",  0.0, 3.0, 1.0),
+        ("gamma",       0.1, 10.0, 1.0),
+    ):
+        v = color.get(key)
+        if v is None:
+            continue
+        try:
+            v = max(lo, min(hi, float(v)))
+        except (TypeError, ValueError):
+            continue
+        if abs(v - ident) < 1e-3:
+            continue
+        parts.append(f"{key}={v}")
+    return f"eq={':'.join(parts)}" if parts else None
+
+
+def _drawtext_filter(text: str, position: str = "bottom", size: int = 42,
+                     color: str = "white", start: float | None = None,
+                     end: float | None = None) -> str:
+    """Build a drawtext filter for an on-screen caption / lower-third / title."""
+    text_esc = _ffmpeg_escape_text(text)
+    y_expr = {
+        "top":    "max(40,h*0.07)",
+        "center": "(h-text_h)/2",
+        "bottom": "h-text_h-max(40,h*0.08)",
+    }.get(position, "h-text_h-max(40,h*0.08)")
+    color_safe = color.replace(":", "")
+    parts = [
+        f"text='{text_esc}'",
+        "x=(w-text_w)/2",
+        f"y={y_expr}",
+        f"fontsize={int(size)}",
+        f"fontcolor={color_safe}",
+        "borderw=3",
+        "bordercolor=black@0.75",
+    ]
+    if start is not None and end is not None and end > start:
+        parts.append(f"enable='between(t,{float(start):.3f},{float(end):.3f})'")
+    return "drawtext=" + ":".join(parts)
+
+
+def _execute_ffmpeg_edit(
+    clips: list[str],
+    audio_path: str | None,
+    plan: dict,
+    output_path: str,
+    subtitle_path: str | None = None,
+    watermark_path: str | None = None,
+    pip_path: str | None = None,
+) -> None:
+    """Process clips per edit plan and write the final video to output_path.
+
+    Stage 1 (per clip): trim, speed, color/eq, drawtext overlays, optional PIP.
+    Stage 2 (combine):  concat -OR- xfade chain when transitions are configured.
+    Stage 3 (finalize): subtitle burn-in, watermark overlay, fade in/out, bg audio mix.
+    """
     import shutil
     import tempfile
 
@@ -1494,10 +1616,18 @@ def _execute_ffmpeg_edit(clips: list[str], audio_path: str | None, plan: dict, o
         if r.returncode != 0:
             raise RuntimeError((r.stderr or r.stdout or "")[-800:])
 
+    has_audio_stream = lambda p: bool(subprocess.run(
+        ["ffprobe", "-v", "quiet", "-select_streams", "a",
+         "-show_entries", "stream=codec_name", "-of", "csv=p=0", p],
+        capture_output=True, text=True, timeout=15, env=_env,
+    ).stdout.strip())
+
     tmp = Path(tempfile.mkdtemp())
     try:
         processed: list[str] = []
+        processed_durations: list[float] = []
 
+        # ── Stage 1: per-clip processing ──────────────────────────────────
         for i, pc in enumerate(plan_clips):
             ci = int(pc.get("index", i))
             if ci >= len(clips) or not clips[ci]:
@@ -1510,41 +1640,89 @@ def _execute_ffmpeg_edit(clips: list[str], audio_path: str | None, plan: dict, o
             trim_e = pc.get("trim_end")
             speed = max(0.25, min(4.0, float(pc.get("speed") or 1.0)))
             mute = bool(pc.get("mute"))
+            color = pc.get("color")
+            text_overlay = pc.get("text") or pc.get("title")  # 'text' or 'title' both accepted
+            text_pos = pc.get("text_position", "bottom")
+            text_size = int(pc.get("text_size") or 42)
+            pip = pc.get("pip") if isinstance(pc.get("pip"), dict) else None
 
             out_tmp = str(tmp / f"c{i:02d}.mp4")
+            has_audio = has_audio_stream(src)
 
-            # Check whether the source has an audio stream
-            probe = subprocess.run(
-                ["ffprobe", "-v", "quiet", "-select_streams", "a",
-                 "-show_entries", "stream=codec_name", "-of", "csv=p=0", src],
-                capture_output=True, text=True, timeout=15, env=_env,
-            )
-            has_audio = bool(probe.stdout.strip())
+            # Build the per-clip filter chain on [0:v]
+            v_filters: list[str] = []
+            if abs(speed - 1.0) > 0.01:
+                v_filters.append(f"setpts={1.0/speed:.6f}*PTS")
+            eq = _eq_filter(color)
+            if eq:
+                v_filters.append(eq)
+            if isinstance(text_overlay, str) and text_overlay.strip():
+                v_filters.append(_drawtext_filter(
+                    text_overlay.strip(), text_pos, text_size,
+                    pc.get("text_color") or "white",
+                    pc.get("text_start"), pc.get("text_end"),
+                ))
+            v_chain = ",".join(v_filters) if v_filters else None
+
+            # PIP (picture-in-picture) — overlay either another clip or the
+            # external pip_path on top of this clip.
+            pip_input_path: str | None = None
+            if pip:
+                if pip.get("clip_index") is not None:
+                    idx = int(pip["clip_index"])
+                    if 0 <= idx < len(clips) and Path(clips[idx]).exists():
+                        pip_input_path = clips[idx]
+                elif pip_path and Path(pip_path).exists():
+                    pip_input_path = pip_path
 
             cmd = ["ffmpeg", "-y", "-loglevel", "warning", "-ss", str(trim_s)]
             if trim_e is not None:
                 cmd += ["-t", str(max(0.1, float(trim_e) - trim_s))]
+            cmd += ["-i", src]
 
             needs_null_audio = mute or not has_audio
+            anull_idx: int | None = None
+            pip_idx: int | None = None
             if needs_null_audio:
-                cmd += ["-i", src, "-f", "lavfi", "-i",
+                cmd += ["-f", "lavfi", "-i",
                         "anullsrc=channel_layout=stereo:sample_rate=44100"]
-                vf = f"setpts={1.0/speed:.6f}*PTS" if abs(speed - 1.0) > 0.01 else None
-                if vf:
-                    cmd += ["-filter_complex", f"[0:v]{vf}[vout]",
-                            "-map", "[vout]", "-map", "1:a"]
-                else:
-                    cmd += ["-map", "0:v", "-map", "1:a"]
+                anull_idx = 1
+            if pip_input_path:
+                cmd += ["-i", pip_input_path]
+                pip_idx = (anull_idx + 1) if anull_idx is not None else 1
+
+            # Build filter_complex
+            fc_parts: list[str] = []
+            v_label = "[0:v]"
+            if v_chain:
+                fc_parts.append(f"[0:v]{v_chain}[vmain]")
+                v_label = "[vmain]"
+            if pip_idx is not None:
+                pip_scale = float((pip or {}).get("scale") or 0.25)
+                pip_x = (pip or {}).get("x") or "main_w-overlay_w-20"
+                pip_y = (pip or {}).get("y") or "20"
+                pip_start = (pip or {}).get("start")
+                pip_end = (pip or {}).get("end")
+                pip_enable = ""
+                if pip_start is not None and pip_end is not None and float(pip_end) > float(pip_start):
+                    pip_enable = f":enable='between(t,{float(pip_start):.3f},{float(pip_end):.3f})'"
+                fc_parts.append(
+                    f"[{pip_idx}:v]scale=iw*{pip_scale}:ih*{pip_scale}[pipv]"
+                )
+                fc_parts.append(f"{v_label}[pipv]overlay=x={pip_x}:y={pip_y}{pip_enable}[vout]")
+                v_label = "[vout]"
+
+            af_parts = _atempo_chain(speed) if not needs_null_audio else []
+            a_label = f"[{anull_idx}:a]" if anull_idx is not None else "[0:a]"
+            if af_parts:
+                fc_parts.append(f"[0:a]{','.join(af_parts)}[aout]")
+                a_label = "[aout]"
+
+            if fc_parts:
+                cmd += ["-filter_complex", ";".join(fc_parts),
+                        "-map", v_label, "-map", a_label]
             else:
-                cmd += ["-i", src]
-                vf = f"setpts={1.0/speed:.6f}*PTS" if abs(speed - 1.0) > 0.01 else None
-                af_parts = _atempo_chain(speed)
-                if vf and af_parts:
-                    cmd += ["-vf", vf, "-af", ",".join(af_parts)]
-                elif vf:
-                    cmd += ["-vf", vf]
-                elif af_parts:
-                    cmd += ["-af", ",".join(af_parts)]
+                cmd += ["-map", "0:v", "-map", a_label]
 
             cmd += [
                 "-c:v", "libx264", "-preset", "fast", "-crf", "23",
@@ -1554,51 +1732,156 @@ def _execute_ffmpeg_edit(clips: list[str], audio_path: str | None, plan: dict, o
             run_ff(cmd)
             if Path(out_tmp).exists() and Path(out_tmp).stat().st_size > 0:
                 processed.append(out_tmp)
+                d = _probe_duration(out_tmp)
+                processed_durations.append(float(d) if d else 0.0)
 
         if not processed:
             raise ValueError("No clips were processed successfully")
 
-        fade_in = float(plan.get("fade_in") or 0)
+        # ── Plan-level options ────────────────────────────────────────────
+        fade_in = max(0.0, float(plan.get("fade_in") or 0))
+        fade_out = max(0.0, float(plan.get("fade_out") or 0))
         bg_vol = max(0.0, min(1.0, float(plan.get("background_audio_volume") or 0.3)))
         bg_audio = audio_path if (audio_path and Path(audio_path).exists()) else None
+        global_eq = _eq_filter(plan.get("global_color"))
+        sub_file = subtitle_path if (subtitle_path and Path(subtitle_path).exists()) else None
+        wm_file = watermark_path if (watermark_path and Path(watermark_path).exists()) else None
+        wm_cfg = plan.get("watermark") if isinstance(plan.get("watermark"), dict) else {}
+        title_cfg = plan.get("title") if isinstance(plan.get("title"), dict) else None
+        trans = plan.get("transition") if isinstance(plan.get("transition"), dict) else None
+        trans_type = (trans or {}).get("type") if trans else None
+        trans_dur = max(0.0, float((trans or {}).get("duration") or 0)) if trans else 0.0
+        if trans_type and trans_type not in _XFADE_TYPES:
+            trans_type = "fade"
 
-        # Single clip with no extras — just copy
-        if len(processed) == 1 and not bg_audio and fade_in == 0:
-            shutil.copy2(processed[0], output_path)
-            return
+        # ── Optional title card prepended before the clip chain ──────────
+        if isinstance(title_cfg, dict) and title_cfg.get("text"):
+            title_text = str(title_cfg.get("text"))
+            title_dur = max(0.5, float(title_cfg.get("duration") or 2.0))
+            title_size = int(title_cfg.get("size") or 64)
+            title_color = title_cfg.get("color") or "white"
+            # Match the first processed clip's resolution so concat/xfade works.
+            ref_size = _probe_image_size(processed[0]) or (1920, 1080)
+            tw, th = ref_size
+            title_path = str(tmp / "title.mp4")
+            run_ff([
+                "ffmpeg", "-y", "-loglevel", "warning",
+                "-f", "lavfi", "-i", f"color=c=black:s={tw}x{th}:d={title_dur}",
+                "-f", "lavfi", "-i", f"anullsrc=channel_layout=stereo:sample_rate=44100:d={title_dur}",
+                "-vf", _drawtext_filter(title_text, "center", title_size, title_color),
+                "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+                "-c:a", "aac", "-b:a", "128k", "-ar", "44100", "-ac", "2",
+                "-shortest", "-pix_fmt", "yuv420p", title_path,
+            ])
+            if Path(title_path).exists():
+                d = _probe_duration(title_path)
+                processed.insert(0, title_path)
+                processed_durations.insert(0, float(d) if d else title_dur)
 
-        # Build final FFmpeg command using concat + optional fade + optional bg audio
-        cmd = ["ffmpeg", "-y", "-loglevel", "warning"]
-        for p in processed:
-            cmd += ["-i", p]
+        # ── Stage 2: combine clips (concat OR xfade chain) ────────────────
+        n = len(processed)
+        combined_path = str(tmp / "combined.mp4")
+        if trans_type and trans_dur > 0 and n >= 2:
+            # Build xfade/acrossfade chain, accumulating offsets.
+            cmd = ["ffmpeg", "-y", "-loglevel", "warning"]
+            for p in processed:
+                cmd += ["-i", p]
+            fc: list[str] = []
+            v_prev = "[0:v]"
+            a_prev = "[0:a]"
+            running = processed_durations[0]
+            for k in range(1, n):
+                offset = max(0.0, running - trans_dur)
+                v_out = f"[v{k}]" if k < n - 1 else "[vfin]"
+                a_out = f"[a{k}]" if k < n - 1 else "[afin]"
+                fc.append(
+                    f"{v_prev}[{k}:v]xfade=transition={trans_type}"
+                    f":duration={trans_dur:.3f}:offset={offset:.3f}{v_out}"
+                )
+                fc.append(f"{a_prev}[{k}:a]acrossfade=d={trans_dur:.3f}{a_out}")
+                v_prev, a_prev = v_out, a_out
+                running += processed_durations[k] - trans_dur
+            cmd += ["-filter_complex", ";".join(fc),
+                    "-map", "[vfin]", "-map", "[afin]",
+                    "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+                    "-c:a", "aac", "-b:a", "192k",
+                    "-movflags", "+faststart", combined_path]
+            run_ff(cmd, timeout=900)
+        elif n == 1:
+            shutil.copy2(processed[0], combined_path)
+        else:
+            cmd = ["ffmpeg", "-y", "-loglevel", "warning"]
+            for p in processed:
+                cmd += ["-i", p]
+            concat_in = "".join(f"[{j}:v:0][{j}:a:0]" for j in range(n))
+            fc = [f"{concat_in}concat=n={n}:v=1:a=1[v][a]"]
+            cmd += ["-filter_complex", ";".join(fc),
+                    "-map", "[v]", "-map", "[a]",
+                    "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+                    "-c:a", "aac", "-b:a", "192k",
+                    "-movflags", "+faststart", combined_path]
+            run_ff(cmd, timeout=900)
+
+        # ── Stage 3: finalize (subtitles, watermark, eq, fades, bg audio) ─
+        total_dur = _probe_duration(combined_path) or sum(processed_durations)
+        cmd = ["ffmpeg", "-y", "-loglevel", "warning", "-i", combined_path]
         if bg_audio:
             cmd += ["-i", bg_audio]
+            bg_idx = 1
+        else:
+            bg_idx = None
+        if wm_file:
+            cmd += ["-i", wm_file]
+            wm_idx = bg_idx + 1 if bg_idx is not None else 1
+        else:
+            wm_idx = None
 
-        n = len(processed)
-        concat_in = "".join(f"[{j}:v:0][{j}:a:0]" for j in range(n))
-        fc: list[str] = [f"{concat_in}concat=n={n}:v=1:a=1[cv][ca]"]
-        vch, ach = "[cv]", "[ca]"
-
-        if fade_in > 0:
-            fc.append(f"{vch}fade=t=in:st=0:d={fade_in:.2f}[vf]")
-            fc.append(f"{ach}afade=t=in:st=0:d={fade_in:.2f}[af]")
-            vch, ach = "[vf]", "[af]"
-
-        if bg_audio:
+        fc: list[str] = []
+        vch, ach = "[0:v]", "[0:a]"
+        if global_eq:
+            fc.append(f"{vch}{global_eq}[vge]")
+            vch = "[vge]"
+        if sub_file:
+            sub_safe = sub_file.replace("\\", "/").replace(":", r"\:").replace("'", r"\'")
+            fc.append(f"{vch}subtitles='{sub_safe}'[vsb]")
+            vch = "[vsb]"
+        if wm_idx is not None:
+            wm_scale = float(wm_cfg.get("scale") or 0.15)
+            wm_x = wm_cfg.get("x") or "main_w-overlay_w-30"
+            wm_y = wm_cfg.get("y") or "main_h-overlay_h-30"
+            wm_opacity = max(0.0, min(1.0, float(wm_cfg.get("opacity") or 0.85)))
             fc.append(
-                f"{ach}[{n}:a:0]amix=inputs=2:duration=first:"
-                f"weights=1|{bg_vol:.2f}[amix]"
+                f"[{wm_idx}:v]scale=iw*{wm_scale}:-1,format=rgba,"
+                f"colorchannelmixer=aa={wm_opacity}[wm]"
+            )
+            fc.append(f"{vch}[wm]overlay=x={wm_x}:y={wm_y}[vwm]")
+            vch = "[vwm]"
+        if fade_in > 0:
+            fc.append(f"{vch}fade=t=in:st=0:d={fade_in:.2f}[vfi]")
+            fc.append(f"{ach}afade=t=in:st=0:d={fade_in:.2f}[afi]")
+            vch, ach = "[vfi]", "[afi]"
+        if fade_out > 0 and total_dur > fade_out:
+            fo_st = max(0.0, total_dur - fade_out)
+            fc.append(f"{vch}fade=t=out:st={fo_st:.2f}:d={fade_out:.2f}[vfo]")
+            fc.append(f"{ach}afade=t=out:st={fo_st:.2f}:d={fade_out:.2f}[afo]")
+            vch, ach = "[vfo]", "[afo]"
+        if bg_idx is not None:
+            fc.append(
+                f"{ach}[{bg_idx}:a]amix=inputs=2:duration=first:weights=1|{bg_vol:.2f}[amix]"
             )
             ach = "[amix]"
 
-        cmd += ["-filter_complex", ";".join(fc)]
-        cmd += ["-map", vch, "-map", ach]
+        if fc:
+            cmd += ["-filter_complex", ";".join(fc), "-map", vch, "-map", ach]
+        else:
+            cmd += ["-map", "0:v", "-map", "0:a"]
+
         cmd += [
             "-c:v", "libx264", "-preset", "fast", "-crf", "23",
             "-c:a", "aac", "-b:a", "192k",
             "-movflags", "+faststart", output_path,
         ]
-        run_ff(cmd, timeout=600)
+        run_ff(cmd, timeout=900)
 
         if not Path(output_path).exists():
             raise RuntimeError("FFmpeg produced no output file")
@@ -1608,7 +1891,10 @@ def _execute_ffmpeg_edit(clips: list[str], audio_path: str | None, plan: dict, o
 
 
 def _run_video_edit_task(task_id: str, clips: list[str], audio_path: str | None,
-                         instructions: str, api_key: str) -> None:
+                         instructions: str, api_key: str,
+                         subtitle_path: str | None = None,
+                         watermark_path: str | None = None,
+                         pip_path: str | None = None) -> None:
     tasks[task_id]["status"] = "running"
     save_tasks()
     try:
@@ -1619,7 +1905,12 @@ def _run_video_edit_task(task_id: str, clips: list[str], audio_path: str | None,
         edit_plan: dict | None = None
         if api_key:
             try:
-                edit_plan = _generate_edit_plan(clips, clip_meta, audio_path, instructions, api_key)
+                edit_plan = _generate_edit_plan(
+                    clips, clip_meta, audio_path, instructions, api_key,
+                    subtitle_path=subtitle_path,
+                    watermark_path=watermark_path,
+                    pip_path=pip_path,
+                )
                 print(f"[video_edit] LLM plan: {json.dumps(edit_plan)}", flush=True)
             except Exception as exc:
                 print(f"[video_edit] LLM plan failed ({exc}); using default", flush=True)
@@ -1641,7 +1932,12 @@ def _run_video_edit_task(task_id: str, clips: list[str], audio_path: str | None,
         save_tasks()
 
         output_path = str(UPLOAD_DIR / f"edit_{uuid.uuid4()}.mp4")
-        _execute_ffmpeg_edit(clips, audio_path, edit_plan, output_path)
+        _execute_ffmpeg_edit(
+            clips, audio_path, edit_plan, output_path,
+            subtitle_path=subtitle_path,
+            watermark_path=watermark_path,
+            pip_path=pip_path,
+        )
 
         serve_path = "/uploads/" + Path(output_path).name
         tasks[task_id]["status"] = "done"
@@ -1719,11 +2015,20 @@ def multiframe2video():
 
 @app.post("/api/video_edit")
 def video_edit():
-    """LLM-planned video editing: trim, speed, mute, concatenate, optional bg audio."""
+    """LLM-planned video editing.
+
+    Supported plan operations: trim/speed/mute/concat, color grading (eq), per-clip
+    text overlays, transitions (xfade), subtitle burn-in, watermark + picture-in-
+    picture overlay, fades, optional background audio mix, and an optional title
+    card prepended to the final video.
+    """
     api_key = os.environ.get("ARK_API_KEY", "").strip()
     data = request.get_json(force=True)
     raw_clips = data.get("clips") or []
     audio_ref = (data.get("audio_path") or "").strip()
+    subtitle_ref = (data.get("subtitle_path") or "").strip()
+    watermark_ref = (data.get("watermark_path") or "").strip()
+    pip_ref = (data.get("pip_path") or "").strip()
     instructions = (data.get("instructions") or "").strip()
 
     resolved: list[str] = []
@@ -1737,7 +2042,10 @@ def video_edit():
     if not resolved:
         return jsonify({"ok": False, "error": "At least one video clip is required"}), 400
 
-    resolved_audio = _resolve_clip_path(audio_ref) if audio_ref else None
+    resolved_audio     = _resolve_clip_path(audio_ref)     if audio_ref     else None
+    resolved_subtitle  = _resolve_clip_path(subtitle_ref)  if subtitle_ref  else None
+    resolved_watermark = _resolve_clip_path(watermark_ref) if watermark_ref else None
+    resolved_pip       = _resolve_clip_path(pip_ref)       if pip_ref       else None
 
     task_id = str(uuid.uuid4())
     tasks[task_id] = {
@@ -1751,6 +2059,11 @@ def video_edit():
     threading.Thread(
         target=_run_video_edit_task,
         args=(task_id, resolved, resolved_audio, instructions, api_key),
+        kwargs={
+            "subtitle_path":  resolved_subtitle,
+            "watermark_path": resolved_watermark,
+            "pip_path":       resolved_pip,
+        },
         daemon=True,
     ).start()
     return jsonify({"ok": True, "task_id": task_id})
