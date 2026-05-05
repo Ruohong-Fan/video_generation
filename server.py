@@ -459,14 +459,31 @@ def query_result(submit_id: str):
 
 # ── API: Generation ───────────────────────────────────────────────────────────
 
-def _mux_audio_post_process(audio_path: str):
-    """Build a post_process callback that muxes `audio_path` onto the task's
-    generated video and rewrites the task result to point at the local muxed file.
-    Best-effort: if anything fails, the original CDN result is left untouched.
+def _parse_ratio(ratio: str) -> tuple[float, float] | None:
+    if not ratio:
+        return None
+    try:
+        rw_str, rh_str = ratio.split(":", 1)
+        rw, rh = float(rw_str), float(rh_str)
+        if rw > 0 and rh > 0:
+            return rw, rh
+    except Exception:
+        pass
+    return None
+
+
+def _video_finalize_post_process(ratio: str | None = None, audio_path: str | None = None):
+    """Build a post_process callback that downloads the dreamina-generated video,
+    optionally center-crops it to `ratio`, optionally muxes `audio_path` onto it,
+    saves it under uploads/, and rewrites the task result's serve_path to the
+    local file. Best-effort: any failure leaves the original CDN result untouched.
     """
+    want_ratio = _parse_ratio(ratio) if ratio else None
+    has_audio = bool(audio_path and Path(audio_path).exists())
+    if not want_ratio and not has_audio:
+        return None
+
     def _post(task_id: str) -> None:
-        if not audio_path or not Path(audio_path).exists():
-            return
         task = tasks.get(task_id)
         if not isinstance(task, dict):
             return
@@ -476,35 +493,72 @@ def _mux_audio_post_process(audio_path: str):
             return
         local_video = _download_media(video_url, hint_ext=".mp4")
         if not local_video or local_video.startswith("http"):
-            print(f"[mux_audio] failed to download generated video {video_url}", flush=True)
+            print(f"[finalize] failed to download {video_url}", flush=True)
             return
-        out_path = UPLOAD_DIR / f"muxed_{uuid.uuid4()}.mp4"
-        cmd = [
-            "ffmpeg", "-y", "-loglevel", "warning",
-            "-i", local_video,
-            "-i", audio_path,
-            "-map", "0:v:0", "-map", "1:a:0",
-            "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
-            "-shortest", "-movflags", "+faststart",
-            str(out_path),
-        ]
+
+        # Decide whether a crop is actually needed (skip if already within 2%).
+        crop_filter = None
+        if want_ratio:
+            size = _probe_image_size(local_video)
+            if size:
+                w, h = size
+                target = want_ratio[0] / want_ratio[1]
+                actual = w / h
+                if abs(actual - target) / target >= 0.02:
+                    if actual > target:
+                        new_w = int(round(h * target)); new_w -= new_w % 2
+                        new_h = h - (h % 2)
+                        x = (w - new_w) // 2; y = 0
+                    else:
+                        new_h = int(round(w / target)); new_h -= new_h % 2
+                        new_w = w - (w % 2)
+                        x = 0; y = (h - new_h) // 2
+                    crop_filter = f"crop={new_w}:{new_h}:{x}:{y}"
+
+        # No-op? Don't burn ffmpeg cycles.
+        if not crop_filter and not has_audio:
+            return
+
+        out_path = UPLOAD_DIR / f"final_{uuid.uuid4()}.mp4"
+        cmd = ["ffmpeg", "-y", "-loglevel", "warning", "-i", local_video]
+        if has_audio:
+            cmd += ["-i", audio_path]
+        if crop_filter:
+            cmd += ["-vf", crop_filter, "-c:v", "libx264", "-preset", "fast", "-crf", "20"]
+        else:
+            cmd += ["-c:v", "copy"]
+        if has_audio:
+            cmd += ["-map", "0:v:0", "-map", "1:a:0", "-c:a", "aac", "-b:a", "192k", "-shortest"]
+        else:
+            cmd += ["-c:a", "copy"]
+        cmd += ["-movflags", "+faststart", str(out_path)]
         try:
             subprocess.run(cmd, check=True, capture_output=True, text=True, timeout=300)
         except Exception as exc:
-            print(f"[mux_audio] ffmpeg failed: {exc}", flush=True)
+            print(f"[finalize] ffmpeg failed: {exc}", flush=True)
             return
         if not out_path.exists() or out_path.stat().st_size == 0:
             return
+
         serve_path = "/uploads/" + out_path.name
-        # Preserve original CDN URL but redirect playback to the muxed local file.
         merged = dict(result_data) if isinstance(result_data, dict) else {}
         merged["serve_path"] = serve_path
         merged["local_path"] = str(out_path)
         merged["original_url"] = video_url
-        merged["audio_muxed"] = True
+        if has_audio:
+            merged["audio_muxed"] = True
+        if crop_filter:
+            merged["ratio_enforced"] = ratio
         task["result"] = merged
-        print(f"[mux_audio] {video_url} + {audio_path} → {serve_path}", flush=True)
+        print(f"[finalize] {video_url} → {serve_path}"
+              f"{f' crop={crop_filter}' if crop_filter else ''}"
+              f"{' +audio' if has_audio else ''}", flush=True)
     return _post
+
+
+# Kept for callers that only do audio muxing (back-compat shim).
+def _mux_audio_post_process(audio_path: str):
+    return _video_finalize_post_process(ratio=None, audio_path=audio_path)
 
 
 def _resolve_audio_for_mux(request) -> str | None:
@@ -527,18 +581,21 @@ def text2video():
     model_version = data.get("model_version", "").strip()
     if not prompt:
         return jsonify({"ok": False, "error": "prompt is required"}), 400
+    ratio = data.get("ratio", "16:9")
     cmd = [
         "dreamina", "text2video",
         f"--prompt={prompt}",
         f"--duration={data.get('duration', '5')}",
-        f"--ratio={data.get('ratio', '16:9')}",
+        f"--ratio={ratio}",
         f"--video_resolution={data.get('resolution', '720P')}",
         "--poll=240",
     ]
     if model_version:
         cmd.append(f"--model_version={model_version}")
     audio_path = _resolve_audio_for_mux(request)
-    post = _mux_audio_post_process(audio_path) if audio_path else None
+    # text2video natively supports --ratio; still enforce in post-process as a
+    # belt-and-braces guard in case the CLI drifts back to a default.
+    post = _video_finalize_post_process(ratio=ratio, audio_path=audio_path)
     return jsonify(_start_task(cmd, f"text2video: {prompt[:60]}", post_process=post))
 
 
@@ -979,7 +1036,9 @@ def image2video():
     if model_version:
         cmd.append(f"--model_version={model_version}")
     audio_path = _resolve_audio_for_mux(request)
-    post = _mux_audio_post_process(audio_path) if audio_path else None
+    # Pre-cropping the image *should* make the CLI honour the ratio, but
+    # the CLI sometimes still emits 16:9 — finalize the output as a guard.
+    post = _video_finalize_post_process(ratio=ratio, audio_path=audio_path)
     return jsonify(_start_task(cmd, f"image2video: {prompt[:60] or image_ref[-40:]}", post_process=post))
 
 
@@ -1006,7 +1065,7 @@ def multimodal2video():
     if model_version:
         cmd.append(f"--model_version={model_version}")
     audio_path = _resolve_audio_for_mux(request)
-    post = _mux_audio_post_process(audio_path) if audio_path else None
+    post = _video_finalize_post_process(ratio=ratio, audio_path=audio_path)
     return jsonify(_start_task(cmd, f"multimodal2video: {prompt[:60]}", post_process=post))
 
 
