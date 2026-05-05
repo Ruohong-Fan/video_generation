@@ -591,11 +591,11 @@ body.right-collapsed .canvas-wrap { right: 0; }
 .lib-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .lib-card {
   display: flex; flex-direction: column;
-  align-items: flex-start; gap: 12px; padding: 14px;
+  align-items: flex-start; gap: 14px; padding: 14px;
   background: var(--bg-2); border: 1px solid var(--line);
   border-radius: 10px; cursor: pointer;
   transition: border-color 0.12s, background 0.12s, transform 0.08s;
-  text-align: left; width: 100%; min-height: 110px;
+  text-align: left; width: 100%;
 }
 .lib-card:hover { border-color: var(--amber-dim); background: var(--bg-3); }
 .lib-card:active { transform: scale(0.98); }
@@ -609,7 +609,6 @@ body.right-collapsed .canvas-wrap { right: 0; }
   font-family: var(--type-display); font-size: 16px; font-weight: 600;
   color: var(--fg-0); line-height: 1.1;
 }
-.lib-card-desc { font-size: 11px; color: var(--fg-2); line-height: 1.35; }
 .tree { display: flex; flex-direction: column; gap: 1px; }
 .tree-item {
   display: flex; align-items: center; gap: 6px;
@@ -1071,23 +1070,27 @@ body.right-collapsed .canvas-wrap { right: 0; }
       <div class="lib-grid">
         <button class="lib-card" onclick="addNodeFromLibrary('text')">
           <div class="lib-card-icon"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M3 4h10M8 4v9M5 13h6"/></svg></div>
-          <div><div class="lib-card-name">Text</div><div class="lib-card-desc">Prompt or script</div></div>
+          <div class="lib-card-name">Text</div>
         </button>
         <button class="lib-card" onclick="addNodeFromLibrary('image')">
           <div class="lib-card-icon"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="12" height="10" rx="1.5"/><path d="M2 10l3-3 3 3 2.5-2.5L14 10"/><circle cx="11" cy="6" r="1" fill="currentColor" stroke="none"/></svg></div>
-          <div><div class="lib-card-name">Image</div><div class="lib-card-desc">Generate or reference</div></div>
+          <div class="lib-card-name">Image</div>
         </button>
         <button class="lib-card" onclick="addNodeFromLibrary('video')">
           <div class="lib-card-icon"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="4" width="10" height="8" rx="1.5"/><path d="M11 7l4-2v6l-4-2V7z" fill="currentColor" stroke="none"/></svg></div>
-          <div><div class="lib-card-name">Video</div><div class="lib-card-desc">Text/image &rarr; video</div></div>
+          <div class="lib-card-name">Video</div>
         </button>
         <button class="lib-card" onclick="addNodeFromLibrary('audio')">
           <div class="lib-card-icon"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="2" width="4" height="8" rx="2"/><path d="M3.5 8.5a4.5 4.5 0 0 0 9 0M8 13v2M5.5 15h5"/></svg></div>
-          <div><div class="lib-card-name">Audio</div><div class="lib-card-desc">Voiceover or sfx</div></div>
+          <div class="lib-card-name">Audio</div>
         </button>
         <button class="lib-card" onclick="addNodeFromLibrary('upload')">
           <div class="lib-card-icon"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 10V3M5 6l3-3 3 3M3 13h10"/></svg></div>
-          <div><div class="lib-card-name">Upload</div><div class="lib-card-desc">Reference asset</div></div>
+          <div class="lib-card-name">Upload</div>
+        </button>
+        <button class="lib-card" onclick="addNodeFromLibrary('edit')">
+          <div class="lib-card-icon"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="5" cy="5" r="2"/><circle cx="5" cy="11" r="2"/><path d="M7 5h6M7 11h6"/></svg></div>
+          <div class="lib-card-name">Edit</div>
         </button>
       </div>
     </div>
