@@ -684,6 +684,46 @@ body.right-collapsed .canvas-wrap { right: 0; }
 .input-item:hover .input-item-delete { opacity: 1; }
 .input-item-delete:hover { color: var(--err); border-color: var(--err); }
 
+/* Project variables */
+.var-list { display: flex; flex-direction: column; gap: 4px; margin-bottom: 6px; }
+.var-row {
+  display: flex; align-items: center; gap: 6px;
+  padding: 4px 6px; border-radius: 6px;
+  border: 1px solid var(--line); background: var(--bg-2);
+}
+.var-row:focus-within { border-color: var(--amber-dim); }
+.var-key, .var-value {
+  flex: 1; min-width: 0; padding: 4px 6px;
+  background: transparent; border: none; outline: none;
+  color: var(--fg-0); font-size: 11px; font-family: var(--type-mono);
+}
+.var-key { flex: 0 0 32%; color: var(--amber); }
+.var-eq { color: var(--fg-3); font-family: var(--type-mono); font-size: 11px; }
+.var-delete {
+  flex-shrink: 0; width: 22px; height: 22px; padding: 0;
+  background: transparent; border: 1px solid transparent; border-radius: 4px;
+  color: var(--fg-3); display: grid; place-items: center; cursor: pointer;
+  opacity: 0; transition: opacity 0.1s, color 0.1s, border-color 0.1s;
+}
+.var-row:hover .var-delete, .var-row:focus-within .var-delete { opacity: 1; }
+.var-delete:hover { color: var(--err); border-color: var(--err); }
+.var-add {
+  width: 100%; padding: 6px 8px; margin-bottom: 8px;
+  background: var(--bg-2); border: 1px dashed var(--bg-4);
+  border-radius: 6px; color: var(--fg-3); font-size: 11px; cursor: pointer;
+  font-family: inherit; text-align: center;
+  transition: border-color 0.12s, color 0.12s;
+}
+.var-add:hover { border-color: var(--amber-dim); color: var(--fg-1); }
+.var-help {
+  font-size: 10px; color: var(--fg-3); line-height: 1.45;
+  margin: 0 4px 16px; padding-left: 2px;
+}
+.var-help code {
+  background: var(--bg-2); padding: 1px 5px; border-radius: 3px;
+  color: var(--amber); font-family: var(--type-mono); font-size: 10px;
+}
+
 .file-info { flex: 1; min-width: 0; }
 .file-name { font-size: 11px; font-weight: 500; color: var(--fg-0); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .file-sub { font-size: 10px; color: var(--fg-3); margin-top: 2px; font-family: var(--type-mono); }
@@ -1212,6 +1252,7 @@ body.right-collapsed .canvas-wrap { right: 0; }
   const edges = [];          // { id, fromId, toId }
   const selected = new Set();
   const projectInputs = [];  // { id, name, kind, url, path, ts } — project-scope assets
+  const projectVars = [];    // { id, key, value } — project-scope text variables, {{key}} in prompts
 
   const view = { x: 0, y: 0, scale: 1 };
   let nextId = 1;
@@ -1771,13 +1812,13 @@ body.right-collapsed .canvas-wrap { right: 0; }
   // Pull the most recent generated text from a Text node, falling back to its prompt.
   function textNodeOutput(n) {
     const last = n.results?.[n.results.length - 1];
-    if (last?.text) return last.text;
-    return n.prompt || '';
+    if (last?.text) return last.text;  // LLM-generated; vars already resolved upstream
+    return resolveVars(n.prompt || '');
   }
 
   function collectInputs(node) {
     const up = upstreamNodes(node.id);
-    const userPrompt = node.prompt || '';
+    const userPrompt = resolveVars(node.prompt || '');
     let textNodePrompt = '';
     const imageRefs = [];
     const imagePrompts = [];
@@ -1838,19 +1879,19 @@ body.right-collapsed .canvas-wrap { right: 0; }
         else if (u.uploadKind === 'video') inputs.push({ type: 'video', url: ref, label });
         else if (u.uploadKind === 'audio') inputs.push({ type: 'text', content: `[${label}] (audio: ${ref})` });
       } else if (u.type === 'text') {
-        const t = textNodeOutput(u);
+        const t = textNodeOutput(u);  // already runs through resolveVars
         if (t) inputs.push({ type: 'text', content: `[${label}]\n${t}` });
-        if (u.uploadText) inputs.push({ type: 'text', content: `[${label} · uploaded text]\n${u.uploadText}` });
+        if (u.uploadText) inputs.push({ type: 'text', content: `[${label} · uploaded text]\n${resolveVars(u.uploadText)}` });
       } else if (u.type === 'image') {
         const last = u.results?.[u.results.length - 1];
         const ref = last?.servePath || last?.url || u.uploadUrl;
         if (ref) inputs.push({ type: 'image', url: ref, label });
-        if (u.prompt) inputs.push({ type: 'text', content: `[${label} prompt]\n${u.prompt}` });
+        if (u.prompt) inputs.push({ type: 'text', content: `[${label} prompt]\n${resolveVars(u.prompt)}` });
       } else if (u.type === 'video') {
         const last = u.results?.[u.results.length - 1];
         const ref = last?.servePath || last?.url;
         if (ref) inputs.push({ type: 'video', url: ref, label });
-        if (u.prompt) inputs.push({ type: 'text', content: `[${label} prompt]\n${u.prompt}` });
+        if (u.prompt) inputs.push({ type: 'text', content: `[${label} prompt]\n${resolveVars(u.prompt)}` });
       } else if (u.type === 'audio') {
         if (u.uploadUrl) inputs.push({ type: 'text', content: `[${label}] (audio reference: ${u.uploadUrl})` });
       }
@@ -1879,7 +1920,7 @@ body.right-collapsed .canvas-wrap { right: 0; }
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'same-origin',
-        body: JSON.stringify({ prompt: node.prompt || '', inputs }),
+        body: JSON.stringify({ prompt: resolveVars(node.prompt || ''), inputs }),
       });
       const data = await resp.json().catch(() => ({}));
       if (!resp.ok || !data.ok) {
@@ -1983,7 +2024,7 @@ body.right-collapsed .canvas-wrap { right: 0; }
         audio_path: audioPath,
         subtitle_path: subtitlePath,
         watermark_path: watermarkPath,
-        instructions: node.prompt || '',
+        instructions: resolveVars(node.prompt || ''),
       };
     } else {
       throw new Error('Unsupported node type: ' + node.type);
@@ -2612,6 +2653,7 @@ body.right-collapsed .canvas-wrap { right: 0; }
       edges: edges.map(e => ({ id: e.id, fromId: e.fromId, toId: e.toId })),
       view: { x: view.x, y: view.y, scale: view.scale },
       projectInputs: projectInputs.slice(),
+      projectVars: projectVars.slice(),
     };
   }
 
@@ -2713,6 +2755,12 @@ body.right-collapsed .canvas-wrap { right: 0; }
       if (Array.isArray(wf.projectInputs)) {
         for (const e of wf.projectInputs) {
           if (e && e.id && e.url) projectInputs.push(e);
+        }
+      }
+      projectVars.length = 0;
+      if (Array.isArray(wf.projectVars)) {
+        for (const v of wf.projectVars) {
+          if (v && v.id) projectVars.push({ id: v.id, key: v.key || '', value: v.value || '' });
         }
       }
       saveStatus.textContent = 'Saved';
@@ -2952,6 +3000,44 @@ body.right-collapsed .canvas-wrap { right: 0; }
     createNode(type, center.x - 120 + Math.random() * 40, center.y - 60 + Math.random() * 40);
   }
 
+  // ── Project-scope variables: {{key}} → value ─────────────────────────
+  // Used in any prompt / instruction / Text node — resolved client-side
+  // before the body hits an API, so the LLM/CLI only ever sees plain text.
+  function resolveVars(text) {
+    if (!text || typeof text !== 'string') return text;
+    if (!projectVars.length) return text;
+    return text.replace(/\{\{\s*([A-Za-z_][\w]*)\s*\}\}/g, (m, key) => {
+      const v = projectVars.find(p => p.key === key);
+      return v ? String(v.value ?? '') : m;  // leave un-matched tokens visible
+    });
+  }
+
+  function addProjectVar() {
+    projectVars.push({ id: 'v' + Math.random().toString(36).slice(2, 10), key: '', value: '' });
+    renderInputsPanel();
+    scheduleSave();
+  }
+
+  function deleteProjectVar(id) {
+    const idx = projectVars.findIndex(v => v.id === id);
+    if (idx < 0) return;
+    projectVars.splice(idx, 1);
+    renderInputsPanel();
+    scheduleSave();
+  }
+
+  function updateProjectVar(id, field, value) {
+    const v = projectVars.find(v => v.id === id);
+    if (!v) return;
+    if (field === 'key') {
+      // Sanitize key to a safe identifier so {{...}} matching is predictable
+      v.key = String(value).replace(/[^A-Za-z0-9_]/g, '_').replace(/^([0-9])/, '_$1');
+    } else {
+      v.value = String(value);
+    }
+    scheduleSave();
+  }
+
   // ── Project-scope inputs (Input tab) ─────────────────────────────────
   // Detect the "kind" of an uploaded asset from its MIME / extension so the
   // Input list and any auto-spawned Upload node land on the right thumbnail
@@ -3042,7 +3128,23 @@ body.right-collapsed .canvas-wrap { right: 0; }
       </div>`;
     }).join('');
 
+    const varRows = projectVars.map(v => `
+      <div class="var-row" data-var-id="${esc(v.id)}">
+        <input class="var-key" data-var-field="key" placeholder="key"
+               value="${esc(v.key)}" spellcheck="false"/>
+        <span class="var-eq">=</span>
+        <input class="var-value" data-var-field="value" placeholder="value"
+               value="${esc(v.value)}"/>
+        <button class="var-delete" data-var-delete="${esc(v.id)}" title="Remove">${ICONS.trash}</button>
+      </div>
+    `).join('');
+
     panel.innerHTML = `
+      <div class="side-section-title">Project variables</div>
+      <div class="var-list">${varRows}</div>
+      <button class="var-add" id="var-add">+ Add variable</button>
+      <div class="var-help">Reference anywhere as <code>{{key}}</code> — resolved before the prompt hits any API.</div>
+
       <div class="side-section-title">Project inputs</div>
       <label class="input-drop" id="input-drop">
         <input type="file" id="input-file" hidden multiple
@@ -3056,6 +3158,29 @@ body.right-collapsed .canvas-wrap { right: 0; }
       </label>
       ${items.length ? itemHtml : '<div class="side-empty">No project inputs yet.<br>Drop files above to share them across nodes.</div>'}
     `;
+
+    // Variables: add / edit / delete
+    panel.querySelector('#var-add')?.addEventListener('click', () => addProjectVar());
+    panel.querySelectorAll('[data-var-id]').forEach(row => {
+      const id = row.dataset.varId;
+      row.querySelectorAll('[data-var-field]').forEach(input => {
+        input.addEventListener('input', () => {
+          updateProjectVar(id, input.dataset.varField, input.value);
+          // Re-sync the field if the key was sanitized so the user sees the actual stored value
+          if (input.dataset.varField === 'key') {
+            const stored = projectVars.find(v => v.id === id)?.key ?? '';
+            if (stored !== input.value) {
+              const caret = input.selectionStart;
+              input.value = stored;
+              try { input.setSelectionRange(caret, caret); } catch (_) {}
+            }
+          }
+        });
+      });
+    });
+    panel.querySelectorAll('[data-var-delete]').forEach(btn => {
+      btn.addEventListener('click', () => deleteProjectVar(btn.dataset.varDelete));
+    });
 
     // Seek video thumbs to first frame
     panel.querySelectorAll('.file-thumb video').forEach(v => {
