@@ -395,22 +395,39 @@
     btn.setAttribute(NO_I18N, '');
     btn.textContent = lang === 'zh' ? 'EN' : '中';
     btn.title = lang === 'zh' ? 'Switch to English' : '切换为中文';
-    btn.style.cssText = [
-      'position:fixed', 'top:10px', 'right:12px', 'z-index:99999',
-      'min-width:34px', 'height:26px', 'padding:0 9px',
-      'font:600 11px/1 system-ui,-apple-system,Segoe UI,Roboto,sans-serif',
-      'color:rgba(255,255,255,0.92)',
-      'background:rgba(20,20,20,0.55)',
-      'border:1px solid rgba(255,255,255,0.18)',
-      'border-radius:6px', 'cursor:pointer',
-      'backdrop-filter:blur(10px)',
-      '-webkit-backdrop-filter:blur(10px)',
-      'letter-spacing:0.05em',
-    ].join(';');
-    btn.addEventListener('mouseenter', () => { btn.style.background = 'rgba(40,40,40,0.85)'; });
-    btn.addEventListener('mouseleave', () => { btn.style.background = 'rgba(20,20,20,0.55)'; });
     btn.addEventListener('click', () => setLang(lang === 'zh' ? 'en' : 'zh'));
-    document.body.appendChild(btn);
+
+    // Prefer inline placement next to the user-menu (workflow + projects
+    // topbars). Fall back to a floating top-right button (login page).
+    const userMenu = document.querySelector('.user-menu');
+    if (userMenu && userMenu.parentElement) {
+      btn.className = 'lang-switcher-inline';
+      btn.style.cssText = [
+        'flex-shrink:0', 'min-width:34px', 'height:30px', 'padding:0 10px',
+        'margin-right:6px',
+        'font:600 11px/1 system-ui,-apple-system,Segoe UI,Roboto,sans-serif',
+        'color:var(--fg-1, rgba(255,255,255,0.85))',
+        'background:var(--bg-2, rgba(255,255,255,0.06))',
+        'border:1px solid var(--line, rgba(255,255,255,0.12))',
+        'border-radius:6px', 'cursor:pointer',
+        'letter-spacing:0.05em',
+      ].join(';');
+      userMenu.parentElement.insertBefore(btn, userMenu);
+    } else {
+      btn.style.cssText = [
+        'position:fixed', 'top:14px', 'right:18px', 'z-index:99999',
+        'min-width:34px', 'height:28px', 'padding:0 10px',
+        'font:600 11px/1 system-ui,-apple-system,Segoe UI,Roboto,sans-serif',
+        'color:rgba(255,255,255,0.92)',
+        'background:rgba(20,20,20,0.55)',
+        'border:1px solid rgba(255,255,255,0.18)',
+        'border-radius:6px', 'cursor:pointer',
+        'backdrop-filter:blur(10px)',
+        '-webkit-backdrop-filter:blur(10px)',
+        'letter-spacing:0.05em',
+      ].join(';');
+      document.body.appendChild(btn);
+    }
   }
 
   function init() {
