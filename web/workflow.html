@@ -643,6 +643,47 @@ body.right-collapsed .canvas-wrap { right: 0; }
     oklch(0.25 0.012 65) 4px, oklch(0.25 0.012 65) 8px);
 }
 .file-thumb-placeholder svg { width: 16px; height: 16px; }
+
+/* Input panel — project-scope assets */
+.input-drop {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 6px; padding: 18px 12px; margin-bottom: 10px;
+  border: 1.5px dashed var(--bg-4); border-radius: 10px;
+  background: var(--bg-2); color: var(--fg-3);
+  text-align: center; cursor: pointer;
+  transition: border-color 0.12s, background 0.12s, color 0.12s;
+}
+.input-drop:hover, .input-drop.drag {
+  border-color: var(--amber); color: var(--fg-1); background: var(--bg-3);
+}
+.input-drop-title { font-size: 12px; font-weight: 500; color: var(--fg-1); }
+.input-drop-sub { font-size: 10px; color: var(--fg-3); }
+.input-item {
+  display: flex; gap: 8px; align-items: center;
+  padding: 6px; border-radius: 7px; margin-bottom: 4px;
+  border: 1px solid transparent; cursor: pointer;
+  transition: background 0.1s, border-color 0.1s;
+}
+.input-item:hover { background: var(--bg-2); border-color: var(--line); }
+.input-item .file-thumb { width: 36px; height: 36px; }
+.input-item-meta { flex: 1; min-width: 0; }
+.input-item-name {
+  font-size: 11px; font-weight: 500; color: var(--fg-0);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.input-item-kind {
+  font-size: 9px; font-family: var(--type-mono); color: var(--fg-3);
+  text-transform: uppercase; letter-spacing: 0.08em; margin-top: 1px;
+}
+.input-item-delete {
+  flex-shrink: 0; width: 22px; height: 22px; padding: 0;
+  background: transparent; border: 1px solid transparent; border-radius: 4px;
+  color: var(--fg-3); display: grid; place-items: center; cursor: pointer;
+  opacity: 0; transition: opacity 0.1s, color 0.1s, border-color 0.1s;
+}
+.input-item:hover .input-item-delete { opacity: 1; }
+.input-item-delete:hover { color: var(--err); border-color: var(--err); }
+
 .file-info { flex: 1; min-width: 0; }
 .file-name { font-size: 11px; font-weight: 500; color: var(--fg-0); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .file-sub { font-size: 10px; color: var(--fg-3); margin-top: 2px; font-family: var(--type-mono); }
@@ -1062,7 +1103,8 @@ body.right-collapsed .canvas-wrap { right: 0; }
 <div class="side-left" id="side-left">
   <div class="side-tabs">
     <button class="side-tab active" id="tab-library" onclick="switchSideTab('library')">Library</button>
-    <button class="side-tab" id="tab-files" onclick="switchSideTab('files')">Files</button>
+    <button class="side-tab" id="tab-input" onclick="switchSideTab('input')">Input</button>
+    <button class="side-tab" id="tab-output" onclick="switchSideTab('output')">Output</button>
   </div>
   <div class="side-body">
     <div id="panel-library">
@@ -1094,7 +1136,8 @@ body.right-collapsed .canvas-wrap { right: 0; }
         </button>
       </div>
     </div>
-    <div id="panel-files" style="display:none"></div>
+    <div id="panel-input" style="display:none"></div>
+    <div id="panel-output" style="display:none"></div>
   </div>
 </div>
 
@@ -1168,6 +1211,7 @@ body.right-collapsed .canvas-wrap { right: 0; }
   const nodes = new Map();   // id -> node
   const edges = [];          // { id, fromId, toId }
   const selected = new Set();
+  const projectInputs = [];  // { id, name, kind, url, path, ts } — project-scope assets
 
   const view = { x: 0, y: 0, scale: 1 };
   let nextId = 1;
@@ -1393,7 +1437,7 @@ body.right-collapsed .canvas-wrap { right: 0; }
           if (d.ok) {
             node.uploadUrl = d.url; node.uploadPath = d.path || null; node.uploadKind = kind; node.uploadRatio = null;
             renderNode(node); renderRightPanel(); scheduleSave();
-            if (document.getElementById('panel-files')?.style.display !== 'none') renderFilesPanel();
+            if (document.getElementById('panel-output')?.style.display !== 'none') renderFilesPanel();
             toast('Upload done', 'success');
           } else { toast('Upload failed', 'error'); }
         } catch { toast('Upload failed', 'error'); }
@@ -1686,7 +1730,7 @@ body.right-collapsed .canvas-wrap { right: 0; }
     Object.assign(n, extra);
     renderNode(n);
     updateEdgesFor(id);
-    if (document.getElementById('panel-files')?.style.display !== 'none') renderFilesPanel();
+    if (document.getElementById('panel-output')?.style.display !== 'none') renderFilesPanel();
     if (selected.has(id)) renderInspector(id);
     // Refresh downstream nodes so they pick up new upstream outputs (image
     // becoming available switches a Video node from T2V to I2V mode, etc.)
@@ -2567,6 +2611,7 @@ body.right-collapsed .canvas-wrap { right: 0; }
       })),
       edges: edges.map(e => ({ id: e.id, fromId: e.fromId, toId: e.toId })),
       view: { x: view.x, y: view.y, scale: view.scale },
+      projectInputs: projectInputs.slice(),
     };
   }
 
@@ -2664,6 +2709,12 @@ body.right-collapsed .canvas-wrap { right: 0; }
         view.scale = wf.view.scale ?? 1;
         applyView();
       }
+      projectInputs.length = 0;
+      if (Array.isArray(wf.projectInputs)) {
+        for (const e of wf.projectInputs) {
+          if (e && e.id && e.url) projectInputs.push(e);
+        }
+      }
       saveStatus.textContent = 'Saved';
     } catch {
       saveStatus.textContent = 'Offline';
@@ -2703,7 +2754,7 @@ body.right-collapsed .canvas-wrap { right: 0; }
       renderNode(node);
       if (selected.has(node.id)) renderInspector(node.id);
     }
-    if (document.getElementById('panel-files')?.style.display !== 'none') renderFilesPanel();
+    if (document.getElementById('panel-output')?.style.display !== 'none') renderFilesPanel();
     scheduleSave();
   }
 
@@ -2788,14 +2839,17 @@ body.right-collapsed .canvas-wrap { right: 0; }
   // ── Left panel tab switching ────────────────────────────────────────────
   function switchSideTab(tab) {
     document.getElementById('tab-library').classList.toggle('active', tab === 'library');
-    document.getElementById('tab-files').classList.toggle('active', tab === 'files');
+    document.getElementById('tab-input').classList.toggle('active', tab === 'input');
+    document.getElementById('tab-output').classList.toggle('active', tab === 'output');
     document.getElementById('panel-library').style.display = tab === 'library' ? '' : 'none';
-    document.getElementById('panel-files').style.display   = tab === 'files'   ? '' : 'none';
-    if (tab === 'files') renderFilesPanel();
+    document.getElementById('panel-input').style.display   = tab === 'input'   ? '' : 'none';
+    document.getElementById('panel-output').style.display  = tab === 'output'  ? '' : 'none';
+    if (tab === 'output') renderFilesPanel();
+    if (tab === 'input') renderInputsPanel();
   }
 
   function renderFilesPanel() {
-    const panel = document.getElementById('panel-files');
+    const panel = document.getElementById('panel-output');
     if (!panel) return;
 
     const fmtTs = ts => { try { return ts ? new Date(ts).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}) : ''; } catch { return ''; } };
@@ -2896,6 +2950,153 @@ body.right-collapsed .canvas-wrap { right: 0; }
     const rect = canvasWrap.getBoundingClientRect();
     const center = screenToWorld(rect.left + rect.width / 2, rect.top + rect.height / 2);
     createNode(type, center.x - 120 + Math.random() * 40, center.y - 60 + Math.random() * 40);
+  }
+
+  // ── Project-scope inputs (Input tab) ─────────────────────────────────
+  // Detect the "kind" of an uploaded asset from its MIME / extension so the
+  // Input list and any auto-spawned Upload node land on the right thumbnail
+  // and downstream wiring.
+  function detectInputKind(file) {
+    const t = (file.type || '').toLowerCase();
+    if (t.startsWith('image/'))  return 'image';
+    if (t.startsWith('video/'))  return 'video';
+    if (t.startsWith('audio/'))  return 'audio';
+    const name = (file.name || '').toLowerCase();
+    if (/\.(srt|vtt|ass)$/i.test(name)) return 'subtitle';
+    if (/\.txt$/i.test(name))    return 'text';
+    if (/\.(png|jpe?g|gif|webp|bmp)$/i.test(name))     return 'image';
+    if (/\.(mp4|mov|webm|mkv|avi)$/i.test(name))       return 'video';
+    if (/\.(mp3|wav|m4a|aac|flac|ogg|opus)$/i.test(name)) return 'audio';
+    return 'file';
+  }
+
+  async function uploadProjectInput(file) {
+    if (!file) return null;
+    const fd = new FormData();
+    fd.append('file', file);
+    try {
+      const resp = await fetch('/api/upload', { method: 'POST', body: fd, credentials: 'same-origin' });
+      const d = await resp.json();
+      if (!resp.ok || !d.ok) throw new Error(d.error || `HTTP ${resp.status}`);
+      const entry = {
+        id: 'i' + Math.random().toString(36).slice(2, 10),
+        name: file.name,
+        kind: detectInputKind(file),
+        url: d.url,
+        path: d.path || null,
+        ts: Date.now(),
+      };
+      projectInputs.push(entry);
+      renderInputsPanel();
+      scheduleSave();
+      return entry;
+    } catch (err) {
+      toast(`Upload failed: ${err.message}`, 'error');
+      return null;
+    }
+  }
+
+  // Drop a project input onto the canvas → spawn an Upload node referencing it.
+  function spawnUploadFromInput(entry) {
+    const rect = canvasWrap.getBoundingClientRect();
+    const center = screenToWorld(rect.left + rect.width / 2, rect.top + rect.height / 2);
+    const node = createNode('upload', center.x - 120 + Math.random() * 40, center.y - 60 + Math.random() * 40);
+    if (!node) return;
+    node.uploadUrl  = entry.url;
+    node.uploadPath = entry.path || null;
+    // Upload nodes only know image/video/audio. Subtitle/text fall back to
+    // the generic kind so the Edit node's collector can still pull them.
+    node.uploadKind = (entry.kind === 'subtitle' || entry.kind === 'text' || entry.kind === 'file')
+                      ? null : entry.kind;
+    node.title = entry.name || node.title;
+    renderNode(node);
+    if (selNode?.id === node.id) renderRightPanel();
+    scheduleSave();
+  }
+
+  function deleteProjectInput(id) {
+    const idx = projectInputs.findIndex(e => e.id === id);
+    if (idx < 0) return;
+    projectInputs.splice(idx, 1);
+    renderInputsPanel();
+    scheduleSave();
+  }
+
+  function renderInputsPanel() {
+    const panel = document.getElementById('panel-input');
+    if (!panel) return;
+    const items = projectInputs.slice().reverse();  // newest first
+    const itemHtml = items.map(e => {
+      const thumb = (e.kind === 'image')
+        ? `<img src="${esc(mediaUrl(e.url))}" alt="" referrerpolicy="no-referrer"/>`
+        : (e.kind === 'video')
+          ? `<video src="${esc(mediaUrl(e.url))}" muted preload="metadata" referrerpolicy="no-referrer"></video>`
+          : `<div class="file-thumb-placeholder">${ICONS[e.kind] || ICONS.upload}</div>`;
+      return `<div class="input-item" data-input-id="${esc(e.id)}" title="Click to add as Upload node">
+        <div class="file-thumb">${thumb}</div>
+        <div class="input-item-meta">
+          <div class="input-item-name">${esc(e.name)}</div>
+          <div class="input-item-kind">${esc(e.kind)}</div>
+        </div>
+        <button class="input-item-delete" data-input-delete="${esc(e.id)}" title="Remove">${ICONS.trash}</button>
+      </div>`;
+    }).join('');
+
+    panel.innerHTML = `
+      <div class="side-section-title">Project inputs</div>
+      <label class="input-drop" id="input-drop">
+        <input type="file" id="input-file" hidden multiple
+               accept="image/*,video/*,audio/*,.srt,.vtt,.ass,.txt"/>
+        <svg width="22" height="22" viewBox="0 0 16 16" fill="none" stroke="currentColor"
+             stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M8 10V3M5 6l3-3 3 3M3 13h10"/>
+        </svg>
+        <div class="input-drop-title">Add input</div>
+        <div class="input-drop-sub">image · video · audio · text · subtitles</div>
+      </label>
+      ${items.length ? itemHtml : '<div class="side-empty">No project inputs yet.<br>Drop files above to share them across nodes.</div>'}
+    `;
+
+    // Seek video thumbs to first frame
+    panel.querySelectorAll('.file-thumb video').forEach(v => {
+      const seek = () => { try { v.currentTime = 0.01; } catch (_) {} };
+      if (v.readyState >= 1) seek();
+      else v.addEventListener('loadedmetadata', seek, { once: true });
+    });
+
+    // File picker
+    const fileInput = panel.querySelector('#input-file');
+    fileInput?.addEventListener('change', async () => {
+      for (const f of fileInput.files || []) await uploadProjectInput(f);
+      fileInput.value = '';
+    });
+
+    // Drag-and-drop onto the drop zone
+    const drop = panel.querySelector('#input-drop');
+    if (drop) {
+      drop.addEventListener('dragover', e => { e.preventDefault(); drop.classList.add('drag'); });
+      drop.addEventListener('dragleave', () => drop.classList.remove('drag'));
+      drop.addEventListener('drop', async e => {
+        e.preventDefault(); drop.classList.remove('drag');
+        for (const f of e.dataTransfer?.files || []) await uploadProjectInput(f);
+      });
+    }
+
+    // Click an input → spawn Upload node; trash icon → delete
+    panel.querySelectorAll('[data-input-id]').forEach(el => {
+      el.addEventListener('click', e => {
+        if (e.target.closest('[data-input-delete]')) return;
+        const id = el.dataset.inputId;
+        const entry = projectInputs.find(x => x.id === id);
+        if (entry) spawnUploadFromInput(entry);
+      });
+    });
+    panel.querySelectorAll('[data-input-delete]').forEach(btn => {
+      btn.addEventListener('click', e => {
+        e.stopPropagation();
+        deleteProjectInput(btn.dataset.inputDelete);
+      });
+    });
   }
 
   function updateInspector() { renderRightPanel(); }
@@ -3091,7 +3292,7 @@ body.right-collapsed .canvas-wrap { right: 0; }
           if (d.ok) {
             selNode.uploadUrl = d.url; selNode.uploadPath = d.path || null; selNode.uploadKind = fileKind; selNode.uploadRatio = null;
             renderNode(selNode); renderRightPanel(); scheduleSave();
-            if (document.getElementById('panel-files')?.style.display !== 'none') renderFilesPanel();
+            if (document.getElementById('panel-output')?.style.display !== 'none') renderFilesPanel();
             toast('Upload done', 'success');
           } else { toast('Upload failed', 'error'); }
         } catch { toast('Upload failed', 'error'); }
@@ -3548,7 +3749,7 @@ body.right-collapsed .canvas-wrap { right: 0; }
         if (d.ok) {
           node.uploadUrl = d.url; node.uploadPath = d.path || null; node.uploadKind = kind; node.uploadRatio = null;
           renderNode(node); renderRightPanel(); scheduleSave();
-          if (document.getElementById('panel-files')?.style.display !== 'none') renderFilesPanel();
+          if (document.getElementById('panel-output')?.style.display !== 'none') renderFilesPanel();
           toast('Upload done', 'success');
         } else { toast('Upload failed', 'error'); }
       } catch { toast('Upload failed', 'error'); }
