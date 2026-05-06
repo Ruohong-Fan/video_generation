@@ -3003,10 +3003,11 @@ body.right-collapsed .canvas-wrap { right: 0; }
   // ── Project-scope variables: {{key}} → value ─────────────────────────
   // Used in any prompt / instruction / Text node — resolved client-side
   // before the body hits an API, so the LLM/CLI only ever sees plain text.
+  // Keys and values may contain Unicode (Chinese, etc.).
   function resolveVars(text) {
     if (!text || typeof text !== 'string') return text;
     if (!projectVars.length) return text;
-    return text.replace(/\{\{\s*([A-Za-z_][\w]*)\s*\}\}/g, (m, key) => {
+    return text.replace(/\{\{\s*([\p{L}\p{N}_]+)\s*\}\}/gu, (m, key) => {
       const v = projectVars.find(p => p.key === key);
       return v ? String(v.value ?? '') : m;  // leave un-matched tokens visible
     });
@@ -3030,8 +3031,12 @@ body.right-collapsed .canvas-wrap { right: 0; }
     const v = projectVars.find(v => v.id === id);
     if (!v) return;
     if (field === 'key') {
-      // Sanitize key to a safe identifier so {{...}} matching is predictable
-      v.key = String(value).replace(/[^A-Za-z0-9_]/g, '_').replace(/^([0-9])/, '_$1');
+      // Allow Unicode letters/digits/underscore so keys like "品牌名" work.
+      // Anything else (spaces, punctuation, braces) becomes "_" so the
+      // {{...}} matcher's identifier rule stays predictable.
+      v.key = String(value)
+        .replace(/[^\p{L}\p{N}_]/gu, '_')
+        .replace(/^(\p{N})/u, '_$1');
     } else {
       v.value = String(value);
     }
@@ -3143,7 +3148,7 @@ body.right-collapsed .canvas-wrap { right: 0; }
       <div class="side-section-title">Project variables</div>
       <div class="var-list">${varRows}</div>
       <button class="var-add" id="var-add">+ Add variable</button>
-      <div class="var-help">Reference anywhere as <code>{{key}}</code> — resolved before the prompt hits any API.</div>
+      <div class="var-help">Reference anywhere as <code>{{key}}</code> — resolved before the prompt hits any API. Keys and values may use Chinese / any Unicode (e.g. <code>{{品牌}}</code>).</div>
 
       <div class="side-section-title">Project inputs</div>
       <label class="input-drop" id="input-drop">
