@@ -75,6 +75,7 @@ PUBLIC_ENDPOINTS = {
     "logout",          # POST /api/logout
     "whoami",          # GET  /api/me
     "static",          # /static/*
+    "i18n_js",         # GET  /i18n.js — needed by the login page itself
     # Media files use UUID-prefixed names and are loaded by <img>/<video>
     # tags that don't carry session cookies on cross-origin requests.
     # Auth-gating these would break previews; the file names act as a
@@ -325,6 +326,11 @@ def index():
 @app.get("/workflow")
 def workflow_view():
     return send_from_directory("web", "workflow.html")
+
+
+@app.get("/i18n.js")
+def i18n_js():
+    return send_from_directory("web", "i18n.js", mimetype="application/javascript")
 
 
 @app.get("/login")
