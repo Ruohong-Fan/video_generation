@@ -300,12 +300,13 @@
   ];
 
   // ── Engine ────────────────────────────────────────────────────────────
-  const dicts = { en: null, zh: ZH };
+  const dicts = { en: {}, zh: ZH };
+  const SUPPORTED = new Set(Object.keys(dicts));
   let lang = (function () {
     try { return localStorage.getItem(STORAGE_KEY) || DEFAULT_LANG; }
     catch { return DEFAULT_LANG; }
   })();
-  if (!dicts[lang]) lang = DEFAULT_LANG;
+  if (!SUPPORTED.has(lang)) lang = DEFAULT_LANG;
 
   // Don't translate text inside these tags
   const SKIP_TAGS = new Set(['SCRIPT', 'STYLE', 'TEXTAREA', 'CODE', 'PRE']);
@@ -381,8 +382,7 @@
   }
 
   function setLang(newLang) {
-    if (!dicts[newLang]) return;
-    if (newLang === lang) return;
+    if (!SUPPORTED.has(newLang) || newLang === lang) return;
     try { localStorage.setItem(STORAGE_KEY, newLang); } catch {}
     location.reload();
   }
