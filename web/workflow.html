@@ -1002,16 +1002,20 @@ body.right-collapsed .canvas-wrap { right: 0; }
   color: var(--fg-0); pointer-events: none;
 }
 .var-wrap .var-token {
+  /* Visual highlight only — must NOT change the layout width of the token
+     text, otherwise the textarea's transparent text and the overlay drift
+     apart and the caret no longer matches the typed character. So: no
+     padding, no margin, no bold weight. background + box-shadow gives the
+     pill look without affecting metrics. */
   background: oklch(0.78 0.145 70 / 0.18);
   color: var(--amber);
   border-radius: 3px;
-  padding: 0 3px;
-  margin: 0 -1px;
-  font-weight: 500;
+  box-shadow: 0 0 0 1px oklch(0.78 0.145 70 / 0.18);
 }
 .var-wrap .var-token.unknown {
   background: oklch(0.70 0.18 25 / 0.15);
   color: oklch(0.78 0.16 25);
+  box-shadow: 0 0 0 1px oklch(0.70 0.18 25 / 0.18);
   text-decoration: underline wavy 1px;
   text-underline-offset: 2px;
 }
