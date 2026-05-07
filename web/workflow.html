@@ -2675,6 +2675,7 @@ body.right-collapsed .canvas-wrap { right: 0; }
 
   // ── Persistence (save/load workflow to server) ──────────────────────────
   let saveTimer = null;
+  let savePending = false;
   let loading = false;
 
   function serialize() {
@@ -2695,17 +2696,50 @@ body.right-collapsed .canvas-wrap { right: 0; }
 
   function scheduleSave() {
     if (loading) return;
+    savePending = true;
     clearTimeout(saveTimer);
-    saveTimer = setTimeout(async () => {
-      try {
-        await fetch(WORKFLOW_API, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(serialize()),
-        });
-      } catch { /* silent */ }
-    }, 600);
+    saveTimer = setTimeout(doSave, 600);
   }
+
+  async function doSave() {
+    saveTimer = null;
+    if (!savePending) return;
+    savePending = false;
+    try {
+      await fetch(WORKFLOW_API, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(serialize()),
+      });
+    } catch { savePending = true; }  // mark dirty so the next scheduler picks it up
+  }
+
+  // Force-persist now (await-able) — used after Input-panel actions where the
+  // user expects "I added it, it's saved" without waiting on the debounce.
+  async function flushSaveNow() {
+    if (loading) return;
+    if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; }
+    savePending = true;
+    await doSave();
+  }
+
+  // Synchronous best-effort save on tab close / reload using fetch keepalive,
+  // so any pending debounced edit still lands on the server.
+  function flushSaveOnUnload() {
+    if (loading || !savePending) return;
+    if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; }
+    savePending = false;
+    try {
+      fetch(WORKFLOW_API, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(serialize()),
+        keepalive: true,
+      });
+    } catch {}
+  }
+  window.addEventListener('beforeunload', flushSaveOnUnload);
+  window.addEventListener('pagehide', flushSaveOnUnload);
 
   // Observe mutations on canvas + edges SVG to catch drags/renders/connections
   const mo = new MutationObserver(scheduleSave);
@@ -3052,7 +3086,7 @@ body.right-collapsed .canvas-wrap { right: 0; }
   function addProjectVar() {
     projectVars.push({ id: 'v' + Math.random().toString(36).slice(2, 10), key: '', value: '' });
     renderInputsPanel();
-    scheduleSave();
+    flushSaveNow();
   }
 
   function deleteProjectVar(id) {
@@ -3060,7 +3094,7 @@ body.right-collapsed .canvas-wrap { right: 0; }
     if (idx < 0) return;
     projectVars.splice(idx, 1);
     renderInputsPanel();
-    scheduleSave();
+    flushSaveNow();
   }
 
   function updateProjectVar(id, field, value) {
@@ -3182,7 +3216,7 @@ body.right-collapsed .canvas-wrap { right: 0; }
       };
       projectInputs.push(entry);
       renderInputsPanel();
-      scheduleSave();
+      await flushSaveNow();
       return entry;
     } catch (err) {
       toast(`Upload failed: ${err.message}`, 'error');
@@ -3205,7 +3239,7 @@ body.right-collapsed .canvas-wrap { right: 0; }
     node.title = entry.name || node.title;
     renderNode(node);
     if (selNode?.id === node.id) renderRightPanel();
-    scheduleSave();
+    flushSaveNow();
   }
 
   function deleteProjectInput(id) {
@@ -3213,7 +3247,7 @@ body.right-collapsed .canvas-wrap { right: 0; }
     if (idx < 0) return;
     projectInputs.splice(idx, 1);
     renderInputsPanel();
-    scheduleSave();
+    flushSaveNow();
   }
 
   function renderInputsPanel() {
