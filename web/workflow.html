@@ -1858,7 +1858,10 @@ body.right-collapsed .canvas-wrap { right: 0; }
 
   function collectInputs(node) {
     const up = upstreamNodes(node.id);
-    const userPrompt = resolveVars(node.prompt || '');
+    // Use the runtime resolver so the user can reference upstream Text
+    // outputs (e.g. {{text}}, {{prev}}, {{node-title}}) directly in their
+    // prompt — same syntax as project variables.
+    const userPrompt = resolveRuntimeVars(node.prompt || '', node);
     let textNodePrompt = '';
     const imageRefs = [];
     const imagePrompts = [];
@@ -1960,7 +1963,7 @@ body.right-collapsed .canvas-wrap { right: 0; }
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'same-origin',
-        body: JSON.stringify({ prompt: resolveVars(node.prompt || ''), inputs }),
+        body: JSON.stringify({ prompt: resolveRuntimeVars(node.prompt || '', node), inputs }),
       });
       const data = await resp.json().catch(() => ({}));
       if (!resp.ok || !data.ok) {
@@ -2064,7 +2067,7 @@ body.right-collapsed .canvas-wrap { right: 0; }
         audio_path: audioPath,
         subtitle_path: subtitlePath,
         watermark_path: watermarkPath,
-        instructions: resolveVars(node.prompt || ''),
+        instructions: resolveRuntimeVars(node.prompt || '', node),
       };
     } else {
       throw new Error('Unsupported node type: ' + node.type);
@@ -3128,6 +3131,50 @@ body.right-collapsed .canvas-wrap { right: 0; }
     });
   }
 
+  function _sanitizeVarKey(s) {
+    return String(s || '')
+      .replace(/[^\p{L}\p{N}_]/gu, '_')
+      .replace(/^(\p{N})/u, '_$1');
+  }
+
+  // Runtime variables visible to a node when it runs:
+  //   - every project variable,
+  //   - each upstream Text node's output, keyed by its (sanitised) title,
+  //   - convenience aliases: `text` and `prev` → most recent upstream Text.
+  // Project vars take precedence over upstream so a user-defined override
+  // beats an accidental name collision with a node title.
+  function collectRuntimeVars(node) {
+    const vars = {};
+    const up = upstreamNodes(node.id);
+    let lastText = '';
+    for (const u of up) {
+      if (u.type !== 'text') continue;
+      const out = textNodeOutput(u);
+      if (!out) continue;
+      const titleKey = _sanitizeVarKey(u.title);
+      if (titleKey) vars[titleKey] = out;
+      lastText = out;
+    }
+    if (lastText) {
+      if (vars.text === undefined) vars.text = lastText;
+      if (vars.prev === undefined) vars.prev = lastText;
+    }
+    // Project vars overlay last so they win on key collisions.
+    for (const v of projectVars) {
+      if (v.key) vars[v.key] = v.value;
+    }
+    return vars;
+  }
+
+  // resolveVars + upstream output substitution. Used when a node runs.
+  function resolveRuntimeVars(text, node) {
+    if (!text || typeof text !== 'string') return text;
+    const vars = collectRuntimeVars(node);
+    return text.replace(/\{\{\s*([\p{L}\p{N}_]+)\s*\}\}/gu, (m, key) => (
+      vars[key] !== undefined ? String(vars[key] ?? '') : m
+    ));
+  }
+
   function addProjectVar() {
     projectVars.push({ id: 'v' + Math.random().toString(36).slice(2, 10), key: '', value: '' });
     renderInputsPanel();
@@ -3165,13 +3212,27 @@ body.right-collapsed .canvas-wrap { right: 0; }
   // {{key}} wrapped in a styled <span>. A MutationObserver auto-attaches
   // the overlay whenever the inspector renders a new textarea.
   const _VAR_RE_HL = /\{\{\s*([\p{L}\p{N}_]+)\s*\}\}/gu;
-  function _varOverlayHtml(text) {
+  function _varOverlayHtml(text, contextNode) {
     const escapeHtml = s => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    // A key is "known" if it matches a project variable OR an upstream
+    // Text-node alias (title, plus the `text`/`prev` shorthand).
+    const upstreamKeys = new Set();
+    if (contextNode) {
+      const up = upstreamNodes(contextNode.id);
+      let hasText = false;
+      for (const u of up) {
+        if (u.type !== 'text') continue;
+        const tk = _sanitizeVarKey(u.title);
+        if (tk) upstreamKeys.add(tk);
+        hasText = true;
+      }
+      if (hasText) { upstreamKeys.add('text'); upstreamKeys.add('prev'); }
+    }
     let out = '', last = 0, m;
     _VAR_RE_HL.lastIndex = 0;
     while ((m = _VAR_RE_HL.exec(text)) !== null) {
       out += escapeHtml(text.slice(last, m.index));
-      const known = projectVars.some(v => v.key === m[1]);
+      const known = projectVars.some(v => v.key === m[1]) || upstreamKeys.has(m[1]);
       out += `<span class="var-token${known ? '' : ' unknown'}">${escapeHtml(m[0])}</span>`;
       last = _VAR_RE_HL.lastIndex;
     }
@@ -3194,7 +3255,7 @@ body.right-collapsed .canvas-wrap { right: 0; }
     wrap.appendChild(overlay);
     wrap.appendChild(textarea);
 
-    const update = () => { overlay.innerHTML = _varOverlayHtml(textarea.value); };
+    const update = () => { overlay.innerHTML = _varOverlayHtml(textarea.value, selNode); };
     const syncScroll = () => {
       overlay.scrollTop = textarea.scrollTop;
       overlay.scrollLeft = textarea.scrollLeft;
@@ -3210,7 +3271,7 @@ body.right-collapsed .canvas-wrap { right: 0; }
   function refreshAllVarHighlights() {
     document.querySelectorAll('.var-wrap > textarea.field-textarea').forEach(t => {
       const overlay = t.parentNode.querySelector(':scope > .var-overlay');
-      if (overlay) overlay.innerHTML = _varOverlayHtml(t.value);
+      if (overlay) overlay.innerHTML = _varOverlayHtml(t.value, selNode);
     });
   }
 
