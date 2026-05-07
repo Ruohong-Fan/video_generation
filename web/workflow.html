@@ -977,47 +977,53 @@ body.right-collapsed .canvas-wrap { right: 0; }
 .field-textarea { resize: vertical; min-height: 80px; line-height: 1.5; }
 
 /* Inline {{var}} highlighting in prompt/instruction textareas.
-   The textarea itself is transparent-text but keeps its caret + selection;
-   an absolutely-positioned overlay renders the same content with span
-   tokens around each {{key}}. Padding/border/font here MUST stay in sync
-   with .field-textarea above so the overlay text aligns exactly. */
-.var-wrap { position: relative; display: block; }
+   Strategy: leave the textarea's TEXT fully visible (it's the source of
+   truth). An absolutely-positioned overlay sits BEHIND the textarea
+   rendering the same content with color:transparent, but the {{var}}
+   spans carry a visible background. The textarea has a transparent
+   background so the var-token boxes show through as highlight pills
+   behind the typed tokens.
+   The padding/border/font on the overlay must match .field-textarea
+   exactly so each highlight box lines up with the typed token. */
+.var-wrap {
+  position: relative; display: block;
+  /* Wrap takes over the visual surface so the textarea above can be
+     transparent without losing the "textbox" look. */
+  background: var(--bg-0);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  transition: border-color 0.12s;
+}
+.var-wrap:focus-within { border-color: var(--amber); }
 .var-wrap > textarea.field-textarea {
   position: relative; z-index: 2;
   background: transparent;
-  color: transparent;
-  caret-color: var(--fg-0);
-}
-.var-wrap > textarea.field-textarea::selection {
-  background: oklch(0.78 0.145 70 / 0.28);
-  color: transparent;
+  border: 1px solid transparent;  /* preserve metrics — the wrap shows the real border */
+  /* Text and caret stay default-coloured so what the user typed is what
+     they see. */
 }
 .var-wrap .var-overlay {
   position: absolute; inset: 0; z-index: 1;
-  border: 1px solid transparent;  /* match .field-textarea border so text aligns */
+  border: 1px solid transparent;  /* match the textarea's reserved border slot */
   border-radius: 6px;
   padding: 8px 10px;
   font-family: inherit; font-size: 12px; line-height: 1.5;
   white-space: pre-wrap; word-wrap: break-word; overflow: hidden;
-  color: var(--fg-0); pointer-events: none;
+  color: transparent;             /* invisible — only var-token backgrounds show */
+  pointer-events: none;
 }
 .var-wrap .var-token {
-  /* Visual highlight only — must NOT change the layout width of the token
-     text, otherwise the textarea's transparent text and the overlay drift
-     apart and the caret no longer matches the typed character. So: no
-     padding, no margin, no bold weight. background + box-shadow gives the
-     pill look without affecting metrics. */
-  background: oklch(0.78 0.145 70 / 0.18);
-  color: var(--amber);
+  /* Highlight box for {{key}} occurrences. Painted on the overlay layer
+     under the textarea, visible through the textarea's transparent
+     background. Must NOT alter token width — see metric note in
+     commit 39af5c4. */
+  background: oklch(0.78 0.145 70 / 0.22);
   border-radius: 3px;
-  box-shadow: 0 0 0 1px oklch(0.78 0.145 70 / 0.18);
+  box-shadow: 0 0 0 1px oklch(0.78 0.145 70 / 0.22);
 }
 .var-wrap .var-token.unknown {
-  background: oklch(0.70 0.18 25 / 0.15);
-  color: oklch(0.78 0.16 25);
-  box-shadow: 0 0 0 1px oklch(0.70 0.18 25 / 0.18);
-  text-decoration: underline wavy 1px;
-  text-underline-offset: 2px;
+  background: oklch(0.70 0.18 25 / 0.18);
+  box-shadow: 0 0 0 1px oklch(0.70 0.18 25 / 0.22);
 }
 .field-helper { font-size: 10.5px; color: var(--fg-3); margin-top: 4px; line-height: 1.4; }
 .generated-text {
