@@ -2839,11 +2839,13 @@ body.right-collapsed .canvas-wrap { right: 0; }
     } finally {
       loading = false;
     }
-    // Re-render any side panel that's already visible — projectInputs /
-    // projectVars only landed in the in-memory arrays just now, so any
-    // earlier render of those panels showed stale (empty) state.
-    if (document.getElementById('panel-input')?.style.display !== 'none')   renderInputsPanel();
-    if (document.getElementById('panel-output')?.style.display !== 'none')  renderFilesPanel();
+    // Re-render side panels now that projectInputs / projectVars / results
+    // have actually landed in memory. Both renderers are cheap and write to
+    // hidden panels safely, so we always run them — the visibility check
+    // I had here was racy (the panel could be made visible mid-frame after
+    // loadWorkflow finished but before the user's click was processed).
+    renderInputsPanel();
+    renderFilesPanel();
     repairResults();
   }
 
