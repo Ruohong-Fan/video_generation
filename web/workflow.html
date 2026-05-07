@@ -2142,6 +2142,29 @@ body.right-collapsed .canvas-wrap { right: 0; }
     }
   }
 
+  // Walk upstream from `id` and return every transitive ancestor that:
+  //   - is non-passive (so Upload sources don't get treated as runnable)
+  //   - has no result yet (already-run nodes are not re-run)
+  // The returned list is unordered; runGraph topo-sorts internally.
+  function _collectUnrunAncestors(id) {
+    const need = [];
+    const seen = new Set([id]);
+    const queue = [id];
+    while (queue.length) {
+      const cur = queue.shift();
+      for (const e of edges) {
+        if (e.toId !== cur || seen.has(e.fromId)) continue;
+        seen.add(e.fromId);
+        queue.push(e.fromId);
+        const up = nodes.get(e.fromId);
+        if (!up || PASSIVE_TYPES.has(up.type)) continue;
+        const hasResult = Array.isArray(up.results) && up.results.length > 0;
+        if (!hasResult) need.push(e.fromId);
+      }
+    }
+    return need;
+  }
+
   async function runNode(id) {
     const node = nodes.get(id);
     if (!node) return;
@@ -2158,6 +2181,17 @@ body.right-collapsed .canvas-wrap { right: 0; }
       toast('Already running', '');
       return;
     }
+
+    // Cascade: any non-passive upstream that doesn't have a result yet must
+    // run first — otherwise an Image node fed by an unrun Text node would
+    // see an empty (or instruction-only) prompt instead of the script the
+    // user expects. Walks transitively, skips already-run ancestors, and
+    // delegates to runGraph for proper topo ordering + status tracking.
+    const ancestorsToRun = _collectUnrunAncestors(id);
+    if (ancestorsToRun.length) {
+      return runGraph([...ancestorsToRun, id]);
+    }
+
     try {
       setNodeStatus(id, 'queued', { error: null, queueIdx: null });
       const submitResult = await startTask(node);
