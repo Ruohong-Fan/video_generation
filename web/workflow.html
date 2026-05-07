@@ -2839,6 +2839,11 @@ body.right-collapsed .canvas-wrap { right: 0; }
     } finally {
       loading = false;
     }
+    // Re-render any side panel that's already visible — projectInputs /
+    // projectVars only landed in the in-memory arrays just now, so any
+    // earlier render of those panels showed stale (empty) state.
+    if (document.getElementById('panel-input')?.style.display !== 'none')   renderInputsPanel();
+    if (document.getElementById('panel-output')?.style.display !== 'none')  renderFilesPanel();
     repairResults();
   }
 
