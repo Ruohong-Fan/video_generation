@@ -975,6 +975,46 @@ body.right-collapsed .canvas-wrap { right: 0; }
 }
 .field-input:focus, .field-textarea:focus, .field-select:focus { border-color: var(--amber); }
 .field-textarea { resize: vertical; min-height: 80px; line-height: 1.5; }
+
+/* Inline {{var}} highlighting in prompt/instruction textareas.
+   The textarea itself is transparent-text but keeps its caret + selection;
+   an absolutely-positioned overlay renders the same content with span
+   tokens around each {{key}}. Padding/border/font here MUST stay in sync
+   with .field-textarea above so the overlay text aligns exactly. */
+.var-wrap { position: relative; display: block; }
+.var-wrap > textarea.field-textarea {
+  position: relative; z-index: 2;
+  background: transparent;
+  color: transparent;
+  caret-color: var(--fg-0);
+}
+.var-wrap > textarea.field-textarea::selection {
+  background: oklch(0.78 0.145 70 / 0.28);
+  color: transparent;
+}
+.var-wrap .var-overlay {
+  position: absolute; inset: 0; z-index: 1;
+  border: 1px solid transparent;  /* match .field-textarea border so text aligns */
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-family: inherit; font-size: 12px; line-height: 1.5;
+  white-space: pre-wrap; word-wrap: break-word; overflow: hidden;
+  color: var(--fg-0); pointer-events: none;
+}
+.var-wrap .var-token {
+  background: oklch(0.78 0.145 70 / 0.18);
+  color: var(--amber);
+  border-radius: 3px;
+  padding: 0 3px;
+  margin: 0 -1px;
+  font-weight: 500;
+}
+.var-wrap .var-token.unknown {
+  background: oklch(0.70 0.18 25 / 0.15);
+  color: oklch(0.78 0.16 25);
+  text-decoration: underline wavy 1px;
+  text-underline-offset: 2px;
+}
 .field-helper { font-size: 10.5px; color: var(--fg-3); margin-top: 4px; line-height: 1.4; }
 .generated-text {
   padding: 10px 12px; background: var(--bg-0); border: 1px solid var(--line);
@@ -3036,8 +3076,75 @@ body.right-collapsed .canvas-wrap { right: 0; }
     } else {
       v.value = String(value);
     }
+    refreshAllVarHighlights();  // valid/unknown styling depends on the dict
     scheduleSave();
   }
+
+  // ── Inline {{var}} highlighting inside .field-textarea ───────────────
+  // The textarea text itself is rendered transparent (caret/selection still
+  // visible); an absolutely-positioned overlay shows the same text with each
+  // {{key}} wrapped in a styled <span>. A MutationObserver auto-attaches
+  // the overlay whenever the inspector renders a new textarea.
+  const _VAR_RE_HL = /\{\{\s*([\p{L}\p{N}_]+)\s*\}\}/gu;
+  function _varOverlayHtml(text) {
+    const escapeHtml = s => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    let out = '', last = 0, m;
+    _VAR_RE_HL.lastIndex = 0;
+    while ((m = _VAR_RE_HL.exec(text)) !== null) {
+      out += escapeHtml(text.slice(last, m.index));
+      const known = projectVars.some(v => v.key === m[1]);
+      out += `<span class="var-token${known ? '' : ' unknown'}">${escapeHtml(m[0])}</span>`;
+      last = _VAR_RE_HL.lastIndex;
+    }
+    out += escapeHtml(text.slice(last));
+    return out + '\n';  // trailing newline keeps the overlay's last-line height
+  }
+
+  function setupVarHighlight(textarea) {
+    if (!textarea || textarea.dataset.varHighlight === '1') return;
+    if (!textarea.classList.contains('field-textarea')) return;
+    textarea.dataset.varHighlight = '1';
+
+    const wrap = document.createElement('div');
+    wrap.className = 'var-wrap';
+    const overlay = document.createElement('div');
+    overlay.className = 'var-overlay';
+    overlay.setAttribute('aria-hidden', 'true');
+
+    textarea.parentNode.insertBefore(wrap, textarea);
+    wrap.appendChild(overlay);
+    wrap.appendChild(textarea);
+
+    const update = () => { overlay.innerHTML = _varOverlayHtml(textarea.value); };
+    const syncScroll = () => {
+      overlay.scrollTop = textarea.scrollTop;
+      overlay.scrollLeft = textarea.scrollLeft;
+    };
+    textarea.addEventListener('input', () => { update(); syncScroll(); });
+    textarea.addEventListener('scroll', syncScroll);
+    if (typeof ResizeObserver !== 'undefined') {
+      new ResizeObserver(syncScroll).observe(textarea);
+    }
+    update();
+  }
+
+  function refreshAllVarHighlights() {
+    document.querySelectorAll('.var-wrap > textarea.field-textarea').forEach(t => {
+      const overlay = t.parentNode.querySelector(':scope > .var-overlay');
+      if (overlay) overlay.innerHTML = _varOverlayHtml(t.value);
+    });
+  }
+
+  // Auto-attach overlay to any field-textarea added by the inspector / panels.
+  new MutationObserver(muts => {
+    for (const mut of muts) {
+      for (const n of mut.addedNodes) {
+        if (n.nodeType !== 1) continue;
+        if (n.matches?.('.field-textarea')) setupVarHighlight(n);
+        n.querySelectorAll?.('.field-textarea').forEach(setupVarHighlight);
+      }
+    }
+  }).observe(document.body, { childList: true, subtree: true });
 
   // ── Project-scope inputs (Input tab) ─────────────────────────────────
   // Detect the "kind" of an uploaded asset from its MIME / extension so the
