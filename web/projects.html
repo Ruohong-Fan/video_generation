@@ -849,6 +849,7 @@ body {
           <button class="btn primary" id="share-add" style="flex:0 0 auto">Add</button>
         </div>
         <div class="field-helper" id="share-error" style="color:oklch(0.78 0.16 25); display:none; margin-top:6px"></div>
+        <div class="field-helper" id="share-success" style="color:oklch(0.85 0.16 145); display:none; margin-top:6px"></div>
       </div>
       <div>
         <label class="field-label" style="display:block; margin-bottom:6px">Members</label>
@@ -1152,6 +1153,7 @@ body {
     document.getElementById('share-subtitle').textContent =
       'Share "' + p.name + '" with collaborators by email.';
     document.getElementById('share-error').style.display = 'none';
+    document.getElementById('share-success').style.display = 'none';
     document.getElementById('share-email').value = '';
     document.getElementById('share-perm').value = 'view';
     document.getElementById('share-overlay').style.display = '';
@@ -1259,6 +1261,12 @@ body {
     const ok = await shareWith(shareCurrentId, email, perm);
     if (ok) {
       document.getElementById('share-email').value = '';
+      // Inline confirmation right under the input — much harder to miss
+      // than the bottom-right toast when attention is on the modal.
+      const sx = document.getElementById('share-success');
+      sx.textContent = '✓ Added ' + email + ' (' + (perm === 'edit' ? 'edit' : 'view') + ')';
+      sx.style.display = '';
+      setTimeout(() => { if (sx) sx.style.display = 'none'; }, 3000);
       toast('Shared with ' + email + ' (' + (perm === 'edit' ? 'edit' : 'view') + ')', 'success');
     }
   });

@@ -1334,16 +1334,11 @@ body.view-only .field-textarea[data-field="prompt"] { cursor: not-allowed; }
 
   // Decorate <body> so the CSS can lock down node-editing affordances when
   // the user only has view access. Run + Input-tab actions stay enabled —
-  // they're explicitly part of view-mode.
+  // they're explicitly part of view-mode. The disabled-state styling on
+  // the controls themselves is enough to signal mode to the user; we don't
+  // need a top-of-page banner.
   function applyAccessMode() {
     document.body.classList.toggle('view-only', isViewOnly());
-    if (isViewOnly() && !document.getElementById('readonly-banner')) {
-      const b = document.createElement('div');
-      b.id = 'readonly-banner';
-      b.textContent = 'View only — you can run nodes and edit project inputs, but not the node graph.';
-      b.style.cssText = 'position:fixed;left:50%;top:60px;transform:translateX(-50%);z-index:9000;padding:6px 14px;background:oklch(0.65 0.18 200 / 0.18);color:oklch(0.85 0.18 200);border:1px solid oklch(0.65 0.18 200 / 0.4);border-radius:999px;font:600 11px/1 system-ui,sans-serif;letter-spacing:0.04em;text-transform:uppercase;backdrop-filter:blur(8px);max-width:90vw;text-align:center';
-      document.body.appendChild(b);
-    }
   }
 
   // ── State ────────────────────────────────────────────────────────────────
@@ -1480,7 +1475,7 @@ body.view-only .field-textarea[data-field="prompt"] { cursor: not-allowed; }
         ratio: '16:9',
         resolution: type === 'video' ? '720P' : '2k',
         modelVersion: 'seedance2.0',
-        videoMode: 'auto',  // video node: 'auto' | 'T2V' | 'I2V' | 'MM2V'
+        videoMode: 'T2V',  // video node: 'T2V' | 'I2V' | 'R2V' (reference-to-video)
       },
       status: 'idle',
       results: [],    // [{ url, kind, localPath, ts }] — newest last
@@ -1889,25 +1884,16 @@ body.view-only .field-textarea[data-field="prompt"] { cursor: not-allowed; }
     return edges.filter(e => e.toId === id).map(e => nodes.get(e.fromId)).filter(Boolean);
   }
 
-  // Returns the effective generation mode for a video node:
-  //   'MM2V' / 'I2V' / 'T2V' depending on the explicit override (when not 'auto')
-  //   or, in auto mode, derived from whether any image reference is connected.
-  // Used for the node-foot mode badge and the run dispatcher.
+  // Returns the user-selected generation mode for a video node:
+  //   'T2V' | 'I2V' | 'R2V' (Reference-to-Video / 全能参考).
+  // Legacy values: nodes saved before the chip-selector existed may carry
+  // 'auto' or 'MM2V' — map them to a sensible explicit choice.
   function videoMode(node) {
     if (node.type !== 'video') return '';
-    const override = node.params?.videoMode;
-    if (override && override !== 'auto') return override;
-    if (node.uploadPath || node.uploadUrl) return 'I2V';
-    for (const u of upstreamNodes(node.id)) {
-      // Only image-typed uploads count — video/audio uploads cannot serve as
-      // an I2V first frame and would break the dreamina --image flag.
-      if (u.type === 'upload' && u.uploadKind === 'image') return 'I2V';
-      if (u.type !== 'image') continue;
-      const last = u.results?.[u.results.length - 1];
-      if (last?.kind === 'image' && (last.localPath || last.url)) return 'I2V';
-      if (u.uploadUrl) return 'I2V';
-    }
-    return 'T2V';
+    const v = node.params?.videoMode;
+    if (v === 'I2V' || v === 'T2V' || v === 'R2V') return v;
+    if (v === 'MM2V') return 'R2V';  // legacy rename
+    return 'T2V';                    // legacy 'auto' / missing → default
   }
 
   // Pull the most recent generated text from a Text node, falling back to its prompt.
@@ -2050,10 +2036,10 @@ body.view-only .field-textarea[data-field="prompt"] { cursor: not-allowed; }
       }
     } else if (node.type === 'video') {
       const mode = videoMode(node);
-      if (mode === 'MM2V') {
-        if (!imageRef) throw new Error('multimodal mode requires an image reference (connect an Image/Upload node or upload a file)');
+      if (mode === 'R2V') {
+        if (!imageRef) throw new Error('R2V (reference) mode requires an image reference (connect an Image/Upload node or upload a file)');
         const mmPrompt = prompt || imagePrompts.join(', ');
-        if (!mmPrompt) throw new Error('multimodal mode requires a prompt');
+        if (!mmPrompt) throw new Error('R2V (reference) mode requires a prompt');
         endpoint = '/api/multimodal2video';
         body = {
           image: imageRef,
@@ -3928,9 +3914,9 @@ body.view-only .field-textarea[data-field="prompt"] { cursor: not-allowed; }
       const ph = {
         text:'Write a 30s product script highlighting the selling points above…',
         image:'A misty mountain at dawn…',
-        video: vMode === 'MM2V' ? 'Describe the scene; the reference image guides style/subject…'
-             : vMode === 'I2V'  ? 'Camera slowly pushes in, leaves rustle in the breeze…'
-                                : 'A fox sitting in a snowy forest, cinematic 4K…',
+        video: vMode === 'R2V' ? 'Describe the scene; the reference image guides style/subject…'
+             : vMode === 'I2V' ? 'Camera slowly pushes in, leaves rustle in the breeze…'
+                               : 'A fox sitting in a snowy forest, cinematic 4K…',
       }[node.type] || '';
       const lbl = node.type === 'text' ? 'Instruction' : 'Prompt';
       let helper = '';
@@ -3938,9 +3924,9 @@ body.view-only .field-textarea[data-field="prompt"] { cursor: not-allowed; }
         helper = `<div class="field-helper">The model receives all upstream inputs (text · images · video refs) plus this instruction.</div>`;
       } else if (node.type === 'video') {
         const helperText = {
-          MM2V: 'Multimodal (全能参考) — uses the reference image plus this prompt to compose a brand-new scene.',
-          I2V:  'I2V mode — describes motion applied to the upstream image (optional).',
-          T2V:  'T2V mode — connect an Image node to switch to I2V, or pick MM2V to combine image + prompt.',
+          R2V:  'R2V (全能参考) — uses the reference image plus this prompt to compose a brand-new scene.',
+          I2V:  'I2V — describes motion applied to the upstream image (optional).',
+          T2V:  'T2V — text-only generation; no image reference is needed.',
         }[vMode] || '';
         const color = vMode === 'T2V' ? '' : 'color:var(--amber)';
         helper = `<div class="field-helper" style="${color}">${helperText}</div>`;
@@ -3966,13 +3952,13 @@ body.view-only .field-textarea[data-field="prompt"] { cursor: not-allowed; }
 
     // Mode chips (video) — Auto auto-detects T2V/I2V from connections; MM2V is multimodal2video (全能参考)
     if (node.type === 'video') {
-      const cur = node.params.videoMode || 'auto';
-      const effective = videoMode(node);
+      // Resolve to one of {T2V, I2V, R2V} so the chip always shows a real
+      // selection (legacy 'auto' / 'MM2V' values are mapped by videoMode()).
+      const cur = videoMode(node);
       const modes = [
-        ['auto', cur === 'auto' ? `Auto · ${effective}` : 'Auto'],
-        ['T2V',  'T2V'],
-        ['I2V',  'I2V'],
-        ['MM2V', 'MM2V (全能参考)'],
+        ['T2V', 'T2V'],
+        ['I2V', 'I2V'],
+        ['R2V', 'R2V (全能参考)'],
       ];
       f += `<div class="field">
         <label class="field-label">Mode</label>

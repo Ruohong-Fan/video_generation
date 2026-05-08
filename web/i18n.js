@@ -83,6 +83,25 @@
     'Cancel': '取消',
     'Create project': '创建项目',
     'Save': '保存',
+    'Share': '分享',
+    'Share…': '分享…',
+    'Share this project': '分享该项目',
+    'Add a collaborator': '添加协作者',
+    'Members': '成员',
+    'View': '浏览',
+    'Edit': '编辑',
+    'Read': '浏览',
+    'Read & write': '编辑',
+    'Add': '添加',
+    'Close': '关闭',
+    'Email is required': '请填写邮箱',
+    'Loading…': '加载中…',
+    'No collaborators yet — invite someone above.': '暂无协作者 — 请在上方邀请。',
+    'owner': '所有者',
+    'view': '浏览',
+    'edit': '编辑',
+    'shared · view': '已分享 · 浏览',
+    'shared · edit': '已分享 · 编辑',
     'Delete this project?': '确定删除该项目?',
     'This permanently removes the canvas, generated outputs, and run history. This cannot be undone':
       '将永久删除画布、生成内容和运行记录,此操作不可撤销',
@@ -288,6 +307,17 @@
     [/^Duplicate failed:\s*(.+)$/, '复制失败: $1'],
     [/^Delete failed:\s*(.+)$/, '删除失败: $1'],
     [/^Renamed to\s+"(.+)"$/, '已重命名为 "$1"'],
+    [/^Shared with\s+(\S+)\s*\((view|edit|read|read & write)\)$/i, (_m, who, perm) => {
+      const map = { view: '浏览', read: '浏览', edit: '编辑', 'read & write': '编辑' };
+      return '已与 ' + who + ' 分享(' + (map[perm.toLowerCase()] || perm) + ')';
+    }],
+    [/^Removed\s+(\S+)$/, '已移除 $1'],
+    [/^(\S+)\s+→\s+(view|edit|read|read & write)$/i, (_m, who, perm) => {
+      const map = { view: '浏览', read: '浏览', edit: '编辑', 'read & write': '编辑' };
+      return who + ' → ' + (map[perm.toLowerCase()] || perm);
+    }],
+    [/^Remove failed:\s*(.+)$/, '移除失败: $1'],
+    [/^Added\s+(\S+)$/, '已添加 $1'],
     [/^(\w+)\s+done$/i, (_m, k) => {
       const map = { text: '文本', image: '图像', video: '视频', audio: '音频', edit: '剪辑', upload: '上传' };
       return (map[k.toLowerCase()] || k) + '完成';
