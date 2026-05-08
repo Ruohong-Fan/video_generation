@@ -441,6 +441,52 @@ body {
 }
 .modal-head p { margin: 4px 0 0; color: var(--muted); font-size: 13px; }
 .modal-body { padding: 14px 22px; }
+.share-member-list {
+  display: flex; flex-direction: column; gap: 4px;
+  max-height: 260px; overflow-y: auto;
+  background: var(--bg-1); border: 1px solid var(--border);
+  border-radius: 8px; padding: 4px;
+}
+.share-member-list:empty { display: none; }
+.share-member-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 6px 8px; border-radius: 6px;
+  font-size: 12px;
+}
+.share-member-row + .share-member-row { border-top: 1px solid var(--border); }
+.share-member-row .who { flex: 1; min-width: 0; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.share-member-row .role {
+  flex: 0 0 auto;
+  font-size: 10px; font-family: var(--type-mono); text-transform: uppercase;
+  padding: 2px 6px; border-radius: 4px;
+  background: var(--surface2); color: var(--muted);
+}
+.share-member-row .role.owner { background: oklch(0.78 0.145 70 / 0.18); color: var(--amber); }
+.share-member-row .role.write { background: oklch(0.65 0.18 145 / 0.15); color: oklch(0.85 0.16 145); }
+.share-member-row select.role-select {
+  flex: 0 0 auto; padding: 4px 8px; font-size: 11px;
+  background: var(--surface2); color: var(--text);
+  border: 1px solid var(--border); border-radius: 4px; outline: none;
+}
+.share-member-row .remove-btn {
+  flex: 0 0 auto; width: 24px; height: 24px;
+  background: transparent; color: var(--muted);
+  border: 1px solid transparent; border-radius: 4px;
+  display: grid; place-items: center; cursor: pointer;
+}
+.share-member-row .remove-btn:hover { color: oklch(0.78 0.16 25); border-color: oklch(0.78 0.16 25 / 0.4); }
+.share-empty { padding: 18px 12px; text-align: center; color: var(--muted); font-size: 11px; }
+
+.role-badge {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 9px; font-family: var(--type-mono); text-transform: uppercase;
+  padding: 2px 6px; border-radius: 4px;
+  background: var(--surface2); color: var(--muted);
+  margin-left: 6px;
+}
+.role-badge.shared { background: oklch(0.65 0.18 200 / 0.15); color: oklch(0.85 0.18 200); }
+.role-badge.read { background: oklch(0.65 0.18 200 / 0.15); color: oklch(0.85 0.18 200); }
+.role-badge.write { background: oklch(0.65 0.18 145 / 0.15); color: oklch(0.85 0.16 145); }
 .modal-foot {
   display: flex; justify-content: flex-end; gap: 8px;
   padding: 14px 22px 18px;
@@ -771,12 +817,46 @@ body {
   <div class="ctx-item" id="ctx-fav">
     <svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor" stroke="none"><path d="M9 2L3 9h4l-1 5 6-7H8l1-5z"/></svg>Toggle favorite
   </div>
+  <div class="ctx-item" id="ctx-share">
+    <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="4" cy="8" r="2"/><circle cx="12" cy="4" r="2"/><circle cx="12" cy="12" r="2"/><path d="M5.7 7.1l4.6-2.2M5.7 8.9l4.6 2.2"/></svg>Share…
+  </div>
   <div class="ctx-sep"></div>
   <div class="ctx-item" id="ctx-archive">
     <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2 5a1 1 0 0 1 1-1h3l1.5 1.5H13a1 1 0 0 1 1 1V12a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V5z"/></svg><span id="ctx-archive-label">Archive</span>
   </div>
   <div class="ctx-item danger" id="ctx-delete">
     <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M3 4.5h10M6 4.5V3a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v1.5M5 4.5v8a1 1 0 0 0 1 1h4a1 1 0 0 0 1-1v-8"/></svg>Delete
+  </div>
+</div>
+
+<!-- Share modal -->
+<div class="modal-overlay" id="share-overlay" style="display:none">
+  <div class="modal" style="width:460px">
+    <div class="modal-head">
+      <h2>Share this project</h2>
+      <p id="share-subtitle">Invite collaborators by email and pick the access level for each.</p>
+    </div>
+    <div class="modal-body">
+      <div class="field" style="margin-bottom:14px">
+        <label class="field-label">Add a collaborator</label>
+        <div style="display:flex; gap:6px">
+          <input class="field-input" type="email" id="share-email" placeholder="collaborator@example.com" autocomplete="off" style="flex:1; min-width:0"/>
+          <select class="field-input" id="share-perm" style="flex:0 0 auto; width:auto">
+            <option value="read">Read</option>
+            <option value="write">Read &amp; write</option>
+          </select>
+          <button class="btn primary" id="share-add" style="flex:0 0 auto">Add</button>
+        </div>
+        <div class="field-helper" id="share-error" style="color:oklch(0.78 0.16 25); display:none; margin-top:6px"></div>
+      </div>
+      <div>
+        <label class="field-label" style="display:block; margin-bottom:6px">Members</label>
+        <div id="share-members" class="share-member-list"></div>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn ghost" id="share-close">Close</button>
+    </div>
   </div>
 </div>
 
@@ -839,6 +919,7 @@ body {
 
   // ── Project list ──────────────────────────────────────────────────────────
   let projects = {};
+  let currentUser = null;  // populated from /api/me; used to compute project roles
 
   async function loadProjects() {
     try {
@@ -984,7 +1065,7 @@ body {
         </button>
       </div>
       <div class="p-card-body">
-        <div class="p-card-title">${esc(project.name)}</div>
+        <div class="p-card-title">${esc(project.name)}${roleBadgeHtml(project)}</div>
         <div class="p-card-meta">${ts ? timeAgo(ts) : 'Just created'}</div>
         ${tagsHtml ? `<div class="p-card-tags">${tagsHtml}</div>` : ''}
       </div>
@@ -1045,6 +1126,141 @@ body {
     renderGrid();
   }
 
+  // ── Project sharing / ACL ────────────────────────────────────────────
+  function roleOf(project) {
+    return project?.your_role || (project?.owner === currentUser ? 'owner' : null);
+  }
+
+  function roleBadgeHtml(project) {
+    const role = roleOf(project);
+    if (!role || role === 'owner') return '';
+    if (role === 'write') return '<span class="role-badge write">shared · write</span>';
+    return '<span class="role-badge read">shared · read</span>';
+  }
+
+  let shareCurrentId = null;
+
+  async function openShareModal(id) {
+    const p = projects[id];
+    if (!p) return;
+    if (roleOf(p) !== 'owner') {
+      toast('Only the owner can share this project', 'error');
+      return;
+    }
+    shareCurrentId = id;
+    document.getElementById('share-subtitle').textContent =
+      'Share "' + p.name + '" with collaborators by email.';
+    document.getElementById('share-error').style.display = 'none';
+    document.getElementById('share-email').value = '';
+    document.getElementById('share-perm').value = 'read';
+    document.getElementById('share-overlay').style.display = 'flex';
+    await loadShareMembers(id);
+  }
+
+  function closeShareModal() {
+    shareCurrentId = null;
+    document.getElementById('share-overlay').style.display = 'none';
+  }
+
+  async function loadShareMembers(id) {
+    const list = document.getElementById('share-members');
+    list.innerHTML = '<div class="share-empty">Loading…</div>';
+    try {
+      const r = await fetch('/api/projects/' + encodeURIComponent(id) + '/members');
+      const d = await r.json();
+      if (!r.ok || !d.ok) throw new Error(d.error || 'Failed to load members');
+      renderShareMembers(d.owner, d.members || []);
+    } catch (e) {
+      list.innerHTML = '<div class="share-empty">' + esc(e.message) + '</div>';
+    }
+  }
+
+  function renderShareMembers(owner, members) {
+    const list = document.getElementById('share-members');
+    let html = '';
+    if (owner) {
+      html += '<div class="share-member-row">' +
+              '<div class="who">' + esc(owner) + '</div>' +
+              '<span class="role owner">owner</span>' +
+              '</div>';
+    }
+    if (!members.length) {
+      html += '<div class="share-empty">No collaborators yet — invite someone above.</div>';
+    } else {
+      for (const m of members) {
+        const e = esc(m.email);
+        html += '<div class="share-member-row" data-email="' + e + '">' +
+                '<div class="who">' + e + '</div>' +
+                '<select class="role-select" data-share-perm>' +
+                '  <option value="read"' + (m.permission === 'read' ? ' selected' : '') + '>Read</option>' +
+                '  <option value="write"' + (m.permission === 'write' ? ' selected' : '') + '>Read &amp; write</option>' +
+                '</select>' +
+                '<button class="remove-btn" data-share-remove title="Remove">' +
+                '<svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M4 4l8 8M12 4l-8 8"/></svg>' +
+                '</button></div>';
+      }
+    }
+    list.innerHTML = html;
+    list.querySelectorAll('[data-share-remove]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const email = btn.closest('.share-member-row').dataset.email;
+        await unshareWith(shareCurrentId, email);
+      });
+    });
+    list.querySelectorAll('[data-share-perm]').forEach(sel => {
+      sel.addEventListener('change', async () => {
+        const email = sel.closest('.share-member-row').dataset.email;
+        await shareWith(shareCurrentId, email, sel.value);
+      });
+    });
+  }
+
+  async function shareWith(id, email, permission) {
+    const errEl = document.getElementById('share-error');
+    errEl.style.display = 'none';
+    try {
+      const r = await fetch('/api/projects/' + encodeURIComponent(id) + '/members', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ email, permission }),
+      });
+      const d = await r.json();
+      if (!r.ok || !d.ok) throw new Error(d.error || 'Failed to add collaborator');
+      await loadShareMembers(id);
+    } catch (e) {
+      errEl.textContent = e.message;
+      errEl.style.display = '';
+    }
+  }
+
+  async function unshareWith(id, email) {
+    try {
+      const r = await fetch('/api/projects/' + encodeURIComponent(id) +
+                            '/members/' + encodeURIComponent(email),
+                            { method: 'DELETE' });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok || !d.ok) throw new Error(d.error || 'Failed');
+      await loadShareMembers(id);
+    } catch (e) {
+      toast('Remove failed: ' + e.message, 'error');
+    }
+  }
+
+  document.getElementById('share-add').addEventListener('click', async () => {
+    const email = (document.getElementById('share-email').value || '').trim();
+    const perm  = document.getElementById('share-perm').value;
+    const errEl = document.getElementById('share-error');
+    if (!email) { errEl.textContent = 'Email is required'; errEl.style.display = ''; return; }
+    if (!shareCurrentId) return;
+    await shareWith(shareCurrentId, email, perm);
+    if (errEl.style.display === 'none') {
+      document.getElementById('share-email').value = '';
+    }
+  });
+  document.getElementById('share-close').addEventListener('click', closeShareModal);
+  document.getElementById('share-overlay').addEventListener('click', e => {
+    if (e.target.id === 'share-overlay') closeShareModal();
+  });
+
   // ── Context menu ──────────────────────────────────────────────────────────
   const ctxMenu = document.getElementById('ctx-menu');
   let ctxId = null;
@@ -1102,6 +1318,12 @@ body {
   document.getElementById('ctx-fav').addEventListener('click', () => {
     hideCtx();
     if (ctxId) toggleFavorite(ctxId);
+  });
+
+  document.getElementById('ctx-share').addEventListener('click', () => {
+    hideCtx();
+    if (!ctxId || !projects[ctxId]) return;
+    openShareModal(ctxId);
   });
 
   document.getElementById('ctx-archive').addEventListener('click', async () => {
@@ -1391,8 +1613,10 @@ body {
       .then(r => r.json())
       .then(d => {
         if (d?.user) {
+          currentUser = d.user;
           emailEl.textContent = d.user;
           trigger.textContent = (d.user[0] || 'R').toUpperCase();
+          if (typeof renderGrid === 'function') renderGrid();
         }
       }).catch(() => {});
 

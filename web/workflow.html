@@ -1286,11 +1286,46 @@ body.right-collapsed .canvas-wrap { right: 0; }
   const WORKFLOW_API = projectId
     ? '/api/projects/' + encodeURIComponent(projectId) + '/workflow'
     : '/api/workflow';
+
+  // Project role / read-only state. Populated from /api/projects/<pid> below.
+  // 'owner' | 'write' | 'read' | null. We start as 'write' so the UI is
+  // interactive while the role check is still in flight; if it comes back
+  // 'read', applyReadOnlyMode() locks down the editor.
+  let projectRole = 'write';
+  function isReadOnly() { return projectRole === 'read'; }
+
   if (projectId) {
     fetch('/api/projects/' + encodeURIComponent(projectId))
       .then(r => r.json())
-      .then(d => { if (d.ok) document.getElementById('topbar-project').textContent = d.name; })
+      .then(d => {
+        if (d.ok) {
+          document.getElementById('topbar-project').textContent = d.name;
+          projectRole = d.your_role || 'write';
+          applyReadOnlyMode();
+        }
+      })
       .catch(() => {});
+  }
+
+  // Disable mutating affordances when the current user only has read access.
+  // Save / scheduleSave is gated by isReadOnly() too so passive observation
+  // can't accidentally overwrite the owner's workflow.
+  function applyReadOnlyMode() {
+    if (!isReadOnly()) return;
+    document.body.classList.add('read-only');
+    // Add a banner if not already there
+    if (!document.getElementById('readonly-banner')) {
+      const b = document.createElement('div');
+      b.id = 'readonly-banner';
+      b.textContent = 'Read-only — you can view this project but not edit it.';
+      b.style.cssText = 'position:fixed;left:50%;top:60px;transform:translateX(-50%);z-index:9000;padding:6px 14px;background:oklch(0.65 0.18 200 / 0.18);color:oklch(0.85 0.18 200);border:1px solid oklch(0.65 0.18 200 / 0.4);border-radius:999px;font:600 11px/1 system-ui,sans-serif;letter-spacing:0.04em;text-transform:uppercase;backdrop-filter:blur(8px)';
+      document.body.appendChild(b);
+    }
+    // Disable the run buttons.
+    for (const id of ['btn-run-selected', 'btn-run-all']) {
+      const el = document.getElementById(id);
+      if (el) { el.disabled = true; el.style.opacity = '0.5'; el.style.cursor = 'not-allowed'; }
+    }
   }
 
   // ── State ────────────────────────────────────────────────────────────────
@@ -2177,6 +2212,10 @@ body.right-collapsed .canvas-wrap { right: 0; }
   async function runNode(id) {
     const node = nodes.get(id);
     if (!node) return;
+    if (isReadOnly()) {
+      toast('Read-only — ask the project owner for write access', '');
+      return;
+    }
     if (node.type === 'upload') {
       // Upload nodes don't generate — use the upload button (↑) in the node header
       toast('Use the upload button on the node to choose a file', '');
@@ -2743,6 +2782,7 @@ body.right-collapsed .canvas-wrap { right: 0; }
 
   function scheduleSave() {
     if (loading) return;
+    if (isReadOnly()) return;  // read-only viewers must not write back
     savePending = true;
     clearTimeout(saveTimer);
     saveTimer = setTimeout(doSave, 600);
@@ -2765,6 +2805,7 @@ body.right-collapsed .canvas-wrap { right: 0; }
   // user expects "I added it, it's saved" without waiting on the debounce.
   async function flushSaveNow() {
     if (loading) return;
+    if (isReadOnly()) return;
     if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; }
     savePending = true;
     await doSave();

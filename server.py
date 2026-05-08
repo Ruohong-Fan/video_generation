@@ -19,6 +19,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 import requests
+from werkzeug.security import generate_password_hash, check_password_hash
 from flask import (
     Flask,
     Response,
@@ -72,6 +73,7 @@ def require_auth(view):
 PUBLIC_ENDPOINTS = {
     "login_page",      # GET  /login
     "login_submit",    # POST /api/login
+    "signup_submit",   # POST /api/signup
     "logout",          # POST /api/logout
     "whoami",          # GET  /api/me
     "static",          # /static/*
@@ -108,6 +110,7 @@ UPLOAD_DIR.mkdir(exist_ok=True)
 TASKS_FILE = BASE_DIR / "tasks.json"
 WORKFLOW_FILE = BASE_DIR / "workflow.json"
 PROJECTS_FILE = BASE_DIR / "projects.json"
+USERS_FILE = BASE_DIR / "users.json"
 WORKFLOWS_DIR = BASE_DIR / "workflows"
 WORKFLOWS_DIR.mkdir(exist_ok=True)
 POLL_INTERVAL = int(os.environ.get("POLL_INTERVAL_SECONDS", "15"))
@@ -117,9 +120,13 @@ POLL_TIMEOUT = int(os.environ.get("POLL_TIMEOUT_SECONDS", "21600"))  # 6 hours; 
 tasks: dict[str, dict] = {}
 _tasks_lock = threading.Lock()
 
-# project_id -> {name, description, created_at, updated_at}
+# project_id -> {name, description, ..., owner: email, shared_with: {email: 'read'|'write'}}
 projects: dict[str, dict] = {}
 _projects_lock = threading.Lock()
+
+# email -> {password_hash: str, created_at: float}
+users: dict[str, dict] = {}
+_users_lock = threading.Lock()
 
 
 # ── Persistence ───────────────────────────────────────────────────────────────
@@ -167,7 +174,104 @@ def _load_projects():
             projects = {}
 
 
+# ── Users / accounts ──────────────────────────────────────────────────────────
+
+def _save_users():
+    with _users_lock:
+        try:
+            USERS_FILE.write_text(json.dumps(users, indent=2))
+        except Exception:
+            pass
+
+
+def _load_users():
+    global users
+    if USERS_FILE.exists():
+        try:
+            users = json.loads(USERS_FILE.read_text()) or {}
+        except Exception:
+            users = {}
+    else:
+        users = {}
+
+
+def _bootstrap_users():
+    """Make sure the env-defined credential exists as a real account so the
+    legacy single-user setup keeps working after the multi-account migration."""
+    env_email = os.environ.get("REEL_LOGIN_EMAIL", "admin@reel.local").strip().lower()
+    env_pw = os.environ.get("REEL_LOGIN_PASSWORD", "reel")
+    if env_email and env_email not in users:
+        users[env_email] = {
+            "password_hash": generate_password_hash(env_pw),
+            "created_at": time.time(),
+            "is_admin": True,
+        }
+        _save_users()
+
+
+def _migrate_projects():
+    """One-time fixups for projects created before the ownership/ACL fields
+    existed: stamp every project with an owner (the bootstrap account) and an
+    empty shared_with map so authorisation checks have something to look at."""
+    env_email = os.environ.get("REEL_LOGIN_EMAIL", "admin@reel.local").strip().lower()
+    fallback_owner = env_email if env_email in users else (next(iter(users), None))
+    if not fallback_owner:
+        return
+    changed = False
+    for p in projects.values():
+        if not isinstance(p, dict):
+            continue
+        if not p.get("owner"):
+            p["owner"] = fallback_owner
+            changed = True
+        if not isinstance(p.get("shared_with"), dict):
+            p["shared_with"] = {}
+            changed = True
+    if changed:
+        _save_projects()
+
+
+# ── Authorisation helpers ─────────────────────────────────────────────────────
+
+def current_user() -> str | None:
+    return session.get("user")
+
+
+def _get_project(pid: str) -> dict | None:
+    p = projects.get(pid)
+    return p if isinstance(p, dict) else None
+
+
+def user_can_read(pid: str, email: str | None = None) -> bool:
+    email = email or current_user()
+    p = _get_project(pid)
+    if not email or not p:
+        return False
+    if p.get("owner") == email:
+        return True
+    return email in (p.get("shared_with") or {})
+
+
+def user_can_write(pid: str, email: str | None = None) -> bool:
+    email = email or current_user()
+    p = _get_project(pid)
+    if not email or not p:
+        return False
+    if p.get("owner") == email:
+        return True
+    return (p.get("shared_with") or {}).get(email) == "write"
+
+
+def user_owns(pid: str, email: str | None = None) -> bool:
+    email = email or current_user()
+    p = _get_project(pid)
+    return bool(p and email and p.get("owner") == email)
+
+
 _load_projects()
+_load_users()
+_bootstrap_users()
+_migrate_projects()
 
 
 # ── CLI helper ────────────────────────────────────────────────────────────────
@@ -348,13 +452,34 @@ def login_submit():
     remember = bool(data.get("remember"))
     if not email or not password:
         return jsonify({"ok": False, "error": "Enter your email and password to continue."}), 400
-    # Constant-time comparison so timing doesn't leak info about the secret.
-    if not (secrets.compare_digest(email, LOGIN_EMAIL)
-            and secrets.compare_digest(password, LOGIN_PASSWORD)):
+    user = users.get(email)
+    if not user or not check_password_hash(user.get("password_hash") or "", password):
         return jsonify({"ok": False, "error": "Those credentials don't match an active account."}), 401
     session["user"] = email
     session.permanent = remember
-    return jsonify({"ok": True})
+    return jsonify({"ok": True, "user": email})
+
+
+@app.post("/api/signup")
+def signup_submit():
+    data = request.get_json(silent=True) or {}
+    email = (data.get("email") or "").strip().lower()
+    password = data.get("password") or ""
+    if not email or "@" not in email:
+        return jsonify({"ok": False, "error": "A valid email is required."}), 400
+    if len(password) < 6:
+        return jsonify({"ok": False, "error": "Password must be at least 6 characters."}), 400
+    if email in users:
+        return jsonify({"ok": False, "error": "That email is already registered."}), 409
+    with _users_lock:
+        users[email] = {
+            "password_hash": generate_password_hash(password),
+            "created_at": time.time(),
+        }
+        _save_users()
+    session["user"] = email
+    session.permanent = True
+    return jsonify({"ok": True, "user": email})
 
 
 @app.post("/api/logout")
@@ -365,7 +490,14 @@ def logout():
 
 @app.get("/api/me")
 def whoami():
-    return jsonify({"ok": True, "authed": is_authed(), "user": session.get("user")})
+    email = session.get("user")
+    info = users.get(email) if email else None
+    return jsonify({
+        "ok": True,
+        "authed": is_authed(),
+        "user": email,
+        "is_admin": bool(info and info.get("is_admin")),
+    })
 
 
 @app.get("/uploads/<path:filename>")
@@ -2090,13 +2222,29 @@ def video_edit():
 
 # ── API: Projects ─────────────────────────────────────────────────────────────
 
+def _project_view(pid: str, p: dict, me: str | None) -> dict:
+    """Project payload returned to clients — includes the requester's
+    role so the UI can render owner / read / write affordances correctly."""
+    role = "owner" if p.get("owner") == me else (p.get("shared_with") or {}).get(me, None)
+    return {"id": pid, **p, "your_role": role}
+
+
 @app.get("/api/projects")
 def list_projects():
-    return jsonify({"ok": True, "projects": projects})
+    me = current_user()
+    visible = {
+        pid: _project_view(pid, p, me)
+        for pid, p in projects.items()
+        if p.get("owner") == me or me in (p.get("shared_with") or {})
+    }
+    return jsonify({"ok": True, "projects": visible})
 
 
 @app.post("/api/projects")
 def create_project():
+    me = current_user()
+    if not me:
+        return jsonify({"ok": False, "error": "Not signed in"}), 401
     data = request.get_json(force=True)
     name = (data.get("name") or "").strip()
     if not name:
@@ -2111,9 +2259,11 @@ def create_project():
         "archived": bool(data.get("archived", False)),
         "created_at": now,
         "updated_at": now,
+        "owner": me,
+        "shared_with": {},
     }
     _save_projects()
-    return jsonify({"ok": True, "id": pid, **projects[pid]})
+    return jsonify({"ok": True, **_project_view(pid, projects[pid], me)})
 
 
 @app.get("/api/projects/<pid>")
@@ -2121,7 +2271,9 @@ def get_project(pid: str):
     p = projects.get(pid)
     if not p:
         return jsonify({"ok": False, "error": "Project not found"}), 404
-    return jsonify({"ok": True, "id": pid, **p})
+    if not user_can_read(pid):
+        return jsonify({"ok": False, "error": "You don't have access to this project"}), 403
+    return jsonify({"ok": True, **_project_view(pid, p, current_user())})
 
 
 @app.put("/api/projects/<pid>")
@@ -2129,9 +2281,19 @@ def update_project(pid: str):
     p = projects.get(pid)
     if not p:
         return jsonify({"ok": False, "error": "Project not found"}), 404
+    me = current_user()
     data = request.get_json(force=True)
+    # 'favorite' / 'archived' are personal flags but for now stored on the
+    # project — let any reader toggle them. Everything else (name, tags,
+    # description) requires write access.
+    metadata_keys = {"name", "description", "tags"}
+    wants_metadata = any(k in data for k in metadata_keys)
+    if wants_metadata and not user_can_write(pid):
+        return jsonify({"ok": False, "error": "You only have read access to this project"}), 403
+    if not user_can_read(pid):
+        return jsonify({"ok": False, "error": "You don't have access to this project"}), 403
     name = (data.get("name") or "").strip()
-    if name:
+    if name and "name" in data:
         p["name"] = name
     if "description" in data:
         p["description"] = data["description"]
@@ -2143,13 +2305,15 @@ def update_project(pid: str):
         p["archived"] = bool(data["archived"])
     p["updated_at"] = time.time()
     _save_projects()
-    return jsonify({"ok": True, "id": pid, **p})
+    return jsonify({"ok": True, **_project_view(pid, p, me)})
 
 
 @app.delete("/api/projects/<pid>")
 def delete_project(pid: str):
     if pid not in projects:
         return jsonify({"ok": False, "error": "Project not found"}), 404
+    if not user_owns(pid):
+        return jsonify({"ok": False, "error": "Only the project owner can delete it"}), 403
     projects.pop(pid)
     _save_projects()
     wf_path = WORKFLOWS_DIR / f"{pid}.json"
@@ -2162,6 +2326,8 @@ def delete_project(pid: str):
 def get_project_workflow(pid: str):
     if pid not in projects:
         return jsonify({"ok": False, "error": "Project not found"}), 404
+    if not user_can_read(pid):
+        return jsonify({"ok": False, "error": "You don't have access to this project"}), 403
     wf_path = WORKFLOWS_DIR / f"{pid}.json"
     if wf_path.exists():
         try:
@@ -2175,6 +2341,8 @@ def get_project_workflow(pid: str):
 def save_project_workflow(pid: str):
     if pid not in projects:
         return jsonify({"ok": False, "error": "Project not found"}), 404
+    if not user_can_write(pid):
+        return jsonify({"ok": False, "error": "You only have read access to this project"}), 403
     data = request.get_json(force=True)
     try:
         (WORKFLOWS_DIR / f"{pid}.json").write_text(json.dumps(data, indent=2))
@@ -2183,6 +2351,70 @@ def save_project_workflow(pid: str):
         return jsonify({"ok": True})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
+
+
+# ── Project sharing / ACL ─────────────────────────────────────────────────────
+
+@app.get("/api/projects/<pid>/members")
+def list_project_members(pid: str):
+    p = projects.get(pid)
+    if not p:
+        return jsonify({"ok": False, "error": "Project not found"}), 404
+    if not user_can_read(pid):
+        return jsonify({"ok": False, "error": "You don't have access to this project"}), 403
+    members = [
+        {"email": email, "permission": perm}
+        for email, perm in (p.get("shared_with") or {}).items()
+    ]
+    return jsonify({
+        "ok": True,
+        "owner": p.get("owner"),
+        "members": members,
+        "your_role": "owner" if p.get("owner") == current_user() else (p.get("shared_with") or {}).get(current_user()),
+    })
+
+
+@app.post("/api/projects/<pid>/members")
+def share_project(pid: str):
+    p = projects.get(pid)
+    if not p:
+        return jsonify({"ok": False, "error": "Project not found"}), 404
+    if not user_owns(pid):
+        return jsonify({"ok": False, "error": "Only the project owner can share it"}), 403
+    data = request.get_json(force=True) or {}
+    email = (data.get("email") or "").strip().lower()
+    permission = (data.get("permission") or "read").strip().lower()
+    if not email:
+        return jsonify({"ok": False, "error": "Email is required"}), 400
+    if permission not in ("read", "write"):
+        return jsonify({"ok": False, "error": "Permission must be 'read' or 'write'"}), 400
+    if email == p.get("owner"):
+        return jsonify({"ok": False, "error": "The owner already has full access"}), 400
+    if email not in users:
+        return jsonify({"ok": False, "error": "No account exists for that email"}), 404
+    with _projects_lock:
+        sw = p.setdefault("shared_with", {})
+        sw[email] = permission
+        p["updated_at"] = time.time()
+        _save_projects()
+    return jsonify({"ok": True, "email": email, "permission": permission})
+
+
+@app.delete("/api/projects/<pid>/members/<email>")
+def unshare_project(pid: str, email: str):
+    p = projects.get(pid)
+    if not p:
+        return jsonify({"ok": False, "error": "Project not found"}), 404
+    if not user_owns(pid):
+        return jsonify({"ok": False, "error": "Only the project owner can unshare it"}), 403
+    email = (email or "").strip().lower()
+    with _projects_lock:
+        sw = p.get("shared_with") or {}
+        if email in sw:
+            del sw[email]
+            p["updated_at"] = time.time()
+            _save_projects()
+    return jsonify({"ok": True})
 
 
 if __name__ == "__main__":

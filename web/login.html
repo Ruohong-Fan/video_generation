@@ -298,6 +298,18 @@ body {
 .submit-btn:active { transform: scale(0.99); }
 .submit-btn:disabled { background: var(--bg-3); color: var(--fg-3); cursor: not-allowed; }
 
+.auth-toggle {
+  margin-top: 18px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--fg-2);
+}
+.auth-toggle a {
+  color: var(--amber); text-decoration: none; font-weight: 500;
+  margin-left: 6px;
+}
+.auth-toggle a:hover { text-decoration: underline; }
+
 .invite-only {
   margin-top: 22px;
   padding: 12px 14px;
@@ -460,13 +472,9 @@ body {
         </button>
       </form>
 
-      <div class="invite-only">
-        <span class="icon-wrap">
-          <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 13l4-4M11 5l-2 2M9 3l4 4M5 11l-2 2"/><circle cx="13" cy="3" r="1.2"/></svg>
-        </span>
-        <div>
-          <strong>Reel is invite-only.</strong> No public sign-up yet — <a href="mailto:hello@reel.studio?subject=Request%20access">request access</a> and we'll get back within 48 hours.
-        </div>
+      <div class="auth-toggle">
+        <span id="auth-toggle-text">Don't have an account?</span>
+        <a href="#" id="auth-toggle-link">Create one</a>
       </div>
 
       <div class="login-foot">
@@ -549,6 +557,37 @@ body {
     errEl.style.display = "none";
   }
 
+  // ── Sign-in / sign-up mode toggle ──
+  const heading = document.querySelector(".login-card h2");
+  const subheading = document.querySelector(".login-card p.sub");
+  const toggleText = document.getElementById("auth-toggle-text");
+  const toggleLink = document.getElementById("auth-toggle-link");
+  let mode = "signin";  // 'signin' | 'signup'
+
+  function applyMode() {
+    if (mode === "signup") {
+      heading.innerHTML = 'Create your <em>account</em>.';
+      subheading.textContent = "Pick an email and a password — at least 6 characters.";
+      submitLabel.textContent = "Create account";
+      toggleText.textContent = "Already have an account?";
+      toggleLink.textContent = "Sign in";
+      rememberEl.style.display = "none";
+    } else {
+      heading.innerHTML = 'Welcome <em>back</em>.';
+      subheading.textContent = "Pick up where your last render left off.";
+      submitLabel.textContent = "Sign in";
+      toggleText.textContent = "Don't have an account?";
+      toggleLink.textContent = "Create one";
+      rememberEl.style.display = "";
+    }
+  }
+  toggleLink.addEventListener("click", (e) => {
+    e.preventDefault();
+    mode = mode === "signin" ? "signup" : "signin";
+    clearError();
+    applyMode();
+  });
+
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
     clearError();
@@ -561,29 +600,40 @@ body {
       showError("Enter your email and password to continue.");
       return;
     }
+    if (mode === "signup" && password.length < 6) {
+      showError("Password must be at least 6 characters.");
+      return;
+    }
 
     submitBtn.disabled = true;
-    submitLabel.textContent = "Signing in…";
+    submitLabel.textContent = mode === "signup" ? "Creating account…" : "Signing in…";
     submitArrow.style.display = "none";
 
+    const url = mode === "signup" ? "/api/signup" : "/api/login";
+    const body = mode === "signup"
+      ? { email, password }
+      : { email, password, remember };
+
     try {
-      const resp = await fetch("/api/login", {
+      const resp = await fetch(url, {
         method: "POST",
         credentials: "same-origin",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password, remember }),
+        body: JSON.stringify(body),
       });
       const data = await resp.json().catch(() => ({}));
       if (resp.ok && data.ok) {
         window.location.href = "/";
         return;
       }
-      showError(data.error || "Sign-in failed. Please try again.");
+      showError(data.error || (mode === "signup"
+        ? "Couldn't create account. Please try again."
+        : "Sign-in failed. Please try again."));
     } catch (err) {
       showError("Network error — please check your connection and retry.");
     } finally {
       submitBtn.disabled = false;
-      submitLabel.textContent = "Sign in";
+      submitLabel.textContent = mode === "signup" ? "Create account" : "Sign in";
       submitArrow.style.display = "";
     }
   });
