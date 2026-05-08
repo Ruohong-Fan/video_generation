@@ -1210,7 +1210,8 @@ body {
     list.querySelectorAll('[data-share-perm]').forEach(sel => {
       sel.addEventListener('change', async () => {
         const email = sel.closest('.share-member-row').dataset.email;
-        await shareWith(shareCurrentId, email, sel.value);
+        const ok = await shareWith(shareCurrentId, email, sel.value);
+        if (ok) toast(email + ' → ' + (sel.value === 'write' ? 'read & write' : 'read'), 'success');
       });
     });
   }
@@ -1226,9 +1227,11 @@ body {
       const d = await r.json();
       if (!r.ok || !d.ok) throw new Error(d.error || 'Failed to add collaborator');
       await loadShareMembers(id);
+      return true;
     } catch (e) {
       errEl.textContent = e.message;
       errEl.style.display = '';
+      return false;
     }
   }
 
@@ -1240,6 +1243,7 @@ body {
       const d = await r.json().catch(() => ({}));
       if (!r.ok || !d.ok) throw new Error(d.error || 'Failed');
       await loadShareMembers(id);
+      toast('Removed ' + email, 'success');
     } catch (e) {
       toast('Remove failed: ' + e.message, 'error');
     }
@@ -1251,9 +1255,10 @@ body {
     const errEl = document.getElementById('share-error');
     if (!email) { errEl.textContent = 'Email is required'; errEl.style.display = ''; return; }
     if (!shareCurrentId) return;
-    await shareWith(shareCurrentId, email, perm);
-    if (errEl.style.display === 'none') {
+    const ok = await shareWith(shareCurrentId, email, perm);
+    if (ok) {
       document.getElementById('share-email').value = '';
+      toast('Shared with ' + email + ' (' + (perm === 'write' ? 'read & write' : 'read') + ')', 'success');
     }
   });
   document.getElementById('share-close').addEventListener('click', closeShareModal);
