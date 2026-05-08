@@ -2886,6 +2886,10 @@ body.view-only .field-textarea[data-field="prompt"] { cursor: not-allowed; }
               ratio: n.params?.ratio || '16:9',
               resolution: n.params?.resolution || (nodeType === 'video' ? '720P' : '2k'),
               modelVersion: n.params?.modelVersion || 'seedance2.0',
+              // Video-node generation mode. Map legacy values on the fly:
+              //   'auto' (pre-selector) → 'T2V'   (explicit default now)
+              //   'MM2V' (old name)     → 'R2V'   (renamed to "全能参考")
+              videoMode: ({ auto: 'T2V', MM2V: 'R2V' })[n.params?.videoMode] || n.params?.videoMode || 'T2V',
             },
             title: n.title || (LEGACY_TYPES[n.type] ? NODE_SPECS[LEGACY_TYPES[n.type] || n.type]?.title : NODE_SPECS[nodeType]?.title) || nodeType,
             status: n.status || 'idle',
