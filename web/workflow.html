@@ -976,6 +976,24 @@ body.right-collapsed .canvas-wrap { right: 0; }
 .field-input:focus, .field-textarea:focus, .field-select:focus { border-color: var(--amber); }
 .field-textarea { resize: vertical; min-height: 80px; line-height: 1.5; }
 
+/* View-only collaborator mode — visually disable node-editing affordances.
+   Run buttons + Input tab + Output tab stay fully interactive. */
+body.view-only .lib-card,
+body.view-only .field-input,
+body.view-only .field-textarea,
+body.view-only .field-select,
+body.view-only .chip,
+body.view-only .node-title-input,
+body.view-only [data-action=del],
+body.view-only [data-action=dup] {
+  opacity: 0.55; pointer-events: none; cursor: not-allowed;
+}
+body.view-only .field-input[data-field="title"],
+body.view-only .field-textarea[data-field="prompt"] { cursor: not-allowed; }
+/* Re-enable read-only-acceptable controls inside the inspector that aren't
+   parameter fields. Audio playback, the file picker on Upload nodes, etc.
+   are already handled because they don't carry data-field. */
+
 /* Inline {{var}} highlighting in prompt/instruction textareas.
    Strategy: leave the textarea's TEXT fully visible (it's the source of
    truth). An absolutely-positioned overlay sits BEHIND the textarea
@@ -1287,12 +1305,16 @@ body.right-collapsed .canvas-wrap { right: 0; }
     ? '/api/projects/' + encodeURIComponent(projectId) + '/workflow'
     : '/api/workflow';
 
-  // Project role / read-only state. Populated from /api/projects/<pid> below.
-  // 'owner' | 'write' | 'read' | null. We start as 'write' so the UI is
-  // interactive while the role check is still in flight; if it comes back
-  // 'read', applyReadOnlyMode() locks down the editor.
-  let projectRole = 'write';
-  function isReadOnly() { return projectRole === 'read'; }
+  // Project role state. Populated from /api/projects/<pid> below.
+  //   'owner' — full access
+  //   'edit'  — can change anything except sharing/delete
+  //   'view'  — can run nodes and edit project inputs/variables only
+  // We start as 'edit' so the editor stays interactive while the role check
+  // is still in flight; once /api/projects/<pid> resolves we lock down to
+  // view-mode if that's what came back.
+  let projectRole = 'edit';
+  function canEdit() { return projectRole === 'owner' || projectRole === 'edit'; }
+  function isViewOnly() { return projectRole === 'view'; }
 
   if (projectId) {
     fetch('/api/projects/' + encodeURIComponent(projectId))
@@ -1300,31 +1322,27 @@ body.right-collapsed .canvas-wrap { right: 0; }
       .then(d => {
         if (d.ok) {
           document.getElementById('topbar-project').textContent = d.name;
-          projectRole = d.your_role || 'write';
-          applyReadOnlyMode();
+          projectRole = d.your_role || 'edit';
+          applyAccessMode();
+          // Re-render the inspector so disabled-state updates land on any
+          // node selection that happened before the role came back.
+          if (typeof renderRightPanel === 'function') renderRightPanel();
         }
       })
       .catch(() => {});
   }
 
-  // Disable mutating affordances when the current user only has read access.
-  // Save / scheduleSave is gated by isReadOnly() too so passive observation
-  // can't accidentally overwrite the owner's workflow.
-  function applyReadOnlyMode() {
-    if (!isReadOnly()) return;
-    document.body.classList.add('read-only');
-    // Add a banner if not already there
-    if (!document.getElementById('readonly-banner')) {
+  // Decorate <body> so the CSS can lock down node-editing affordances when
+  // the user only has view access. Run + Input-tab actions stay enabled —
+  // they're explicitly part of view-mode.
+  function applyAccessMode() {
+    document.body.classList.toggle('view-only', isViewOnly());
+    if (isViewOnly() && !document.getElementById('readonly-banner')) {
       const b = document.createElement('div');
       b.id = 'readonly-banner';
-      b.textContent = 'Read-only — you can view this project but not edit it.';
-      b.style.cssText = 'position:fixed;left:50%;top:60px;transform:translateX(-50%);z-index:9000;padding:6px 14px;background:oklch(0.65 0.18 200 / 0.18);color:oklch(0.85 0.18 200);border:1px solid oklch(0.65 0.18 200 / 0.4);border-radius:999px;font:600 11px/1 system-ui,sans-serif;letter-spacing:0.04em;text-transform:uppercase;backdrop-filter:blur(8px)';
+      b.textContent = 'View only — you can run nodes and edit project inputs, but not the node graph.';
+      b.style.cssText = 'position:fixed;left:50%;top:60px;transform:translateX(-50%);z-index:9000;padding:6px 14px;background:oklch(0.65 0.18 200 / 0.18);color:oklch(0.85 0.18 200);border:1px solid oklch(0.65 0.18 200 / 0.4);border-radius:999px;font:600 11px/1 system-ui,sans-serif;letter-spacing:0.04em;text-transform:uppercase;backdrop-filter:blur(8px);max-width:90vw;text-align:center';
       document.body.appendChild(b);
-    }
-    // Disable the run buttons.
-    for (const id of ['btn-run-selected', 'btn-run-all']) {
-      const el = document.getElementById(id);
-      if (el) { el.disabled = true; el.style.opacity = '0.5'; el.style.cursor = 'not-allowed'; }
     }
   }
 
@@ -1653,6 +1671,8 @@ body.right-collapsed .canvas-wrap { right: 0; }
       } else if (!selected.has(node.id)) {
         selectOnly(node.id);
       }
+      // View users can select but not drag — moving nodes mutates the graph.
+      if (!canEdit()) return;
       const group = [...selected].map(id => {
         const n = nodes.get(id);
         return n ? { id, origX: n.x, origY: n.y } : null;
@@ -2212,10 +2232,6 @@ body.right-collapsed .canvas-wrap { right: 0; }
   async function runNode(id) {
     const node = nodes.get(id);
     if (!node) return;
-    if (isReadOnly()) {
-      toast('Read-only — ask the project owner for write access', '');
-      return;
-    }
     if (node.type === 'upload') {
       // Upload nodes don't generate — use the upload button (↑) in the node header
       toast('Use the upload button on the node to choose a file', '');
@@ -2442,6 +2458,10 @@ body.right-collapsed .canvas-wrap { right: 0; }
     const handle = e.target.closest('.handle');
     if (!handle) return;
     if (handle.dataset.dir !== 'out') return;
+    if (!canEdit()) {
+      // View users can't draw new edges; let pan/select handle the gesture.
+      return;
+    }
     e.stopPropagation();
     e.preventDefault();
 
@@ -2529,6 +2549,10 @@ body.right-collapsed .canvas-wrap { right: 0; }
   }
 
   function deleteSelected() {
+    if (!canEdit()) {
+      toast('View only — ask the project owner for edit access', '');
+      return;
+    }
     const removedEdges = deleteSelectedEdges();
     if (selected.size === 0) {
       if (!removedEdges) return;
@@ -2782,7 +2806,8 @@ body.right-collapsed .canvas-wrap { right: 0; }
 
   function scheduleSave() {
     if (loading) return;
-    if (isReadOnly()) return;  // read-only viewers must not write back
+    // View users CAN save — the server merges their payload to allow only
+    // projectInputs / projectVars / per-node run-state to change.
     savePending = true;
     clearTimeout(saveTimer);
     saveTimer = setTimeout(doSave, 600);
@@ -2805,7 +2830,6 @@ body.right-collapsed .canvas-wrap { right: 0; }
   // user expects "I added it, it's saved" without waiting on the debounce.
   async function flushSaveNow() {
     if (loading) return;
-    if (isReadOnly()) return;
     if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; }
     savePending = true;
     await doSave();
@@ -3160,6 +3184,10 @@ body.right-collapsed .canvas-wrap { right: 0; }
   }
 
   function addNodeFromLibrary(type) {
+    if (!canEdit()) {
+      toast('View only — ask the project owner for edit access', '');
+      return;
+    }
     const rect = canvasWrap.getBoundingClientRect();
     const center = screenToWorld(rect.left + rect.width / 2, rect.top + rect.height / 2);
     createNode(type, center.x - 120 + Math.random() * 40, center.y - 60 + Math.random() * 40);
@@ -4120,8 +4148,11 @@ body.right-collapsed .canvas-wrap { right: 0; }
       else v.addEventListener('loadedmetadata', seek, { once: true });
     });
 
-    // Wire input/select changes
+    // Wire input/select changes — gated by edit access. View users still
+    // see the panel but can't change the node's prompt / title / params;
+    // CSS also dims/disables the controls so the gate is just a guard rail.
     panel.querySelectorAll('[data-field]').forEach(el => {
+      if (!canEdit()) { el.setAttribute('disabled', ''); return; }
       el.addEventListener('input', e => {
         const field = e.target.dataset.field;
         if (field === 'prompt') { node.prompt = e.target.value; renderNode(node); }
@@ -4130,8 +4161,9 @@ body.right-collapsed .canvas-wrap { right: 0; }
         scheduleSave();
       });
     });
-    // Chip buttons
+    // Chip buttons — gated by edit access (view users see them dimmed).
     panel.querySelectorAll('.chip[data-field]').forEach(btn => {
+      if (!canEdit()) { btn.setAttribute('disabled', ''); return; }
       btn.addEventListener('click', () => {
         const field = btn.dataset.field;
         node.params[field] = btn.dataset.val;

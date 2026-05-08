@@ -212,7 +212,9 @@ def _bootstrap_users():
 def _migrate_projects():
     """One-time fixups for projects created before the ownership/ACL fields
     existed: stamp every project with an owner (the bootstrap account) and an
-    empty shared_with map so authorisation checks have something to look at."""
+    empty shared_with map so authorisation checks have something to look at.
+    Also rename legacy 'read'/'write' permission values to the new 'view'/'edit'
+    naming."""
     env_email = os.environ.get("REEL_LOGIN_EMAIL", "admin@reel.local").strip().lower()
     fallback_owner = env_email if env_email in users else (next(iter(users), None))
     if not fallback_owner:
@@ -227,8 +229,23 @@ def _migrate_projects():
         if not isinstance(p.get("shared_with"), dict):
             p["shared_with"] = {}
             changed = True
+        else:
+            for email, perm in list(p["shared_with"].items()):
+                if perm == "read":
+                    p["shared_with"][email] = "view"; changed = True
+                elif perm == "write":
+                    p["shared_with"][email] = "edit"; changed = True
     if changed:
         _save_projects()
+
+
+# Permission name normalisation: accept the new {view, edit} pair plus the
+# legacy {read, write} pair from older clients.
+_PERMISSION_ALIAS = {"read": "view", "write": "edit", "view": "view", "edit": "edit"}
+def _normalise_permission(value: str | None) -> str | None:
+    if not value:
+        return None
+    return _PERMISSION_ALIAS.get(str(value).strip().lower())
 
 
 # ── Authorisation helpers ─────────────────────────────────────────────────────
@@ -242,7 +259,8 @@ def _get_project(pid: str) -> dict | None:
     return p if isinstance(p, dict) else None
 
 
-def user_can_read(pid: str, email: str | None = None) -> bool:
+def user_can_view(pid: str, email: str | None = None) -> bool:
+    """Owner or anyone the project is shared with (view OR edit)."""
     email = email or current_user()
     p = _get_project(pid)
     if not email or not p:
@@ -252,14 +270,22 @@ def user_can_read(pid: str, email: str | None = None) -> bool:
     return email in (p.get("shared_with") or {})
 
 
-def user_can_write(pid: str, email: str | None = None) -> bool:
+def user_can_edit(pid: str, email: str | None = None) -> bool:
+    """Owner or a member with the edit permission. View-only members
+    cannot mutate node parameters / topology."""
     email = email or current_user()
     p = _get_project(pid)
     if not email or not p:
         return False
     if p.get("owner") == email:
         return True
-    return (p.get("shared_with") or {}).get(email) == "write"
+    return _normalise_permission((p.get("shared_with") or {}).get(email)) == "edit"
+
+
+# Back-compat aliases — code still calling user_can_read/user_can_write
+# keeps working, but new call sites should prefer the new names.
+user_can_read  = user_can_view
+user_can_write = user_can_edit
 
 
 def user_owns(pid: str, email: str | None = None) -> bool:
@@ -2223,9 +2249,13 @@ def video_edit():
 # ── API: Projects ─────────────────────────────────────────────────────────────
 
 def _project_view(pid: str, p: dict, me: str | None) -> dict:
-    """Project payload returned to clients — includes the requester's
-    role so the UI can render owner / read / write affordances correctly."""
-    role = "owner" if p.get("owner") == me else (p.get("shared_with") or {}).get(me, None)
+    """Project payload returned to clients — includes the requester's role
+    ('owner' | 'edit' | 'view' | None) so the UI can render the right
+    affordances."""
+    if p.get("owner") == me:
+        role = "owner"
+    else:
+        role = _normalise_permission((p.get("shared_with") or {}).get(me))
     return {"id": pid, **p, "your_role": role}
 
 
@@ -2284,13 +2314,13 @@ def update_project(pid: str):
     me = current_user()
     data = request.get_json(force=True)
     # 'favorite' / 'archived' are personal flags but for now stored on the
-    # project — let any reader toggle them. Everything else (name, tags,
-    # description) requires write access.
+    # project — let any viewer toggle them. Everything else (name, tags,
+    # description) requires edit access.
     metadata_keys = {"name", "description", "tags"}
     wants_metadata = any(k in data for k in metadata_keys)
-    if wants_metadata and not user_can_write(pid):
-        return jsonify({"ok": False, "error": "You only have read access to this project"}), 403
-    if not user_can_read(pid):
+    if wants_metadata and not user_can_edit(pid):
+        return jsonify({"ok": False, "error": "You only have view access to this project"}), 403
+    if not user_can_view(pid):
         return jsonify({"ok": False, "error": "You don't have access to this project"}), 403
     name = (data.get("name") or "").strip()
     if name and "name" in data:
@@ -2326,7 +2356,7 @@ def delete_project(pid: str):
 def get_project_workflow(pid: str):
     if pid not in projects:
         return jsonify({"ok": False, "error": "Project not found"}), 404
-    if not user_can_read(pid):
+    if not user_can_view(pid):
         return jsonify({"ok": False, "error": "You don't have access to this project"}), 403
     wf_path = WORKFLOWS_DIR / f"{pid}.json"
     if wf_path.exists():
@@ -2337,15 +2367,73 @@ def get_project_workflow(pid: str):
     return jsonify({"ok": True, "workflow": {"nodes": {}, "edges": []}})
 
 
+# Fields a view-only collaborator is allowed to update on each node when the
+# workflow is saved. Everything else (prompt, params, position, title, upload
+# slot, edges, etc.) is creative content and stays under the owner's control.
+_VIEW_NODE_FIELDS = {"results", "taskId", "status", "error", "queueIdx", "progress"}
+
+
+def _merge_workflow_for_view(existing: dict, incoming: dict) -> dict:
+    """Build a workflow payload that respects view-only access:
+       - projectInputs / projectVars are taken from the incoming payload (the
+         user is allowed to edit those).
+       - For each existing node, run-state fields (results, taskId, status,
+         error, queueIdx, progress) are copied from the incoming payload —
+         everything else (prompt, params, position, etc.) is kept as the
+         owner had it.
+       - Edges and node topology come from `existing`; the view user can't
+         add or remove nodes or wires.
+       - The view (pan/zoom) is left as the owner's saved copy.
+    """
+    if not isinstance(existing, dict):
+        existing = {}
+    if not isinstance(incoming, dict):
+        incoming = {}
+    merged = dict(existing)
+
+    # Project-scope assets / variables: view users own these.
+    if "projectInputs" in incoming:
+        merged["projectInputs"] = incoming.get("projectInputs") or []
+    if "projectVars" in incoming:
+        merged["projectVars"] = incoming.get("projectVars") or []
+
+    # Nodes: keep the existing list, only refresh run-state from incoming.
+    existing_nodes = existing.get("nodes") or []
+    incoming_nodes = incoming.get("nodes") or []
+    incoming_by_id = {n.get("id"): n for n in incoming_nodes if isinstance(n, dict) and n.get("id")}
+    out_nodes = []
+    for n in existing_nodes:
+        if not isinstance(n, dict):
+            out_nodes.append(n); continue
+        m = dict(n)
+        inc = incoming_by_id.get(n.get("id"))
+        if isinstance(inc, dict):
+            for f in _VIEW_NODE_FIELDS:
+                if f in inc:
+                    m[f] = inc[f]
+        out_nodes.append(m)
+    merged["nodes"] = out_nodes
+    return merged
+
+
 @app.put("/api/projects/<pid>/workflow")
 def save_project_workflow(pid: str):
     if pid not in projects:
         return jsonify({"ok": False, "error": "Project not found"}), 404
-    if not user_can_write(pid):
-        return jsonify({"ok": False, "error": "You only have read access to this project"}), 403
+    if not user_can_view(pid):
+        return jsonify({"ok": False, "error": "You don't have access to this project"}), 403
     data = request.get_json(force=True)
+    wf_path = WORKFLOWS_DIR / f"{pid}.json"
     try:
-        (WORKFLOWS_DIR / f"{pid}.json").write_text(json.dumps(data, indent=2))
+        if not user_can_edit(pid):
+            # View-only: merge with the existing workflow so the user can update
+            # project inputs / variables and run-state but never the graph itself.
+            try:
+                existing = json.loads(wf_path.read_text()) if wf_path.exists() else {}
+            except Exception:
+                existing = {}
+            data = _merge_workflow_for_view(existing, data)
+        wf_path.write_text(json.dumps(data, indent=2))
         projects[pid]["updated_at"] = time.time()
         _save_projects()
         return jsonify({"ok": True})
@@ -2360,17 +2448,19 @@ def list_project_members(pid: str):
     p = projects.get(pid)
     if not p:
         return jsonify({"ok": False, "error": "Project not found"}), 404
-    if not user_can_read(pid):
+    if not user_can_view(pid):
         return jsonify({"ok": False, "error": "You don't have access to this project"}), 403
     members = [
-        {"email": email, "permission": perm}
+        {"email": email, "permission": _normalise_permission(perm) or "view"}
         for email, perm in (p.get("shared_with") or {}).items()
     ]
+    me = current_user()
+    your_role = "owner" if p.get("owner") == me else _normalise_permission((p.get("shared_with") or {}).get(me))
     return jsonify({
         "ok": True,
         "owner": p.get("owner"),
         "members": members,
-        "your_role": "owner" if p.get("owner") == current_user() else (p.get("shared_with") or {}).get(current_user()),
+        "your_role": your_role,
     })
 
 
@@ -2383,11 +2473,11 @@ def share_project(pid: str):
         return jsonify({"ok": False, "error": "Only the project owner can share it"}), 403
     data = request.get_json(force=True) or {}
     email = (data.get("email") or "").strip().lower()
-    permission = (data.get("permission") or "read").strip().lower()
+    permission = _normalise_permission(data.get("permission") or "view")
     if not email:
         return jsonify({"ok": False, "error": "Email is required"}), 400
-    if permission not in ("read", "write"):
-        return jsonify({"ok": False, "error": "Permission must be 'read' or 'write'"}), 400
+    if permission not in ("view", "edit"):
+        return jsonify({"ok": False, "error": "Permission must be 'view' or 'edit'"}), 400
     if email == p.get("owner"):
         return jsonify({"ok": False, "error": "The owner already has full access"}), 400
     if email not in users:
