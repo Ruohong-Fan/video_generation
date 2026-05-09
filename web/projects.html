@@ -510,12 +510,6 @@ body {
 .field-input::placeholder { color: var(--muted); }
 .modal-field { margin-bottom: 16px; }
 
-/* Template grid */
-.template-grid {
-  display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
-  margin-top: 4px;
-}
-
 /* ── Toolbar ─────────────────────────────────────────────────────────────── */
 .p-toolbar {
   display: flex; align-items: center; gap: 8px;
@@ -1014,7 +1008,7 @@ body {
           <svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M8 3v10M3 8h10"/></svg>
         </div>
         <div class="p-card-new-title">New project</div>
-        <div class="p-card-new-sub">Start blank or from a template</div>
+        <div class="p-card-new-sub">Start a new project</div>
       </div>`;
     card.addEventListener('click', () => openModal('create'));
     return card;

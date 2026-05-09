@@ -69,7 +69,8 @@
     'Create your first project to start building video generation workflows':
       '创建第一个项目,开始搭建视频生成工作流',
     'Create first project': '创建第一个项目',
-    'Start blank or from a template': '从空白或模板开始',
+    'Start a new project': '开始一个新项目',
+    'Start blank or from a template': '从空白开始',
     'Give your project a name to get started.': '为项目起一个名称即可开始。',
     'Archive': '归档',
     'Duplicate': '复制',
