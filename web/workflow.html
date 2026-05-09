@@ -670,11 +670,21 @@ body.right-collapsed .canvas-wrap { right: 0; }
   font-size: 9px; font-family: var(--type-mono); color: var(--fg-3);
   text-transform: uppercase; letter-spacing: 0.08em; margin-top: 1px;
 }
-.input-item-var {
-  text-transform: none; letter-spacing: 0;
-  color: var(--amber); cursor: pointer;
+.input-item-key {
+  display: block; width: 100%;
+  background: transparent; border: none; outline: none; padding: 0;
+  font-family: var(--type-mono); font-size: 12px; font-weight: 500;
+  color: var(--amber);
 }
-.input-item-var:hover { text-decoration: underline; }
+.input-item-key:focus { color: var(--amber); }
+.input-item-copy {
+  flex-shrink: 0; width: 22px; height: 22px; padding: 0;
+  background: transparent; border: 1px solid transparent; border-radius: 4px;
+  color: var(--fg-3); display: grid; place-items: center; cursor: pointer;
+  opacity: 0; transition: opacity 0.1s, color 0.1s, border-color 0.1s;
+}
+.input-item:hover .input-item-copy { opacity: 1; }
+.input-item-copy:hover { color: var(--amber); border-color: var(--amber-dim, var(--amber)); }
 .input-item-delete {
   flex-shrink: 0; width: 22px; height: 22px; padding: 0;
   background: transparent; border: 1px solid transparent; border-radius: 4px;
@@ -3231,13 +3241,26 @@ body.view-only .field-textarea[data-field="prompt"] { cursor: not-allowed; }
   }
 
   // Variable key under which a project-input file is exposed to {{...}}.
-  // Strip the extension so "logo.png" can be referenced as {{logo}}; if two
-  // uploads end up with the same key, the most recent one wins (call site
-  // walks projectInputs newest-last so the alphabetical of duplicates is
-  // resolved deterministically).
+  // The user can edit each input's key in the Input tab; if no key has been
+  // set yet, fall back to the filename minus extension (sanitised). Two
+  // entries with the same key: the most recent one wins because
+  // collectRuntimeVars walks projectInputs in order.
   function _inputVarKey(input) {
+    if (input?.key) return input.key;
     const base = String(input?.name || '').replace(/\.[^.]+$/, '');
     return _sanitizeVarKey(base) || _sanitizeVarKey(input?.id || '') || 'file';
+  }
+
+  // Sanitise + persist a new key for a project input. Returns the stored
+  // value so the input field can echo back the (possibly cleaned) key.
+  function updateProjectInputKey(id, raw) {
+    const inp = projectInputs.find(e => e.id === id);
+    if (!inp) return '';
+    const k = _sanitizeVarKey(raw);
+    inp.key = k;
+    refreshAllVarHighlights();
+    scheduleSave();
+    return k;
   }
 
   // Runtime variables visible to a node when it runs:
@@ -3427,6 +3450,9 @@ body.view-only .field-textarea[data-field="prompt"] { cursor: not-allowed; }
       const entry = {
         id: 'i' + Math.random().toString(36).slice(2, 10),
         name: file.name,
+        // Editable in the Input tab; default = filename without extension,
+        // sanitised to a valid {{var}} identifier.
+        key: _sanitizeVarKey(String(file.name || '').replace(/\.[^.]+$/, '')) || 'file',
         kind: detectInputKind(file),
         url: d.url,
         path: d.path || null,
@@ -3480,12 +3506,16 @@ body.view-only .field-textarea[data-field="prompt"] { cursor: not-allowed; }
         : (e.kind === 'video')
           ? `<video src="${esc(mediaUrl(e.url))}" muted preload="metadata" referrerpolicy="no-referrer"></video>`
           : `<div class="file-thumb-placeholder">${ICONS[e.kind] || ICONS.upload}</div>`;
-      return `<div class="input-item" data-input-id="${esc(e.id)}" title="Click to add as Upload node">
+      const k = _inputVarKey(e);
+      return `<div class="input-item" data-input-id="${esc(e.id)}">
         <div class="file-thumb">${thumb}</div>
         <div class="input-item-meta">
-          <div class="input-item-name">${esc(e.name)}</div>
-          <div class="input-item-kind">${esc(e.kind)} · <span class="input-item-var" title="Click to copy" data-copy-var="${esc(_inputVarKey(e))}">{{${esc(_inputVarKey(e))}}}</span></div>
+          <input class="input-item-key" data-input-key-edit
+                 value="${esc(k)}" placeholder="key" spellcheck="false"
+                 title="Reference as {{${esc(k)}}}"/>
+          <div class="input-item-name" title="${esc(e.name)}">${esc(e.kind)} · ${esc(e.name)}</div>
         </div>
+        <button class="input-item-copy" data-copy-var="${esc(k)}" title="Copy {{${esc(k)}}}">${ICONS.dup}</button>
         <button class="input-item-delete" data-input-delete="${esc(e.id)}" title="Remove">${ICONS.trash}</button>
       </div>`;
     }).join('');
@@ -3505,7 +3535,7 @@ body.view-only .field-textarea[data-field="prompt"] { cursor: not-allowed; }
       <div class="side-section-title">Project variables</div>
       <div class="var-list">${varRows}</div>
       <button class="var-add" id="var-add">+ Add variable</button>
-      <div class="var-help">Reference variables — and any uploaded input below — anywhere as <code>{{key}}</code>. Resolved before the prompt hits any API. Keys may use Chinese / any Unicode (e.g. <code>{{品牌}}</code>). For uploads, the key is the filename without its extension (click the <code>{{…}}</code> next to the file to copy).</div>
+      <div class="var-help">Reference variables — and any uploaded input below — anywhere as <code>{{key}}</code>. Resolved before the prompt hits any API. Keys may use Chinese / any Unicode (e.g. <code>{{品牌}}</code>). Each upload has its own editable key — click it to rename, click the copy icon to grab the <code>{{…}}</code> token.</div>
 
       <div class="side-section-title">Project inputs</div>
       <label class="input-drop" id="input-drop">
@@ -3570,10 +3600,15 @@ body.view-only .field-textarea[data-field="prompt"] { cursor: not-allowed; }
     }
 
     // Click an input → spawn Upload node; trash icon → delete
+    // Whole-row click → spawn an Upload node pre-loaded with the file
+    // (preserved for users who want a visible node on the canvas). Clicks
+    // on the editable key field, the copy button, or the delete button
+    // are handled separately and don't trigger spawning.
     panel.querySelectorAll('[data-input-id]').forEach(el => {
       el.addEventListener('click', e => {
         if (e.target.closest('[data-input-delete]')) return;
-        if (e.target.closest('[data-copy-var]')) return;  // copy handled below
+        if (e.target.closest('[data-copy-var]')) return;
+        if (e.target.closest('[data-input-key-edit]')) return;
         const id = el.dataset.inputId;
         const entry = projectInputs.find(x => x.id === id);
         if (entry) spawnUploadFromInput(entry);
@@ -3593,6 +3628,28 @@ body.view-only .field-textarea[data-field="prompt"] { cursor: not-allowed; }
           () => toast('Copied ' + tok, 'success'),
           () => toast('Copy failed', 'error'),
         );
+      });
+    });
+    // Editable input key — sanitise on every keystroke, preserve caret.
+    panel.querySelectorAll('[data-input-key-edit]').forEach(inp => {
+      inp.addEventListener('click',  e => e.stopPropagation());
+      inp.addEventListener('focus',  e => e.stopPropagation());
+      inp.addEventListener('input', () => {
+        const id = inp.closest('[data-input-id]').dataset.inputId;
+        const stored = updateProjectInputKey(id, inp.value);
+        if (stored !== inp.value) {
+          const caret = inp.selectionStart;
+          inp.value = stored;
+          try { inp.setSelectionRange(caret, caret); } catch (_) {}
+        }
+        // Refresh the row's title + the copy button's data so a fresh click
+        // copies the *new* key without waiting for the panel to re-render.
+        inp.title = 'Reference as {{' + stored + '}}';
+        const copy = inp.closest('[data-input-id]')?.querySelector('[data-copy-var]');
+        if (copy) {
+          copy.dataset.copyVar = stored;
+          copy.title = 'Copy {{' + stored + '}}';
+        }
       });
     });
   }
