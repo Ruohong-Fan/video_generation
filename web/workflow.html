@@ -640,60 +640,6 @@ body.right-collapsed .canvas-wrap { right: 0; }
 .file-thumb-placeholder svg { width: 16px; height: 16px; }
 
 /* Input panel — project-scope assets */
-.input-drop {
-  display: flex; flex-direction: column; align-items: center; justify-content: center;
-  gap: 6px; padding: 18px 12px; margin-bottom: 10px;
-  border: 1.5px dashed var(--bg-4); border-radius: 10px;
-  background: var(--bg-2); color: var(--fg-3);
-  text-align: center; cursor: pointer;
-  transition: border-color 0.12s, background 0.12s, color 0.12s;
-}
-.input-drop:hover, .input-drop.drag {
-  border-color: var(--amber); color: var(--fg-1); background: var(--bg-3);
-}
-.input-drop-title { font-size: 12px; font-weight: 500; color: var(--fg-1); }
-.input-drop-sub { font-size: 10px; color: var(--fg-3); }
-.input-item {
-  display: flex; gap: 8px; align-items: center;
-  padding: 6px; border-radius: 7px; margin-bottom: 4px;
-  border: 1px solid transparent; cursor: pointer;
-  transition: background 0.1s, border-color 0.1s;
-}
-.input-item:hover { background: var(--bg-2); border-color: var(--line); }
-.input-item .file-thumb { width: 36px; height: 36px; }
-.input-item-meta { flex: 1; min-width: 0; }
-.input-item-name {
-  font-size: 11px; font-weight: 500; color: var(--fg-0);
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-}
-.input-item-kind {
-  font-size: 9px; font-family: var(--type-mono); color: var(--fg-3);
-  text-transform: uppercase; letter-spacing: 0.08em; margin-top: 1px;
-}
-.input-item-key {
-  display: block; width: 100%;
-  background: transparent; border: none; outline: none; padding: 0;
-  font-family: var(--type-mono); font-size: 12px; font-weight: 500;
-  color: var(--amber);
-}
-.input-item-key:focus { color: var(--amber); }
-.input-item-copy {
-  flex-shrink: 0; width: 22px; height: 22px; padding: 0;
-  background: transparent; border: 1px solid transparent; border-radius: 4px;
-  color: var(--fg-3); display: grid; place-items: center; cursor: pointer;
-  opacity: 0; transition: opacity 0.1s, color 0.1s, border-color 0.1s;
-}
-.input-item:hover .input-item-copy { opacity: 1; }
-.input-item-copy:hover { color: var(--amber); border-color: var(--amber-dim, var(--amber)); }
-.input-item-delete {
-  flex-shrink: 0; width: 22px; height: 22px; padding: 0;
-  background: transparent; border: 1px solid transparent; border-radius: 4px;
-  color: var(--fg-3); display: grid; place-items: center; cursor: pointer;
-  opacity: 0; transition: opacity 0.1s, color 0.1s, border-color 0.1s;
-}
-.input-item:hover .input-item-delete { opacity: 1; }
-.input-item-delete:hover { color: var(--err); border-color: var(--err); }
-
 /* Project variables */
 .var-list { display: flex; flex-direction: column; gap: 4px; margin-bottom: 6px; }
 .var-row {
@@ -716,15 +662,49 @@ body.right-collapsed .canvas-wrap { right: 0; }
   opacity: 0; transition: opacity 0.1s, color 0.1s, border-color 0.1s;
 }
 .var-row:hover .var-delete, .var-row:focus-within .var-delete { opacity: 1; }
+.var-row:hover .var-copy, .var-row:focus-within .var-copy { opacity: 1; }
 .var-delete:hover { color: var(--err); border-color: var(--err); }
+.var-copy {
+  flex-shrink: 0; width: 22px; height: 22px; padding: 0;
+  background: transparent; border: 1px solid transparent; border-radius: 4px;
+  color: var(--fg-3); display: grid; place-items: center; cursor: pointer;
+  opacity: 0; transition: opacity 0.1s, color 0.1s, border-color 0.1s;
+}
+.var-copy:hover { color: var(--amber); border-color: var(--amber-dim); }
+
+/* File-typed variable row: thumbnail pill instead of a value text input. */
+.file-var-row .var-file-pill {
+  flex: 1; min-width: 0;
+  display: flex; align-items: center; gap: 6px;
+  padding: 2px 6px 2px 2px;
+  border-radius: 5px; background: var(--bg-3);
+  cursor: pointer;
+}
+.var-file-thumb {
+  flex-shrink: 0; width: 24px; height: 24px; border-radius: 3px;
+  overflow: hidden; background: var(--bg-0);
+  display: grid; place-items: center;
+}
+.var-file-thumb img, .var-file-thumb video {
+  width: 100%; height: 100%; object-fit: cover; display: block;
+}
+.var-file-thumb .file-thumb-placeholder svg { width: 12px; height: 12px; }
+.var-file-name {
+  font-size: 11px; color: var(--fg-1);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+.var-add-row { display: flex; gap: 6px; margin-bottom: 8px; }
 .var-add {
-  width: 100%; padding: 6px 8px; margin-bottom: 8px;
+  flex: 1; padding: 6px 8px;
   background: var(--bg-2); border: 1px dashed var(--bg-4);
   border-radius: 6px; color: var(--fg-3); font-size: 11px; cursor: pointer;
   font-family: inherit; text-align: center;
-  transition: border-color 0.12s, color 0.12s;
+  transition: border-color 0.12s, color 0.12s, background 0.12s;
 }
-.var-add:hover { border-color: var(--amber-dim); color: var(--fg-1); }
+.var-add:hover, .var-add.drag {
+  border-color: var(--amber-dim); color: var(--fg-1); background: var(--bg-3);
+}
 .var-help {
   font-size: 10px; color: var(--fg-3); line-height: 1.45;
   margin: 0 4px 16px; padding-left: 2px;
@@ -3499,28 +3479,31 @@ body.view-only .field-textarea[data-field="prompt"] { cursor: not-allowed; }
   function renderInputsPanel() {
     const panel = document.getElementById('panel-input');
     if (!panel) return;
-    const items = projectInputs.slice().reverse();  // newest first
-    const itemHtml = items.map(e => {
+
+    // File-row content (key = thumb · filename, with hover copy/delete) for an
+    // uploaded input. Rendered inline alongside text-variable rows so the user
+    // sees one unified list.
+    const fileVarRow = e => {
+      const k = _inputVarKey(e);
       const thumb = (e.kind === 'image')
         ? `<img src="${esc(mediaUrl(e.url))}" alt="" referrerpolicy="no-referrer"/>`
         : (e.kind === 'video')
           ? `<video src="${esc(mediaUrl(e.url))}" muted preload="metadata" referrerpolicy="no-referrer"></video>`
           : `<div class="file-thumb-placeholder">${ICONS[e.kind] || ICONS.upload}</div>`;
-      const k = _inputVarKey(e);
-      return `<div class="input-item" data-input-id="${esc(e.id)}">
-        <div class="file-thumb">${thumb}</div>
-        <div class="input-item-meta">
-          <input class="input-item-key" data-input-key-edit
-                 value="${esc(k)}" placeholder="key" spellcheck="false"
-                 title="Reference as {{${esc(k)}}}"/>
-          <div class="input-item-name" title="${esc(e.name)}">${esc(e.kind)} · ${esc(e.name)}</div>
+      return `<div class="var-row file-var-row" data-input-id="${esc(e.id)}">
+        <input class="var-key" data-input-key-edit value="${esc(k)}" placeholder="key"
+               spellcheck="false" title="Reference as {{${esc(k)}}}"/>
+        <span class="var-eq">=</span>
+        <div class="var-file-pill" title="${esc(e.name)}">
+          <div class="var-file-thumb">${thumb}</div>
+          <span class="var-file-name">${esc(e.name)}</span>
         </div>
-        <button class="input-item-copy" data-copy-var="${esc(k)}" title="Copy {{${esc(k)}}}">${ICONS.dup}</button>
-        <button class="input-item-delete" data-input-delete="${esc(e.id)}" title="Remove">${ICONS.trash}</button>
+        <button class="var-copy" data-copy-var="${esc(k)}" title="Copy {{${esc(k)}}}">${ICONS.dup}</button>
+        <button class="var-delete" data-input-delete="${esc(e.id)}" title="Remove">${ICONS.trash}</button>
       </div>`;
-    }).join('');
+    };
 
-    const varRows = projectVars.map(v => `
+    const textVarRow = v => `
       <div class="var-row" data-var-id="${esc(v.id)}">
         <input class="var-key" data-var-field="key" placeholder="key"
                value="${esc(v.key)}" spellcheck="false"/>
@@ -3528,30 +3511,25 @@ body.view-only .field-textarea[data-field="prompt"] { cursor: not-allowed; }
         <input class="var-value" data-var-field="value" placeholder="value"
                value="${esc(v.value)}"/>
         <button class="var-delete" data-var-delete="${esc(v.id)}" title="Remove">${ICONS.trash}</button>
-      </div>
-    `).join('');
+      </div>`;
+
+    const allRows = projectVars.map(textVarRow).join('') + projectInputs.map(fileVarRow).join('');
 
     panel.innerHTML = `
       <div class="side-section-title">Project variables</div>
-      <div class="var-list">${varRows}</div>
-      <button class="var-add" id="var-add">+ Add variable</button>
-      <div class="var-help">Reference variables — and any uploaded input below — anywhere as <code>{{key}}</code>. Resolved before the prompt hits any API. Keys may use Chinese / any Unicode (e.g. <code>{{品牌}}</code>). Each upload has its own editable key — click it to rename, click the copy icon to grab the <code>{{…}}</code> token.</div>
-
-      <div class="side-section-title">Project inputs</div>
-      <label class="input-drop" id="input-drop">
-        <input type="file" id="input-file" hidden multiple
-               accept="image/*,video/*,audio/*,.srt,.vtt,.ass,.txt"/>
-        <svg width="22" height="22" viewBox="0 0 16 16" fill="none" stroke="currentColor"
-             stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M8 10V3M5 6l3-3 3 3M3 13h10"/>
-        </svg>
-        <div class="input-drop-title">Add input</div>
-        <div class="input-drop-sub">image · video · audio · text · subtitles</div>
-      </label>
-      ${items.length ? itemHtml : '<div class="side-empty">No project inputs yet.<br>Drop files above to share them across nodes.</div>'}
+      <div class="var-list">${allRows}</div>
+      <div class="var-add-row">
+        <button class="var-add" id="var-add">+ Add variable</button>
+        <label class="var-add" id="input-drop" title="Drop files here or click to upload">
+          <input type="file" id="input-file" hidden multiple
+                 accept="image/*,video/*,audio/*,.srt,.vtt,.ass,.txt"/>
+          + Upload file
+        </label>
+      </div>
+      <div class="var-help">Reference variables anywhere as <code>{{key}}</code> — resolved before the prompt hits any API. Keys may use Chinese / any Unicode (e.g. <code>{{品牌}}</code>). Uploads become file-typed variables; the file flows into the matching node argument (image / audio / video) automatically when you reference it.</div>
     `;
 
-    // Variables: add / edit / delete
+    // Variables: add / edit / delete (text variables only)
     panel.querySelector('#var-add')?.addEventListener('click', () => addProjectVar());
     panel.querySelectorAll('[data-var-id]').forEach(row => {
       const id = row.dataset.varId;
@@ -3574,24 +3552,25 @@ body.view-only .field-textarea[data-field="prompt"] { cursor: not-allowed; }
       btn.addEventListener('click', () => deleteProjectVar(btn.dataset.varDelete));
     });
 
-    // Seek video thumbs to first frame
-    panel.querySelectorAll('.file-thumb video').forEach(v => {
+    // Seek video thumbs in file rows to the first frame
+    panel.querySelectorAll('.var-file-thumb video').forEach(v => {
       const seek = () => { try { v.currentTime = 0.01; } catch (_) {} };
       if (v.readyState >= 1) seek();
       else v.addEventListener('loadedmetadata', seek, { once: true });
     });
 
-    // File picker
+    // File picker (label#input-drop wraps the hidden file input)
     const fileInput = panel.querySelector('#input-file');
     fileInput?.addEventListener('change', async () => {
       for (const f of fileInput.files || []) await uploadProjectInput(f);
       fileInput.value = '';
     });
 
-    // Drag-and-drop onto the drop zone
+    // Drag-and-drop onto the upload button — also catches drops on the
+    // whole panel so users don't have to aim precisely.
     const drop = panel.querySelector('#input-drop');
     if (drop) {
-      drop.addEventListener('dragover', e => { e.preventDefault(); drop.classList.add('drag'); });
+      drop.addEventListener('dragover',  e => { e.preventDefault(); drop.classList.add('drag'); });
       drop.addEventListener('dragleave', () => drop.classList.remove('drag'));
       drop.addEventListener('drop', async e => {
         e.preventDefault(); drop.classList.remove('drag');
@@ -3599,16 +3578,14 @@ body.view-only .field-textarea[data-field="prompt"] { cursor: not-allowed; }
       });
     }
 
-    // Click an input → spawn Upload node; trash icon → delete
-    // Whole-row click → spawn an Upload node pre-loaded with the file
-    // (preserved for users who want a visible node on the canvas). Clicks
-    // on the editable key field, the copy button, or the delete button
-    // are handled separately and don't trigger spawning.
+    // File-row controls: delete / copy / inline key-edit. The whole-row
+    // "click → spawn Upload node" shortcut still works on the empty space.
     panel.querySelectorAll('[data-input-id]').forEach(el => {
       el.addEventListener('click', e => {
         if (e.target.closest('[data-input-delete]')) return;
         if (e.target.closest('[data-copy-var]')) return;
         if (e.target.closest('[data-input-key-edit]')) return;
+        if (e.target.closest('input, button')) return;
         const id = el.dataset.inputId;
         const entry = projectInputs.find(x => x.id === id);
         if (entry) spawnUploadFromInput(entry);
@@ -3630,10 +3607,9 @@ body.view-only .field-textarea[data-field="prompt"] { cursor: not-allowed; }
         );
       });
     });
-    // Editable input key — sanitise on every keystroke, preserve caret.
     panel.querySelectorAll('[data-input-key-edit]').forEach(inp => {
-      inp.addEventListener('click',  e => e.stopPropagation());
-      inp.addEventListener('focus',  e => e.stopPropagation());
+      inp.addEventListener('click', e => e.stopPropagation());
+      inp.addEventListener('focus', e => e.stopPropagation());
       inp.addEventListener('input', () => {
         const id = inp.closest('[data-input-id]').dataset.inputId;
         const stored = updateProjectInputKey(id, inp.value);
@@ -3642,8 +3618,6 @@ body.view-only .field-textarea[data-field="prompt"] { cursor: not-allowed; }
           inp.value = stored;
           try { inp.setSelectionRange(caret, caret); } catch (_) {}
         }
-        // Refresh the row's title + the copy button's data so a fresh click
-        // copies the *new* key without waiting for the panel to re-render.
         inp.title = 'Reference as {{' + stored + '}}';
         const copy = inp.closest('[data-input-id]')?.querySelector('[data-copy-var]');
         if (copy) {
