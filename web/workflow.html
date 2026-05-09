@@ -4069,19 +4069,22 @@ body.view-only .field-textarea[data-field="prompt"] { cursor: not-allowed; }
       </div>`;
     }
 
-    // Duration chips (video)
+    // Duration chips (video) — Seedance accepts 4-15s. Surface the common
+    // values; users can pick whichever's closest to what they want.
     if (node.type === 'video') {
+      const durations = ['4','5','6','8','10','12','15'];
+      const cur = String(node.params.duration ?? '5');
       f += `<div class="field">
         <label class="field-label">Duration</label>
         <div class="chip-row">
-          ${['5','10'].map(d => `<button class="chip${node.params.duration===d?' active':''}" data-field="duration" data-val="${d}">${d}s</button>`).join('')}
+          ${durations.map(d => `<button class="chip${cur===d?' active':''}" data-field="duration" data-val="${d}">${d}s</button>`).join('')}
         </div>
       </div>`;
     }
 
     // Aspect ratio chips
     if (node.type === 'image' || node.type === 'video') {
-      const ratios = node.type === 'image' ? ['16:9','1:1','9:16','4:3','3:4'] : ['16:9','9:16','1:1'];
+      const ratios = ['16:9','9:16','1:1','4:3','3:4'];
       f += `<div class="field">
         <label class="field-label">Aspect ratio</label>
         <div class="chip-row">
