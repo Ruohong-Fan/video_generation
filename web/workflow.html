@@ -1034,14 +1034,14 @@ body.view-only .field-textarea[data-field="prompt"] { cursor: not-allowed; }
   /* Highlight box for {{key}} occurrences. Painted on the overlay layer
      under the textarea, visible through the textarea's transparent
      background. Must NOT alter token width — see metric note in
-     commit 39af5c4. */
-  background: oklch(0.78 0.145 70 / 0.22);
+     commit 39af5c4. All known variables share the site's amber theme. */
+  background: oklch(0.78 0.145 70 / 0.32);
   border-radius: 3px;
-  box-shadow: 0 0 0 1px oklch(0.78 0.145 70 / 0.22);
+  box-shadow: 0 0 0 1px oklch(0.78 0.145 70 / 0.55);
 }
 .var-wrap .var-token.unknown {
-  background: oklch(0.70 0.18 25 / 0.18);
-  box-shadow: 0 0 0 1px oklch(0.70 0.18 25 / 0.22);
+  background: oklch(0.70 0.18 25 / 0.22);
+  box-shadow: 0 0 0 1px oklch(0.70 0.18 25 / 0.5);
 }
 .field-helper { font-size: 10.5px; color: var(--fg-3); margin-top: 4px; line-height: 1.4; }
 .generated-text {
@@ -3277,14 +3277,6 @@ body.view-only .field-textarea[data-field="prompt"] { cursor: not-allowed; }
   // {{key}} wrapped in a styled <span>. A MutationObserver auto-attaches
   // the overlay whenever the inspector renders a new textarea.
   const _VAR_RE_HL = /\{\{\s*([\p{L}\p{N}_]+)\s*\}\}/gu;
-  // Hash a variable name to a deterministic hue (0-359). Same name → same
-  // colour every time, so users can recognise a variable across prompts and
-  // distinguish multiple variables in one prompt at a glance.
-  function _varHue(name) {
-    let h = 0;
-    for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) % 360;
-    return h;
-  }
   function _varOverlayHtml(text, contextNode) {
     const escapeHtml = s => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
     // A key is "known" if it matches a project variable OR an upstream
@@ -3306,13 +3298,7 @@ body.view-only .field-textarea[data-field="prompt"] { cursor: not-allowed; }
     while ((m = _VAR_RE_HL.exec(text)) !== null) {
       out += escapeHtml(text.slice(last, m.index));
       const known = projectVars.some(v => v.key === m[1]) || upstreamKeys.has(m[1]);
-      if (known) {
-        const h = _varHue(m[1]);
-        const style = `background:oklch(0.72 0.16 ${h} / 0.32);box-shadow:0 0 0 1px oklch(0.72 0.16 ${h} / 0.55)`;
-        out += `<span class="var-token" style="${style}">${escapeHtml(m[0])}</span>`;
-      } else {
-        out += `<span class="var-token unknown">${escapeHtml(m[0])}</span>`;
-      }
+      out += `<span class="var-token${known ? '' : ' unknown'}">${escapeHtml(m[0])}</span>`;
       last = _VAR_RE_HL.lastIndex;
     }
     out += escapeHtml(text.slice(last));
