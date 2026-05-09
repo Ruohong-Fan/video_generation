@@ -515,22 +515,6 @@ body {
   display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
   margin-top: 4px;
 }
-.template-card {
-  padding: 10px 12px;
-  background: var(--surface2); border: 1px solid var(--border);
-  border-radius: var(--r-sm); text-align: left;
-  cursor: pointer; transition: border-color 0.12s, background 0.12s;
-}
-.template-card:hover { border-color: var(--surface3); }
-.template-card.active {
-  border-color: var(--accent);
-  background: oklch(0.78 0.145 70 / 0.08);
-}
-.template-card-name {
-  font-size: 12px; font-weight: 600; color: var(--text);
-  margin-bottom: 2px;
-}
-.template-card-desc { font-size: 11px; color: var(--muted); line-height: 1.4; }
 
 /* ── Toolbar ─────────────────────────────────────────────────────────────── */
 .p-toolbar {
@@ -777,7 +761,7 @@ body {
     <!-- create mode head -->
     <div class="modal-head" id="modal-head-create">
       <h2>New project</h2>
-      <p>Start blank or pick a template to scaffold the graph for you.</p>
+      <p>Give your project a name to get started.</p>
     </div>
     <!-- rename mode head -->
     <div class="modal-head" id="modal-head-rename" style="display:none">
@@ -787,11 +771,6 @@ body {
       <div class="modal-field">
         <label class="field-label" for="modal-name">Project name</label>
         <input class="field-input" type="text" id="modal-name" placeholder="Untitled project" maxlength="80" autocomplete="off" />
-      </div>
-      <!-- template grid, shown only in create mode -->
-      <div id="modal-templates">
-        <label class="field-label">Template</label>
-        <div class="template-grid" id="template-grid"></div>
       </div>
     </div>
     <div class="modal-foot">
@@ -843,8 +822,8 @@ body {
         <div style="display:flex; gap:6px">
           <input class="field-input" type="email" id="share-email" placeholder="collaborator@example.com" autocomplete="off" style="flex:1; min-width:0"/>
           <select class="field-input" id="share-perm" style="flex:0 0 auto; width:auto">
-            <option value="view">View</option>
-            <option value="edit">Edit</option>
+            <option value="view">Can view</option>
+            <option value="edit">Can edit</option>
           </select>
           <button class="btn primary" id="share-add" style="flex:0 0 auto">Add</button>
         </div>
@@ -1195,8 +1174,8 @@ body {
         html += '<div class="share-member-row" data-email="' + e + '">' +
                 '<div class="who">' + e + '</div>' +
                 '<select class="role-select" data-share-perm>' +
-                '  <option value="view"' + (m.permission === 'view' ? ' selected' : '') + '>View</option>' +
-                '  <option value="edit"' + (m.permission === 'edit' ? ' selected' : '') + '>Edit</option>' +
+                '  <option value="view"' + (m.permission === 'view' ? ' selected' : '') + '>Can view</option>' +
+                '  <option value="edit"' + (m.permission === 'edit' ? ' selected' : '') + '>Can edit</option>' +
                 '</select>' +
                 '<button class="remove-btn" data-share-remove title="Remove">' +
                 '<svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M4 4l8 8M12 4l-8 8"/></svg>' +
@@ -1407,33 +1386,9 @@ body {
   });
 
   // ── Modal ─────────────────────────────────────────────────────────────────
-  const TEMPLATES = [
-    { key: 'blank',  name: 'Blank canvas',       desc: 'Start with an empty graph' },
-    { key: 'i2v',    name: 'Image → Video',       desc: 'Still image into a 5s clip' },
-    { key: 'script', name: 'Script → Shot list',  desc: 'Break a scene into shots' },
-    { key: 'broll',  name: 'B-roll montage',      desc: 'Stitch clips with VO' },
-    { key: 'char',   name: 'Character turnaround',desc: 'Reference → 4 angles' },
-    { key: 'ad',     name: '30-second ad',         desc: 'Hook · body · payoff' },
-  ];
-
   const modalOverlay = document.getElementById('modal-overlay');
   let modalMode = 'create';
   let modalProjectId = null;
-  let selectedTemplate = 'blank';
-
-  // Build template grid once
-  const tGrid = document.getElementById('template-grid');
-  TEMPLATES.forEach(t => {
-    const btn = document.createElement('button');
-    btn.className = 'template-card' + (t.key === 'blank' ? ' active' : '');
-    btn.dataset.key = t.key;
-    btn.innerHTML = `<div class="template-card-name">${esc(t.name)}</div><div class="template-card-desc">${esc(t.desc)}</div>`;
-    btn.addEventListener('click', () => {
-      selectedTemplate = t.key;
-      tGrid.querySelectorAll('.template-card').forEach(c => c.classList.toggle('active', c.dataset.key === t.key));
-    });
-    tGrid.appendChild(btn);
-  });
 
   function openModal(mode, id = null, name = '') {
     modalMode = mode;
@@ -1441,10 +1396,8 @@ body {
     const isCreate = mode === 'create';
     document.getElementById('modal-head-create').style.display = isCreate ? '' : 'none';
     document.getElementById('modal-head-rename').style.display = isCreate ? 'none' : '';
-    document.getElementById('modal-templates').style.display   = isCreate ? '' : 'none';
     document.getElementById('modal-ok-label').textContent = isCreate ? 'Create project' : 'Save';
     document.getElementById('modal-name').value = name;
-    if (isCreate) { selectedTemplate = 'blank'; tGrid.querySelectorAll('.template-card').forEach(c => c.classList.toggle('active', c.dataset.key === 'blank')); }
     modalOverlay.style.display = 'grid';
     setTimeout(() => { const inp = document.getElementById('modal-name'); inp.focus(); if (name) inp.select(); }, 40);
   }
@@ -1461,10 +1414,9 @@ body {
     okBtn.disabled = true;
     try {
       if (modalMode === 'create') {
-        const tmpl = TEMPLATES.find(t => t.key === selectedTemplate);
         const d = await fetch('/api/projects', {
           method: 'POST', headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({ name, description: tmpl?.desc || '' }),
+          body: JSON.stringify({ name }),
         }).then(r => r.json());
         if (!d.ok) throw new Error(d.error || 'Create failed');
         closeModal();

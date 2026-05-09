@@ -70,6 +70,7 @@
       '创建第一个项目,开始搭建视频生成工作流',
     'Create first project': '创建第一个项目',
     'Start blank or from a template': '从空白或模板开始',
+    'Give your project a name to get started.': '为项目起一个名称即可开始。',
     'Archive': '归档',
     'Duplicate': '复制',
     'Delete': '删除',
@@ -88,8 +89,11 @@
     'Share this project': '分享该项目',
     'Add a collaborator': '添加协作者',
     'Members': '成员',
+    // Share-modal permission labels — kept verbose ("Can view" / "Can edit")
+    // so they don't collide with the Edit Library card ("Edit" → "剪辑").
+    'Can view': '浏览',
+    'Can edit': '编辑',
     'View': '浏览',
-    'Edit': '编辑',
     'Read': '浏览',
     'Read & write': '编辑',
     'Add': '添加',
