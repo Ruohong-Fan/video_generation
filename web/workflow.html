@@ -990,13 +990,14 @@ body.view-only .field-textarea[data-field="prompt"] { cursor: not-allowed; }
    are already handled because they don't carry data-field. */
 
 /* Inline {{var}} highlighting in prompt/instruction textareas.
-   Strategy: stack an absolutely-positioned overlay ON TOP of the textarea
-   (pointer-events:none so all input still reaches the textarea). Plain
-   text in the overlay is rendered fully transparent — so the textarea's
-   text shows through everywhere except the {{var}} spans, which carry a
-   solid amber background + dark text and read as proper primary-style
-   buttons. Padding/border/font on the overlay must match .field-textarea
-   exactly so each pill lines up with the typed token. */
+   Strategy: hide the textarea's text (color: transparent, caret stays
+   visible via caret-color) and let the overlay above it paint every
+   character in the proper colour. Plain text gets the default fg colour
+   so it reads identically to a normal textarea; {{var}} tokens get
+   var(--amber) text — no background, no padding — so they read as
+   coloured-text only.
+   Padding/border/font on the overlay must match .field-textarea so
+   each character lines up with the (transparent) one beneath it. */
 .var-wrap {
   position: relative; display: block;
   background: var(--bg-0);
@@ -1008,9 +1009,13 @@ body.view-only .field-textarea[data-field="prompt"] { cursor: not-allowed; }
 .var-wrap > textarea.field-textarea {
   position: relative; z-index: 1;
   background: transparent;
-  border: 1px solid transparent;  /* preserve metrics — the wrap shows the real border */
-  /* Text + caret stay default-coloured; the overlay only obscures them
-     where a {{var}} pill paints over them. */
+  border: 1px solid transparent;     /* preserve metrics — wrap shows the real border */
+  color: transparent;                 /* text invisible; overlay paints it */
+  caret-color: var(--fg-0);           /* cursor still visible */
+}
+.var-wrap > textarea.field-textarea::selection {
+  background: oklch(0.78 0.145 70 / 0.28);
+  color: transparent;
 }
 .var-wrap .var-overlay {
   position: absolute; inset: 0; z-index: 2;
@@ -1019,30 +1024,19 @@ body.view-only .field-textarea[data-field="prompt"] { cursor: not-allowed; }
   padding: 8px 10px;
   font-family: inherit; font-size: 12px; line-height: 1.5;
   white-space: pre-wrap; word-wrap: break-word; overflow: hidden;
-  color: transparent;             /* non-token text invisible — textarea below shows through */
+  color: var(--fg-0);                 /* default text colour — paints what the textarea hid */
   pointer-events: none;
 }
 .var-wrap .var-token {
-  /* Solid amber pill, dark text — reads as a primary-style button
-     rather than a tinted highlight. The token's text MUST stay at the
-     default font-weight + padding so its width matches the (hidden)
-     textarea text below; metric drift would make the pill bleed into
-     the next character (see commit 39af5c4). Visual depth comes from
-     box-shadow only. */
-  background: var(--amber);
-  color: oklch(0.18 0.03 65);
-  border-radius: 4px;
-  box-shadow: 0 1px 0 oklch(0.50 0.13 65 / 0.45),
-              inset 0 1px 0 oklch(1 0 0 / 0.18);
+  /* Just a colour change. No padding / margin / weight — those would
+     change the rendered width vs. the textarea text underneath and
+     the cursor would drift away from the visible glyphs. */
+  color: var(--amber);
 }
 .var-wrap .var-token.unknown {
-  /* Same shape as the known pill but in the error red, so a typo'd or
-     undefined {{key}} reads as a button-with-warning rather than
-     blending into the prose. */
-  background: oklch(0.70 0.18 25);
-  color: oklch(0.98 0.02 25);
-  box-shadow: 0 1px 0 oklch(0.40 0.16 25 / 0.55),
-              inset 0 1px 0 oklch(1 0 0 / 0.15);
+  color: oklch(0.78 0.16 25);
+  text-decoration: underline wavy 1px;
+  text-underline-offset: 2px;
 }
 .field-helper { font-size: 10.5px; color: var(--fg-3); margin-top: 4px; line-height: 1.4; }
 .generated-text {
