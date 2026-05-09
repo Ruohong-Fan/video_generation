@@ -990,18 +990,15 @@ body.view-only .field-textarea[data-field="prompt"] { cursor: not-allowed; }
    are already handled because they don't carry data-field. */
 
 /* Inline {{var}} highlighting in prompt/instruction textareas.
-   Strategy: leave the textarea's TEXT fully visible (it's the source of
-   truth). An absolutely-positioned overlay sits BEHIND the textarea
-   rendering the same content with color:transparent, but the {{var}}
-   spans carry a visible background. The textarea has a transparent
-   background so the var-token boxes show through as highlight pills
-   behind the typed tokens.
-   The padding/border/font on the overlay must match .field-textarea
-   exactly so each highlight box lines up with the typed token. */
+   Strategy: stack an absolutely-positioned overlay ON TOP of the textarea
+   (pointer-events:none so all input still reaches the textarea). Plain
+   text in the overlay is rendered fully transparent — so the textarea's
+   text shows through everywhere except the {{var}} spans, which carry a
+   solid amber background + dark text and read as proper primary-style
+   buttons. Padding/border/font on the overlay must match .field-textarea
+   exactly so each pill lines up with the typed token. */
 .var-wrap {
   position: relative; display: block;
-  /* Wrap takes over the visual surface so the textarea above can be
-     transparent without losing the "textbox" look. */
   background: var(--bg-0);
   border: 1px solid var(--line);
   border-radius: 6px;
@@ -1009,34 +1006,43 @@ body.view-only .field-textarea[data-field="prompt"] { cursor: not-allowed; }
 }
 .var-wrap:focus-within { border-color: var(--amber); }
 .var-wrap > textarea.field-textarea {
-  position: relative; z-index: 2;
+  position: relative; z-index: 1;
   background: transparent;
   border: 1px solid transparent;  /* preserve metrics — the wrap shows the real border */
-  /* Text and caret stay default-coloured so what the user typed is what
-     they see. */
+  /* Text + caret stay default-coloured; the overlay only obscures them
+     where a {{var}} pill paints over them. */
 }
 .var-wrap .var-overlay {
-  position: absolute; inset: 0; z-index: 1;
-  border: 1px solid transparent;  /* match the textarea's reserved border slot */
+  position: absolute; inset: 0; z-index: 2;
+  border: 1px solid transparent;
   border-radius: 6px;
   padding: 8px 10px;
   font-family: inherit; font-size: 12px; line-height: 1.5;
   white-space: pre-wrap; word-wrap: break-word; overflow: hidden;
-  color: transparent;             /* invisible — only var-token backgrounds show */
+  color: transparent;             /* non-token text invisible — textarea below shows through */
   pointer-events: none;
 }
 .var-wrap .var-token {
-  /* Highlight box for {{key}} occurrences. Painted on the overlay layer
-     under the textarea, visible through the textarea's transparent
-     background. Must NOT alter token width — see metric note in
-     commit 39af5c4. All known variables share the site's amber theme. */
-  background: oklch(0.78 0.145 70 / 0.32);
-  border-radius: 3px;
-  box-shadow: 0 0 0 1px oklch(0.78 0.145 70 / 0.55);
+  /* Solid amber pill, dark text — reads as a primary-style button
+     rather than a tinted highlight. The token's text MUST stay at the
+     default font-weight + padding so its width matches the (hidden)
+     textarea text below; metric drift would make the pill bleed into
+     the next character (see commit 39af5c4). Visual depth comes from
+     box-shadow only. */
+  background: var(--amber);
+  color: oklch(0.18 0.03 65);
+  border-radius: 4px;
+  box-shadow: 0 1px 0 oklch(0.50 0.13 65 / 0.45),
+              inset 0 1px 0 oklch(1 0 0 / 0.18);
 }
 .var-wrap .var-token.unknown {
-  background: oklch(0.70 0.18 25 / 0.22);
-  box-shadow: 0 0 0 1px oklch(0.70 0.18 25 / 0.5);
+  /* Same shape as the known pill but in the error red, so a typo'd or
+     undefined {{key}} reads as a button-with-warning rather than
+     blending into the prose. */
+  background: oklch(0.70 0.18 25);
+  color: oklch(0.98 0.02 25);
+  box-shadow: 0 1px 0 oklch(0.40 0.16 25 / 0.55),
+              inset 0 1px 0 oklch(1 0 0 / 0.15);
 }
 .field-helper { font-size: 10.5px; color: var(--fg-3); margin-top: 4px; line-height: 1.4; }
 .generated-text {
