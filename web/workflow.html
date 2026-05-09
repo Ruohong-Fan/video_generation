@@ -670,6 +670,11 @@ body.right-collapsed .canvas-wrap { right: 0; }
   font-size: 9px; font-family: var(--type-mono); color: var(--fg-3);
   text-transform: uppercase; letter-spacing: 0.08em; margin-top: 1px;
 }
+.input-item-var {
+  text-transform: none; letter-spacing: 0;
+  color: var(--amber); cursor: pointer;
+}
+.input-item-var:hover { text-decoration: underline; }
 .input-item-delete {
   flex-shrink: 0; width: 22px; height: 22px; padding: 0;
   background: transparent; border: 1px solid transparent; border-radius: 4px;
@@ -1951,6 +1956,29 @@ body.view-only .field-textarea[data-field="prompt"] { cursor: not-allowed; }
     // a node-level audio/video upload doesn't apply to T2V/I2V/MM2V.
     if (node.uploadPath) imageRefs.push(node.uploadPath);
     else if (node.uploadUrl) imageRefs.push(node.uploadUrl);
+
+    // Project-input files referenced by {{name}} in the user's prompt are
+    // routed to the matching per-kind list so the file flows into the
+    // dreamina CLI's --image / --audio / --video flag, even though the
+    // {{name}} token in the prompt itself was already substituted to the
+    // file's URL by resolveRuntimeVars above.
+    const referenced = new Set();
+    const _matches = (node.prompt || '').matchAll(/\{\{\s*([\p{L}\p{N}_]+)\s*\}\}/gu);
+    for (const m of _matches) referenced.add(m[1]);
+    if (referenced.size) {
+      for (const inp of projectInputs) {
+        const k = _inputVarKey(inp);
+        if (!referenced.has(k)) continue;
+        const ref = inp.url || inp.path;
+        if (!ref) continue;
+        if      (inp.kind === 'image') imageRefs.push(ref);
+        else if (inp.kind === 'audio') audioRefs.push(ref);
+        else if (inp.kind === 'video') videoRefs.push(ref);
+        // text / subtitle / file: substitution alone is enough — the URL
+        // is already in the prompt where the user put the {{token}}.
+      }
+    }
+
     // User's typed prompt wins; the upstream Text node only fills the gap.
     const prompt = userPrompt || textNodePrompt;
     return { prompt, imageRefs, imagePrompts, audioRefs, videoRefs };
@@ -3202,14 +3230,31 @@ body.view-only .field-textarea[data-field="prompt"] { cursor: not-allowed; }
       .replace(/^(\p{N})/u, '_$1');
   }
 
+  // Variable key under which a project-input file is exposed to {{...}}.
+  // Strip the extension so "logo.png" can be referenced as {{logo}}; if two
+  // uploads end up with the same key, the most recent one wins (call site
+  // walks projectInputs newest-last so the alphabetical of duplicates is
+  // resolved deterministically).
+  function _inputVarKey(input) {
+    const base = String(input?.name || '').replace(/\.[^.]+$/, '');
+    return _sanitizeVarKey(base) || _sanitizeVarKey(input?.id || '') || 'file';
+  }
+
   // Runtime variables visible to a node when it runs:
   //   - every project variable,
+  //   - every project input file by its sanitized name (URL as the value),
   //   - each upstream Text node's output, keyed by its (sanitised) title,
   //   - convenience aliases: `text` and `prev` → most recent upstream Text.
-  // Project vars take precedence over upstream so a user-defined override
-  // beats an accidental name collision with a node title.
+  // Project vars overlay last so a user-defined override beats an
+  // accidental name collision with a node title or a file name.
   function collectRuntimeVars(node) {
     const vars = {};
+    // Project input files — value is the URL/path so {{logo}} substitutes
+    // to /uploads/foo.png in any prompt that mentions it.
+    for (const inp of projectInputs) {
+      const k = _inputVarKey(inp);
+      if (k) vars[k] = inp.url || inp.path || '';
+    }
     const up = upstreamNodes(node.id);
     let lastText = '';
     for (const u of up) {
@@ -3297,7 +3342,9 @@ body.view-only .field-textarea[data-field="prompt"] { cursor: not-allowed; }
     _VAR_RE_HL.lastIndex = 0;
     while ((m = _VAR_RE_HL.exec(text)) !== null) {
       out += escapeHtml(text.slice(last, m.index));
-      const known = projectVars.some(v => v.key === m[1]) || upstreamKeys.has(m[1]);
+      const known = projectVars.some(v => v.key === m[1])
+                 || upstreamKeys.has(m[1])
+                 || projectInputs.some(inp => _inputVarKey(inp) === m[1]);
       out += `<span class="var-token${known ? '' : ' unknown'}">${escapeHtml(m[0])}</span>`;
       last = _VAR_RE_HL.lastIndex;
     }
@@ -3387,6 +3434,7 @@ body.view-only .field-textarea[data-field="prompt"] { cursor: not-allowed; }
       };
       projectInputs.push(entry);
       renderInputsPanel();
+      refreshAllVarHighlights();  // {{name}} pills in any open textarea now turn known
       await flushSaveNow();
       return entry;
     } catch (err) {
@@ -3418,6 +3466,7 @@ body.view-only .field-textarea[data-field="prompt"] { cursor: not-allowed; }
     if (idx < 0) return;
     projectInputs.splice(idx, 1);
     renderInputsPanel();
+    refreshAllVarHighlights();
     flushSaveNow();
   }
 
@@ -3435,7 +3484,7 @@ body.view-only .field-textarea[data-field="prompt"] { cursor: not-allowed; }
         <div class="file-thumb">${thumb}</div>
         <div class="input-item-meta">
           <div class="input-item-name">${esc(e.name)}</div>
-          <div class="input-item-kind">${esc(e.kind)}</div>
+          <div class="input-item-kind">${esc(e.kind)} · <span class="input-item-var" title="Click to copy" data-copy-var="${esc(_inputVarKey(e))}">{{${esc(_inputVarKey(e))}}}</span></div>
         </div>
         <button class="input-item-delete" data-input-delete="${esc(e.id)}" title="Remove">${ICONS.trash}</button>
       </div>`;
@@ -3456,7 +3505,7 @@ body.view-only .field-textarea[data-field="prompt"] { cursor: not-allowed; }
       <div class="side-section-title">Project variables</div>
       <div class="var-list">${varRows}</div>
       <button class="var-add" id="var-add">+ Add variable</button>
-      <div class="var-help">Reference anywhere as <code>{{key}}</code> — resolved before the prompt hits any API. Keys and values may use Chinese / any Unicode (e.g. <code>{{品牌}}</code>).</div>
+      <div class="var-help">Reference variables — and any uploaded input below — anywhere as <code>{{key}}</code>. Resolved before the prompt hits any API. Keys may use Chinese / any Unicode (e.g. <code>{{品牌}}</code>). For uploads, the key is the filename without its extension (click the <code>{{…}}</code> next to the file to copy).</div>
 
       <div class="side-section-title">Project inputs</div>
       <label class="input-drop" id="input-drop">
@@ -3524,6 +3573,7 @@ body.view-only .field-textarea[data-field="prompt"] { cursor: not-allowed; }
     panel.querySelectorAll('[data-input-id]').forEach(el => {
       el.addEventListener('click', e => {
         if (e.target.closest('[data-input-delete]')) return;
+        if (e.target.closest('[data-copy-var]')) return;  // copy handled below
         const id = el.dataset.inputId;
         const entry = projectInputs.find(x => x.id === id);
         if (entry) spawnUploadFromInput(entry);
@@ -3533,6 +3583,16 @@ body.view-only .field-textarea[data-field="prompt"] { cursor: not-allowed; }
       btn.addEventListener('click', e => {
         e.stopPropagation();
         deleteProjectInput(btn.dataset.inputDelete);
+      });
+    });
+    panel.querySelectorAll('[data-copy-var]').forEach(el => {
+      el.addEventListener('click', e => {
+        e.stopPropagation();
+        const tok = '{{' + el.dataset.copyVar + '}}';
+        navigator.clipboard?.writeText(tok).then(
+          () => toast('Copied ' + tok, 'success'),
+          () => toast('Copy failed', 'error'),
+        );
       });
     });
   }
