@@ -990,13 +990,13 @@ body.view-only .field-textarea[data-field="prompt"] { cursor: not-allowed; }
    are already handled because they don't carry data-field. */
 
 /* Inline {{var}} highlighting in prompt/instruction textareas.
-   Strategy: hide the textarea text (color:transparent, caret-color
-   keeps the cursor visible) and let the overlay above it paint every
-   character. Plain text gets the default fg colour; {{var}} tokens
-   get amber text on a translucent amber wash — reads as a soft chip
-   without competing with the prose around it.
-   Padding/border/font on the overlay must match .field-textarea so
-   each character lines up with the (hidden) one beneath it. */
+   Strategy: keep the textarea's text fully visible (default fg colour)
+   so what the user types is never hidden. An overlay div sits ON TOP
+   (pointer-events:none) and renders the same content with transparent
+   text — only the {{var}} spans paint anything: an opaque amber chip
+   that covers the underlying token text and re-prints it in amber.
+   Padding / border / font on the overlay must match .field-textarea
+   so each chip lines up exactly with the typed token. */
 .var-wrap {
   position: relative; display: block;
   background: var(--bg-0);
@@ -1009,12 +1009,6 @@ body.view-only .field-textarea[data-field="prompt"] { cursor: not-allowed; }
   position: relative; z-index: 1;
   background: transparent;
   border: 1px solid transparent;     /* preserve metrics — wrap shows the real border */
-  color: transparent;                 /* text invisible; overlay paints it */
-  caret-color: var(--fg-0);           /* cursor still visible */
-}
-.var-wrap > textarea.field-textarea::selection {
-  background: oklch(0.78 0.145 70 / 0.28);
-  color: transparent;
 }
 .var-wrap .var-overlay {
   position: absolute; inset: 0; z-index: 2;
@@ -1023,22 +1017,22 @@ body.view-only .field-textarea[data-field="prompt"] { cursor: not-allowed; }
   padding: 8px 10px;
   font-family: inherit; font-size: 12px; line-height: 1.5;
   white-space: pre-wrap; word-wrap: break-word; overflow: hidden;
-  color: var(--fg-0);                 /* default text colour — paints what the textarea hid */
+  color: transparent;                 /* plain text comes from the textarea below */
   pointer-events: none;
 }
 .var-wrap .var-token {
-  /* Soft amber chip: amber text on a 15% amber wash. No padding /
-     margin / weight — those would change rendered width vs. the
-     textarea text underneath and the cursor would drift away from
-     the visible glyphs (see commit 39af5c4). The pill effect comes
-     from background only. */
+  /* Soft amber chip painted on top of the textarea's {{var}} text. The
+     bg must be OPAQUE — at 15% wash the cream textarea text bleeds
+     through and clashes with the chip's amber re-print. No padding /
+     margin / weight — they'd change rendered width and the cursor
+     would drift from the visible glyphs (see commit 39af5c4). */
   color: var(--amber);
-  background: oklch(0.78 0.145 70 / 0.15);
+  background: oklch(0.24 0.045 65);
   border-radius: 3px;
 }
 .var-wrap .var-token.unknown {
   color: oklch(0.78 0.16 25);
-  background: oklch(0.70 0.18 25 / 0.12);
+  background: oklch(0.24 0.06 25);
   border-radius: 3px;
 }
 .field-helper { font-size: 10.5px; color: var(--fg-3); margin-top: 4px; line-height: 1.4; }
