@@ -1048,10 +1048,21 @@ body.view-only .field-textarea[data-field="prompt"] { cursor: not-allowed; }
 }
 .field-helper { font-size: 10.5px; color: var(--fg-3); margin-top: 4px; line-height: 1.4; }
 .generated-text {
+  display: block; width: 100%; box-sizing: border-box;
   padding: 10px 12px; background: var(--bg-0); border: 1px solid var(--line);
   border-left: 2px solid var(--amber); border-radius: 6px;
-  color: var(--fg-0); font-size: 12px; line-height: 1.55; max-height: 280px;
+  color: var(--fg-0); font-size: 12px; line-height: 1.55;
+  min-height: 80px; max-height: 280px;
   overflow-y: auto; white-space: pre-wrap; font-family: inherit;
+  resize: vertical; outline: none;
+  transition: border-color 0.12s;
+}
+textarea.generated-text:focus { border-color: var(--amber); }
+/* View-only mode dims most field controls but the generated-text editor
+   is intentionally exempt — share recipients are expected to refine the
+   draft text without needing edit access to the underlying prompt. */
+body.view-only textarea.generated-text {
+  opacity: 1; pointer-events: auto; cursor: text;
 }
 .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .chip-row { display: flex; gap: 4px; flex-wrap: wrap; }
@@ -4268,13 +4279,17 @@ body.view-only .field-textarea[data-field="prompt"] { cursor: not-allowed; }
       </div>`;
     }
 
-    // Generated text output (Text node)
+    // Generated text output (Text node) — editable for everyone, including
+    // view-only collaborators. The latest text result is the source of
+    // truth for downstream nodes' {{prev}}/{{text}} resolution, so letting
+    // recipients tweak phrasing without touching the original prompt is
+    // exactly the workflow we want when sharing a draft.
     if (node.type === 'text') {
       const lastTxt = (node.results || []).slice().reverse().find(r => r?.kind === 'text');
       if (lastTxt?.text) {
         f += `<div class="field">
           <label class="field-label">Generated text <span style="color:var(--amber);font-size:10px">${node.results.length} run${node.results.length===1?'':'s'}</span></label>
-          <div class="generated-text">${esc(lastTxt.text)}</div>
+          <textarea class="generated-text" data-text-output rows="6" spellcheck="false">${esc(lastTxt.text)}</textarea>
           <button class="btn ghost" type="button" data-action="copy-text" style="margin-top:6px;font-size:11px">Copy</button>
         </div>`;
       }
@@ -4516,6 +4531,21 @@ body.view-only .field-textarea[data-field="prompt"] { cursor: not-allowed; }
         () => toast('Copied', 'success'),
         () => toast('Copy failed', 'error'),
       );
+    });
+    // Editable generated-text output. NOT gated by canEdit() — view-only
+    // collaborators are allowed to refine the draft. The server's merge
+    // function for view users keeps `results` from the incoming payload,
+    // so the edit persists. We rewrite the latest text-result in place
+    // and re-render the node card so the canvas preview tracks the edit.
+    panel.querySelector('[data-text-output]')?.addEventListener('input', e => {
+      for (let i = node.results.length - 1; i >= 0; i--) {
+        if (node.results[i]?.kind === 'text') {
+          node.results[i].text = e.target.value;
+          break;
+        }
+      }
+      renderNode(node);
+      scheduleSave();
     });
     // Clear-upload button (upload node)
     panel.querySelector('[data-clear-upload]')?.addEventListener('click', () => {
