@@ -2218,6 +2218,75 @@ body.view-only .field-textarea[data-field="prompt"] { cursor: not-allowed; }
     }
   }
 
+  // Translate a finished /api/task/<id> payload into a node-result entry and
+  // commit it to the node. Shared between the live runNode flow and the
+  // refresh-resume path (resumeTask) so both code paths produce the exact
+  // same `node.results` shape.
+  function applyTaskResult(node, task) {
+    const url = extractOutputUrl(task);
+    const kind = (node.type === 'video' || node.type === 'edit') ? 'video'
+               : node.type === 'audio' ? 'audio' : 'image';
+    const localPath = task?.result?.data?.local_path || task?.result?.local_path || null;
+    const servePath = task?.result?.data?.serve_path || task?.result?.serve_path || null;
+    const editPlan  = node.type === 'edit' ? (task?.result?.edit_plan || null) : null;
+    const newResults = [...(node.results || [])];
+    if (url || localPath || servePath) {
+      newResults.push({ url, kind, localPath, servePath, editPlan, ts: Date.now() });
+    }
+    setNodeStatus(node.id, 'done', { results: newResults, error: null, queueIdx: null, taskId: null });
+  }
+
+  // Re-attach polling to a task that was in flight when the page closed.
+  // Snapshots /api/task/<id> first so an already-finished task short-circuits
+  // the 3s polling delay.
+  async function resumeTask(nodeId) {
+    const node = nodes.get(nodeId);
+    if (!node) return;
+    const taskId = node.taskId;
+    if (!taskId) return;
+    try {
+      let task = null;
+      try {
+        const r = await fetch('/api/task/' + taskId);
+        if (r.status === 404) throw new Error('Task no longer tracked by server');
+        if (r.ok) task = await r.json();
+      } catch (e) {
+        // Network error here is non-fatal — pollUntilDone will retry. But a
+        // 404 is terminal: the server has forgotten this task, so surface it.
+        if (e.message?.includes('no longer tracked')) throw e;
+      }
+
+      if (task?.status === 'done') {
+        applyTaskResult(node, task);
+        toast(`${node.type} done`, 'success');
+        return;
+      }
+      if (task?.status === 'error') {
+        throw new Error(task.error || 'Task errored');
+      }
+
+      // Still queued / running on the server — re-attach the polling loop.
+      setNodeStatus(nodeId, task?.status === 'running' ? 'running' : 'queued', { taskId, error: null });
+      const finalTask = await pollUntilDone(taskId, nodeId);
+      applyTaskResult(node, finalTask);
+      toast(`${node.type} done`, 'success');
+    } catch (err) {
+      setNodeStatus(nodeId, 'error', { error: err.message, queueIdx: null, taskId: null });
+      toast(`${node.type}: ${err.message}`, 'error');
+    }
+  }
+
+  // After loadWorkflow restores nodes, fan out a resumeTask for every node
+  // that was in flight when the tab closed — the queue panel re-populates
+  // and polling continues as if the refresh never happened.
+  function resumeInFlightTasks() {
+    for (const node of nodes.values()) {
+      if (!node.taskId) continue;
+      if (node.status !== 'running' && node.status !== 'queued') continue;
+      resumeTask(node.id);
+    }
+  }
+
   // Walk upstream from `id` and return every transitive ancestor that:
   //   - is non-passive (so Upload sources don't get treated as runnable)
   //   - has no result yet (already-run nodes are not re-run)
@@ -2285,19 +2354,10 @@ body.view-only .field-textarea[data-field="prompt"] { cursor: not-allowed; }
       node.taskId = taskId;
       setNodeStatus(id, 'running', { taskId });
       const task = await pollUntilDone(taskId, id);
-      const url = extractOutputUrl(task);
-      const kind = (node.type === 'video' || node.type === 'edit') ? 'video' : node.type === 'audio' ? 'audio' : 'image';
-      // localPath = CLI's own saved file (for passing back to CLI as --image input)
-      // servePath = server-downloaded /uploads/ copy (for browser display)
-      const localPath = task?.result?.data?.local_path || task?.result?.local_path || null;
-      const servePath = task?.result?.data?.serve_path || task?.result?.serve_path || null;
-      const editPlan = node.type === 'edit' ? (task?.result?.edit_plan || null) : null;
-      const newResults = [...(node.results || [])];
-      if (url || localPath || servePath) newResults.push({ url, kind, localPath, servePath, editPlan, ts: Date.now() });
-      setNodeStatus(id, 'done', { results: newResults, error: null, queueIdx: null });
+      applyTaskResult(node, task);
       toast(`${node.type} done`, 'success');
     } catch (err) {
-      setNodeStatus(id, 'error', { error: err.message, queueIdx: null });
+      setNodeStatus(id, 'error', { error: err.message, queueIdx: null, taskId: null });
       toast(`${node.type}: ${err.message}`, 'error');
     }
   }
@@ -2802,13 +2862,25 @@ body.view-only .field-textarea[data-field="prompt"] { cursor: not-allowed; }
 
   function serialize() {
     return {
-      nodes: [...nodes.values()].map(n => ({
-        id: n.id, type: n.type, x: n.x, y: n.y,
-        title: n.title, prompt: n.prompt, params: n.params,
-        status: n.status === 'running' || n.status === 'queued' ? 'idle' : n.status,
-        results: n.results || [], uploadUrl: n.uploadUrl, uploadPath: n.uploadPath,
-        uploadKind: n.uploadKind || null, uploadRatio: n.uploadRatio || null, uploadText: n.uploadText || null,
-      })),
+      nodes: [...nodes.values()].map(n => {
+        // Only persist running/queued status when there's an actual taskId
+        // to resume — otherwise there's nothing to poll on reload, so we
+        // downgrade to idle so the queue panel doesn't lie to the user.
+        const inFlight = (n.status === 'running' || n.status === 'queued') && !!n.taskId;
+        const persistedStatus = inFlight
+          ? n.status
+          : ((n.status === 'running' || n.status === 'queued') ? 'idle' : n.status);
+        return {
+          id: n.id, type: n.type, x: n.x, y: n.y,
+          title: n.title, prompt: n.prompt, params: n.params,
+          status: persistedStatus,
+          taskId: inFlight ? n.taskId : null,
+          queueIdx: inFlight ? (n.queueIdx ?? null) : null,
+          error: n.error || null,
+          results: n.results || [], uploadUrl: n.uploadUrl, uploadPath: n.uploadPath,
+          uploadKind: n.uploadKind || null, uploadRatio: n.uploadRatio || null, uploadText: n.uploadText || null,
+        };
+      }),
       edges: edges.map(e => ({ id: e.id, fromId: e.fromId, toId: e.toId })),
       view: { x: view.x, y: view.y, scale: view.scale },
       projectInputs: projectInputs.slice(),
@@ -2920,7 +2992,7 @@ body.view-only .field-textarea[data-field="prompt"] { cursor: not-allowed; }
             title: n.title || (LEGACY_TYPES[n.type] ? NODE_SPECS[LEGACY_TYPES[n.type] || n.type]?.title : NODE_SPECS[nodeType]?.title) || nodeType,
             status: n.status || 'idle',
             results: Array.isArray(n.results) ? n.results : (n.result ? [n.result] : []),
-            taskId: null,
+            taskId: n.taskId || null,
             queueIdx: n.queueIdx ?? null,
             error: n.error || null,
             uploadUrl: n.uploadUrl || null,
@@ -2986,6 +3058,10 @@ body.view-only .field-textarea[data-field="prompt"] { cursor: not-allowed; }
     renderInputsPanel();
     renderFilesPanel();
     repairResults();
+    // Pick up where we left off: any node whose taskId + queued/running
+    // status survived serialisation gets re-attached to the polling loop,
+    // so a refresh mid-generation doesn't lose work.
+    resumeInFlightTasks();
   }
 
   // After loading, download any CDN results that have no servePath yet (parallel)
