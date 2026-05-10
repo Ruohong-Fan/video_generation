@@ -218,6 +218,7 @@
     'Mode': '模式',
     'Auto': '自动',
     'Duration': '时长',
+    'Duration (s)': '时长 (秒)',
     'Aspect ratio': '宽高比',
     'Resolution': '分辨率',
     'Model': '模型',

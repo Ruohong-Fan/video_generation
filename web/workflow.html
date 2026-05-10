@@ -4156,16 +4156,16 @@ body.view-only .field-textarea[data-field="prompt"] { cursor: not-allowed; }
       </div>`;
     }
 
-    // Duration chips (video) — Seedance accepts 4-15s. Surface the common
-    // values; users can pick whichever's closest to what they want.
+    // Duration (video) — Seedance accepts integer seconds in [4, 15]. Free
+    // numeric input, clamped on commit so out-of-range typing doesn't get
+    // sent to the API.
     if (node.type === 'video') {
-      const durations = ['4','5','6','8','10','12','15'];
       const cur = String(node.params.duration ?? '5');
       f += `<div class="field">
-        <label class="field-label">Duration</label>
-        <div class="chip-row">
-          ${durations.map(d => `<button class="chip${cur===d?' active':''}" data-field="duration" data-val="${d}">${d}s</button>`).join('')}
-        </div>
+        <label class="field-label">Duration (s)</label>
+        <input class="field-input" type="number" min="4" max="15" step="1"
+               inputmode="numeric" data-field="duration" data-clamp="4-15"
+               value="${esc(cur)}"/>
       </div>`;
     }
 
@@ -4337,6 +4337,20 @@ body.view-only .field-textarea[data-field="prompt"] { cursor: not-allowed; }
         else node.params[field] = e.target.value;
         scheduleSave();
       });
+      // Numeric range clamp on commit (blur / Enter). Mid-typing stays free
+      // so the user can backspace through the value without losing focus.
+      const clamp = el.dataset.clamp;
+      if (clamp) {
+        const [lo, hi] = clamp.split('-').map(Number);
+        el.addEventListener('change', e => {
+          const field = e.target.dataset.field;
+          const n = Math.round(Number(e.target.value));
+          const v = Number.isFinite(n) ? Math.max(lo, Math.min(hi, n)) : lo;
+          e.target.value = String(v);
+          node.params[field] = String(v);
+          scheduleSave();
+        });
+      }
     });
     // Chip buttons — gated by edit access (view users see them dimmed).
     panel.querySelectorAll('.chip[data-field]').forEach(btn => {
