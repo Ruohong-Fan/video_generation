@@ -16,7 +16,7 @@ import time
 import uuid
 from functools import wraps
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 import requests
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -547,7 +547,23 @@ def media_proxy():
     try:
         upstream = requests.get(source_url, headers=upstream_headers, stream=True, timeout=60)
     except requests.RequestException as exc:
+        print(f"[media_proxy] upstream request failed for {parsed.netloc}{parsed.path}: {exc}", flush=True)
         return jsonify({"ok": False, "error": str(exc)}), 502
+
+    if upstream.status_code >= 400:
+        # 403 from a ByteDance CDN almost always means the signed URL's
+        # x-expires has elapsed. Surface enough context that the user can
+        # tell the cache pipeline never saved a local copy.
+        expires = parse_qs(parsed.query).get("x-expires", [None])[0]
+        expires_note = ""
+        if expires and expires.isdigit():
+            try:
+                exp_ts = int(expires)
+                age = int(time.time()) - exp_ts
+                expires_note = f" x-expires={exp_ts} (expired {age}s ago)" if age > 0 else f" x-expires={exp_ts} (valid for {-age}s)"
+            except Exception:
+                pass
+        print(f"[media_proxy] {upstream.status_code} from {parsed.netloc}{parsed.path}{expires_note}", flush=True)
 
     passthrough_headers = {}
     for key in ("Content-Type", "Content-Length", "Content-Range", "Accept-Ranges"):
@@ -1010,7 +1026,7 @@ _MIME_TO_EXT = {
 }
 
 
-def _download_media(url: str, hint_ext: str = "") -> str:
+def _download_media(url: str, hint_ext: str = "", *, retries: int = 3) -> str:
     """Download a CDN media URL into uploads/; return local path (or url on failure).
 
     Extension priority:
@@ -1018,27 +1034,45 @@ def _download_media(url: str, hint_ext: str = "") -> str:
       2. Path component of the URL
       3. Caller-supplied hint_ext  (e.g. ".mp4" for video tasks)
       4. ".bin" as last resort (never misidentify video as image)
+
+    Retries transient failures (5xx, network errors) with exponential backoff
+    so a single CDN hiccup doesn't strand the task with an ephemeral signed
+    URL that will 403 once x-expires elapses. 4xx is permanent — bail fast.
     """
-    try:
-        parsed = urlparse(url)
-        url_suffix = Path(parsed.path).suffix.lower()
-        if len(url_suffix) > 6:
-            url_suffix = ""
+    parsed = urlparse(url)
+    url_suffix = Path(parsed.path).suffix.lower()
+    if len(url_suffix) > 6:
+        url_suffix = ""
 
-        resp = requests.get(url, timeout=60, stream=True, headers={"User-Agent": "Mozilla/5.0"})
-        resp.raise_for_status()
+    last_err: Exception | None = None
+    for attempt in range(1, retries + 1):
+        try:
+            resp = requests.get(url, timeout=60, stream=True, headers={"User-Agent": "Mozilla/5.0"})
+            if 400 <= resp.status_code < 500:
+                # Signed URL expired / signature invalid / permission denied —
+                # retrying won't help. Surface it loudly.
+                print(f"[download_media] {resp.status_code} on {parsed.netloc}{parsed.path} — not retrying", flush=True)
+                resp.close()
+                return url
+            resp.raise_for_status()
 
-        ct = resp.headers.get("Content-Type", "").split(";")[0].strip().lower()
-        suffix = _MIME_TO_EXT.get(ct) or url_suffix or hint_ext or ".bin"
+            ct = resp.headers.get("Content-Type", "").split(";")[0].strip().lower()
+            suffix = _MIME_TO_EXT.get(ct) or url_suffix or hint_ext or ".bin"
 
-        local = UPLOAD_DIR / f"dl_{uuid.uuid4()}{suffix}"
-        with open(local, "wb") as f:
-            for chunk in resp.iter_content(65536):
-                if chunk:
-                    f.write(chunk)
-        return str(local)
-    except Exception:
-        return url  # fall back to passing the URL directly
+            local = UPLOAD_DIR / f"dl_{uuid.uuid4()}{suffix}"
+            with open(local, "wb") as f:
+                for chunk in resp.iter_content(65536):
+                    if chunk:
+                        f.write(chunk)
+            return str(local)
+        except Exception as exc:
+            last_err = exc
+            if attempt < retries:
+                wait = 2 ** (attempt - 1)
+                print(f"[download_media] attempt {attempt}/{retries} failed for {parsed.netloc}: {exc} — retrying in {wait}s", flush=True)
+                time.sleep(wait)
+    print(f"[download_media] gave up after {retries} attempts on {parsed.netloc}{parsed.path}: {last_err}", flush=True)
+    return url  # fall back to passing the URL directly
 
 
 # Keep old name as alias so existing callers don't break
@@ -1165,6 +1199,12 @@ def _cache_task_output(task: dict) -> None:
         result_data["serve_path"] = serve_path
         if isinstance(result_data.get("data"), dict):
             result_data["data"]["serve_path"] = serve_path
+    else:
+        # Caching failed — the task will keep the ephemeral signed URL and
+        # 403 once x-expires elapses (typically a few hours). Mark it so the
+        # owner can spot it in /api/tasks and re-run the node before then.
+        print(f"[cache_task_output] could not cache {label!r} → client will use ephemeral CDN URL: {url}", flush=True)
+        task["cache_failed"] = True
 
 
 def _get_param(request, key: str, default=""):
