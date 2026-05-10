@@ -1207,6 +1207,105 @@ def _cache_task_output(task: dict) -> None:
         task["cache_failed"] = True
 
 
+def _refresh_task_media(task_id: str) -> tuple[bool, str | dict]:
+    """Re-query Jimeng for a fresh signed URL using the task's stored
+    submit_id, download it into uploads/, and patch the task with the new
+    serve_path + url. Used when an originally-cached URL has expired (or
+    never got a local copy) — Jimeng signs a new short-lived URL on every
+    query_result call, so this works as long as the asset is still on the
+    CDN's side (typically days, not weeks).
+
+    Returns (ok, result_or_error). On success result is
+    {"servePath": "/uploads/...", "url": "<fresh signed url>"}.
+    """
+    task = tasks.get(task_id)
+    if not task:
+        return False, "Task not found"
+    result_data = task.get("result")
+    if not isinstance(result_data, dict):
+        return False, "Task has no result to refresh"
+    submit_id = result_data.get("submit_id")
+    if not submit_id and isinstance(result_data.get("data"), dict):
+        submit_id = result_data["data"].get("submit_id")
+    if not submit_id:
+        return False, "Task has no submit_id — cannot re-query Jimeng"
+
+    ok, output = run_command(["dreamina", "query_result", f"--submit_id={submit_id}"])
+    if not ok:
+        return False, f"query_result failed: {output[:200]}"
+    try:
+        fresh = json.loads(output)
+    except Exception:
+        return False, "query_result returned non-JSON output"
+
+    new_url = _extract_output_url(fresh)
+    if not new_url or not new_url.startswith("http"):
+        return False, "Refreshed payload has no URL — asset may have been removed by Jimeng"
+
+    label = task.get("label", "")
+    if "video" in label.lower():
+        hint = ".mp4"
+    elif "audio" in label.lower():
+        hint = ".mp3"
+    else:
+        hint = ".jpg"
+    downloaded = _download_media(new_url, hint_ext=hint)
+    if not downloaded or downloaded.startswith("http"):
+        return False, "Download of refreshed URL failed"
+
+    serve_path = "/uploads/" + Path(downloaded).name
+    result_data["url"] = new_url
+    result_data["serve_path"] = serve_path
+    if isinstance(result_data.get("data"), dict):
+        result_data["data"]["url"] = new_url
+        result_data["data"]["serve_path"] = serve_path
+    task.pop("cache_failed", None)
+    save_tasks()
+    print(f"[refresh_task_media] {task_id} → {serve_path}", flush=True)
+    return True, {"servePath": serve_path, "url": new_url}
+
+
+@app.post("/api/refresh_media")
+def refresh_media_endpoint():
+    """Look up which task owns a given (likely-expired) CDN url, then call
+    Jimeng again via that task's submit_id to obtain a fresh signed URL and
+    download it locally. The client calls this from the onerror handler on
+    media tags so a 403 silently self-heals into a permanent /uploads/ path.
+    """
+    data = request.get_json(force=True, silent=True) or {}
+    stale = (data.get("url") or "").strip()
+    if not stale:
+        return jsonify({"ok": False, "error": "url is required"}), 400
+
+    # Match either against the original CDN url or the cached serve_path —
+    # the client may have either after a previous successful refresh.
+    needle_path = stale.split("?")[0] if "?" in stale else stale
+    matched_id: str | None = None
+    for tid, task in tasks.items():
+        result = task.get("result")
+        if not isinstance(result, dict):
+            continue
+        candidates = [_extract_output_url(result), result.get("serve_path")]
+        if isinstance(result.get("data"), dict):
+            candidates += [result["data"].get("serve_path"), result["data"].get("url")]
+        for c in candidates:
+            if not c:
+                continue
+            if c == stale or c.split("?")[0] == needle_path:
+                matched_id = tid
+                break
+        if matched_id:
+            break
+
+    if not matched_id:
+        return jsonify({"ok": False, "error": "No task on this server owns that URL"}), 404
+
+    ok, payload = _refresh_task_media(matched_id)
+    if not ok:
+        return jsonify({"ok": False, "error": payload}), 502
+    return jsonify({"ok": True, **payload})
+
+
 def _get_param(request, key: str, default=""):
     if request.content_type and "multipart" in request.content_type:
         return request.form.get(key, default)

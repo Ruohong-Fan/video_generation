@@ -2945,6 +2945,72 @@ body.view-only .field-textarea[data-field="prompt"] { cursor: not-allowed; }
   // Save on field edits inside nodes (prompt, params)
   canvas.addEventListener('input', scheduleSave);
 
+  // ── Auto-refresh expired CDN media ────────────────────────────────────
+  // Jimeng signs every CDN URL with a short-lived x-signature/x-expires
+  // pair. If a generated result was kept as just `url` (cache step never
+  // saved a /uploads/ copy), the browser will eventually 403 on it.
+  // /api/refresh_media re-queries Jimeng with the task's submit_id, which
+  // hands back a freshly-signed URL; the server downloads that to /uploads
+  // and returns the permanent servePath. We do this once per element so a
+  // genuinely-dead asset doesn't loop forever.
+  const _refreshInflight = new Map();  // staleUrl → Promise
+  async function _refreshMedia(staleUrl) {
+    if (_refreshInflight.has(staleUrl)) return _refreshInflight.get(staleUrl);
+    const p = (async () => {
+      try {
+        const r = await fetch('/api/refresh_media', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url: staleUrl }),
+        });
+        const d = await r.json();
+        if (!d.ok) return null;
+        // Patch every node.results entry that pointed at the stale URL so
+        // the next page load skips media_proxy entirely.
+        let touched = false;
+        for (const node of nodes.values()) {
+          for (const res of (node.results || [])) {
+            if (res.url === staleUrl || res.servePath === staleUrl) {
+              res.url = d.url || res.url;
+              res.servePath = d.servePath;
+              touched = true;
+            }
+          }
+        }
+        if (touched) scheduleSave();
+        return d.servePath;
+      } catch (_) {
+        return null;
+      }
+    })();
+    _refreshInflight.set(staleUrl, p);
+    p.finally(() => _refreshInflight.delete(staleUrl));
+    return p;
+  }
+  document.addEventListener('error', async e => {
+    const el = e.target;
+    if (!el || (el.tagName !== 'IMG' && el.tagName !== 'VIDEO' && el.tagName !== 'SOURCE')) return;
+    const target = el.tagName === 'SOURCE' ? el.parentElement : el;
+    if (target.dataset.mediaRefreshed === '1') return;
+    // We only know how to refresh URLs that went through /api/media_proxy
+    // (i.e. originally a CDN url). Local /uploads/ paths reaching this
+    // handler are real 404s — nothing to refresh.
+    const src = el.currentSrc || el.src || el.getAttribute('src') || '';
+    const m = src.match(/\/api\/media_proxy\?url=([^&]+)/);
+    if (!m) return;
+    const staleUrl = decodeURIComponent(m[1]);
+    target.dataset.mediaRefreshed = '1';
+    const fresh = await _refreshMedia(staleUrl);
+    if (!fresh) return;
+    const nextSrc = /^https?:\/\//i.test(fresh) ? `/api/media_proxy?url=${encodeURIComponent(fresh)}` : fresh;
+    if (el.tagName === 'SOURCE') {
+      el.src = nextSrc;
+      target.load?.();
+    } else {
+      el.src = nextSrc;
+    }
+  }, true);  // capture phase — `error` doesn't bubble
+
   // Audio play/pause for node cards (event delegation so re-renders don't lose listeners)
   canvas.addEventListener('click', e => {
     const btn = e.target.closest('[data-audio-play]');
