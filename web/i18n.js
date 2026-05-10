@@ -193,6 +193,9 @@
     'Add input': '添加输入',
     'image · video · audio · text · subtitles': '图像 · 视频 · 音频 · 文本 · 字幕',
     '+ Add variable': '+ 添加变量',
+    '+ Add file': '+ 添加文件',
+    'Choose file…': '选择文件…',
+    'Choose a file': '选择文件',
     'No project inputs yet.': '暂无项目输入。',
     'Drop files above to share them across nodes.':
       '将文件拖到上方,在多个节点之间共享。',

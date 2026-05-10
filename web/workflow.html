@@ -680,6 +680,17 @@ body.right-collapsed .canvas-wrap { right: 0; }
   border-radius: 5px; background: var(--bg-3);
   cursor: pointer;
 }
+/* Empty placeholder pill: looks dashed-bordered like the + Add buttons so
+   it reads as "click to attach" rather than a populated file display. */
+.file-var-row .var-file-pill.empty {
+  background: transparent;
+  border: 1px dashed var(--bg-4);
+}
+.file-var-row .var-file-pill.empty:hover {
+  border-color: var(--amber-dim);
+  background: var(--bg-2);
+}
+.file-var-row .var-file-pill.empty .var-file-name { color: var(--fg-3); font-style: italic; }
 .var-file-thumb {
   flex-shrink: 0; width: 24px; height: 24px; border-radius: 3px;
   overflow: hidden; background: var(--bg-0);
@@ -2941,7 +2952,18 @@ body.view-only .field-textarea[data-field="prompt"] { cursor: not-allowed; }
       projectInputs.length = 0;
       if (Array.isArray(wf.projectInputs)) {
         for (const e of wf.projectInputs) {
-          if (e && e.id && e.url) projectInputs.push(e);
+          // Keep entries without a file too — the user (or a share recipient)
+          // can declare an empty file-typed variable up front and attach the
+          // actual upload later, mirroring how text variables work.
+          if (e && e.id) projectInputs.push({
+            id: e.id,
+            name: e.name || '',
+            key: e.key || '',
+            kind: e.kind || 'file',
+            url: e.url || '',
+            path: e.path || null,
+            ts: e.ts || Date.now(),
+          });
         }
       }
       projectVars.length = 0;
@@ -3446,6 +3468,56 @@ body.view-only .field-textarea[data-field="prompt"] { cursor: not-allowed; }
     }
   }
 
+  // Append an empty file-typed variable. Mirrors addProjectVar so the user
+  // can declare a {{key}} placeholder up front, share the project, and let
+  // the recipient attach the actual file later.
+  function addProjectInput() {
+    projectInputs.push({
+      id: 'i' + Math.random().toString(36).slice(2, 10),
+      name: '',
+      key: '',
+      kind: 'file',
+      url: '',
+      path: null,
+      ts: Date.now(),
+    });
+    renderInputsPanel();
+    refreshAllVarHighlights();
+    flushSaveNow();
+  }
+
+  // Attach (or replace) the file behind an existing project-input entry.
+  // Used by the per-row picker so empty placeholder rows can be filled in
+  // without losing the user-chosen {{key}}.
+  async function replaceProjectInputFile(id, file) {
+    const entry = projectInputs.find(e => e.id === id);
+    if (!entry || !file) return null;
+    const fd = new FormData();
+    fd.append('file', file);
+    try {
+      const resp = await fetch('/api/upload', { method: 'POST', body: fd, credentials: 'same-origin' });
+      const d = await resp.json();
+      if (!resp.ok || !d.ok) throw new Error(d.error || `HTTP ${resp.status}`);
+      entry.name = file.name;
+      entry.kind = detectInputKind(file);
+      entry.url = d.url;
+      entry.path = d.path || null;
+      entry.ts = Date.now();
+      // Default the key from the filename only if the user hasn't already
+      // typed one — preserves intent when filling a pre-declared placeholder.
+      if (!entry.key) {
+        entry.key = _sanitizeVarKey(String(file.name).replace(/\.[^.]+$/, '')) || 'file';
+      }
+      renderInputsPanel();
+      refreshAllVarHighlights();
+      await flushSaveNow();
+      return entry;
+    } catch (err) {
+      toast(`Upload failed: ${err.message}`, 'error');
+      return null;
+    }
+  }
+
   // Drop a project input onto the canvas → spawn an Upload node referencing it.
   function spawnUploadFromInput(entry) {
     const rect = canvasWrap.getBoundingClientRect();
@@ -3482,19 +3554,35 @@ body.view-only .field-textarea[data-field="prompt"] { cursor: not-allowed; }
     // sees one unified list.
     const fileVarRow = e => {
       const k = _inputVarKey(e);
-      const thumb = (e.kind === 'image')
-        ? `<img src="${esc(mediaUrl(e.url))}" alt="" referrerpolicy="no-referrer"/>`
-        : (e.kind === 'video')
-          ? `<video src="${esc(mediaUrl(e.url))}" muted preload="metadata" referrerpolicy="no-referrer"></video>`
-          : `<div class="file-thumb-placeholder">${ICONS[e.kind] || ICONS.upload}</div>`;
+      const hasFile = !!(e.url || e.path);
+      const thumb = hasFile
+        ? (e.kind === 'image'
+            ? `<img src="${esc(mediaUrl(e.url))}" alt="" referrerpolicy="no-referrer"/>`
+            : e.kind === 'video'
+              ? `<video src="${esc(mediaUrl(e.url))}" muted preload="metadata" referrerpolicy="no-referrer"></video>`
+              : `<div class="file-thumb-placeholder">${ICONS[e.kind] || ICONS.upload}</div>`)
+        : `<div class="file-thumb-placeholder">${ICONS.upload}</div>`;
+      const pillClass = hasFile ? 'var-file-pill' : 'var-file-pill empty';
+      const pillTitle = hasFile ? esc(e.name) : 'Choose a file';
+      const labelText = hasFile ? esc(e.name) : 'Choose file…';
+      // Empty rows: pill is a <label> wrapping a hidden file input, so a
+      // click opens the per-row picker (mirrors how + Add file works for
+      // text vars but lets the user attach a file to this specific row).
+      // Filled rows: pill stays a plain div — click still spawns an Upload
+      // node (existing shortcut), and replacing the file means delete + add.
+      const pillOpen = hasFile ? '<div' : '<label';
+      const pillClose = hasFile ? '</div>' : '</label>';
+      const replaceInput = hasFile ? '' : `<input type="file" data-input-replace="${esc(e.id)}" hidden
+          accept="image/*,video/*,audio/*,.srt,.vtt,.ass,.txt"/>`;
       return `<div class="var-row file-var-row" data-input-id="${esc(e.id)}">
-        <input class="var-key" data-input-key-edit value="${esc(k)}" placeholder="key"
+        <input class="var-key" data-input-key-edit value="${esc(e.key || '')}" placeholder="key"
                spellcheck="false" title="Reference as {{${esc(k)}}}"/>
         <span class="var-eq">=</span>
-        <div class="var-file-pill" title="${esc(e.name)}">
+        ${pillOpen} class="${pillClass}" title="${pillTitle}">
+          ${replaceInput}
           <div class="var-file-thumb">${thumb}</div>
-          <span class="var-file-name">${esc(e.name)}</span>
-        </div>
+          <span class="var-file-name">${labelText}</span>
+        ${pillClose}
         <button class="var-copy" data-copy-var="${esc(k)}" title="Copy {{${esc(k)}}}">${ICONS.dup}</button>
         <button class="var-delete" data-input-delete="${esc(e.id)}" title="Remove">${ICONS.trash}</button>
       </div>`;
@@ -3517,11 +3605,7 @@ body.view-only .field-textarea[data-field="prompt"] { cursor: not-allowed; }
       <div class="var-list">${allRows}</div>
       <div class="var-add-row">
         <button class="var-add" id="var-add">+ Add variable</button>
-        <label class="var-add" id="input-drop" title="Drop files here or click to upload">
-          <input type="file" id="input-file" hidden multiple
-                 accept="image/*,video/*,audio/*,.srt,.vtt,.ass,.txt"/>
-          + Upload file
-        </label>
+        <button class="var-add" id="input-add" title="Adds an empty file-typed variable. Drop files here to upload directly.">+ Add file</button>
       </div>
       <div class="var-help">Reference variables anywhere as <code>{{key}}</code> — resolved before the prompt hits any API. Keys may use Chinese / any Unicode (e.g. <code>{{品牌}}</code>). Uploads become file-typed variables; the file flows into the matching node argument (image / audio / video) automatically when you reference it.</div>
     `;
@@ -3556,16 +3640,27 @@ body.view-only .field-textarea[data-field="prompt"] { cursor: not-allowed; }
       else v.addEventListener('loadedmetadata', seek, { once: true });
     });
 
-    // File picker (label#input-drop wraps the hidden file input)
-    const fileInput = panel.querySelector('#input-file');
-    fileInput?.addEventListener('change', async () => {
-      for (const f of fileInput.files || []) await uploadProjectInput(f);
-      fileInput.value = '';
+    // "+ Add file" appends an empty file-typed row (the user can attach a
+    // file later via the row's pill, or drag one onto it).
+    panel.querySelector('#input-add')?.addEventListener('click', () => addProjectInput());
+
+    // Per-row file picker — each empty file row carries its own hidden
+    // <input type="file"> wrapped by the pill <label>, so a click attaches
+    // a file to that specific entry without losing the user-chosen key.
+    panel.querySelectorAll('[data-input-replace]').forEach(inp => {
+      inp.addEventListener('click', e => e.stopPropagation());
+      inp.addEventListener('change', async () => {
+        const id = inp.dataset.inputReplace;
+        const f = inp.files?.[0];
+        inp.value = '';
+        if (f) await replaceProjectInputFile(id, f);
+      });
     });
 
-    // Drag-and-drop onto the upload button — also catches drops on the
-    // whole panel so users don't have to aim precisely.
-    const drop = panel.querySelector('#input-drop');
+    // Drag-and-drop onto the "+ Add file" button — fast path that uploads
+    // and creates a populated row in one step. Drops on the whole panel
+    // also count so users don't have to aim precisely.
+    const drop = panel.querySelector('#input-add');
     if (drop) {
       drop.addEventListener('dragover',  e => { e.preventDefault(); drop.classList.add('drag'); });
       drop.addEventListener('dragleave', () => drop.classList.remove('drag'));
@@ -3576,16 +3671,17 @@ body.view-only .field-textarea[data-field="prompt"] { cursor: not-allowed; }
     }
 
     // File-row controls: delete / copy / inline key-edit. The whole-row
-    // "click → spawn Upload node" shortcut still works on the empty space.
+    // "click → spawn Upload node" shortcut still works on the empty space,
+    // but only for rows that actually have a file behind them.
     panel.querySelectorAll('[data-input-id]').forEach(el => {
       el.addEventListener('click', e => {
         if (e.target.closest('[data-input-delete]')) return;
         if (e.target.closest('[data-copy-var]')) return;
         if (e.target.closest('[data-input-key-edit]')) return;
-        if (e.target.closest('input, button')) return;
+        if (e.target.closest('label, input, button')) return;
         const id = el.dataset.inputId;
         const entry = projectInputs.find(x => x.id === id);
-        if (entry) spawnUploadFromInput(entry);
+        if (entry && (entry.url || entry.path)) spawnUploadFromInput(entry);
       });
     });
     panel.querySelectorAll('[data-input-delete]').forEach(btn => {
