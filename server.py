@@ -423,7 +423,25 @@ def _should_keep_polling(result_data: dict | None, submit_id: str | None) -> boo
 # ── Task runner ───────────────────────────────────────────────────────────────
 
 def run_task(task_id: str, cmd: list[str], post_process=None):
+    # Outer try/except guarantees the daemon thread can't die quietly with
+    # the task stranded in running/queued. Any unhandled exception lands
+    # the task in 'error' with a diagnostic message so the client's
+    # resumeTask / get_task recovery paths can pick it up instead of
+    # showing a forever-spinning node.
+    try:
+        _run_task_inner(task_id, cmd, post_process)
+    except Exception as exc:
+        print(f"[run_task] {task_id} crashed: {exc!r}", flush=True)
+        t = tasks.get(task_id)
+        if isinstance(t, dict):
+            t["status"] = "error"
+            t["error"] = f"Task runner crashed: {exc}"
+            save_tasks()
+
+
+def _run_task_inner(task_id: str, cmd: list[str], post_process=None):
     tasks[task_id]["status"] = "running"
+    tasks[task_id]["last_polled_at"] = time.time()
     save_tasks()
 
     _command_ok, output = run_command(cmd)
@@ -447,6 +465,7 @@ def run_task(task_id: str, cmd: list[str], post_process=None):
             tasks[task_id]["status"] = "queued"
             tasks[task_id]["queue_idx"] = queue_info.get("queue_idx")
             tasks[task_id]["error"] = None
+            tasks[task_id]["last_polled_at"] = time.time()
             save_tasks()
 
             time.sleep(POLL_INTERVAL)
@@ -476,6 +495,7 @@ def run_task(task_id: str, cmd: list[str], post_process=None):
             tasks[task_id]["status"] = "queued"
             tasks[task_id]["result"] = last_pending_result or result_data
             tasks[task_id]["error"] = f"Still queued after waiting {POLL_TIMEOUT // 3600 or POLL_TIMEOUT // 60}h; keep this task and query again later with submit_id={submit_id}"
+            tasks[task_id]["last_polled_at"] = time.time()
             save_tasks()
             return
 
@@ -508,6 +528,7 @@ def run_task(task_id: str, cmd: list[str], post_process=None):
         )
         tasks[task_id]["result"] = result_data
 
+    tasks[task_id]["last_polled_at"] = time.time()
     save_tasks()
 
 
@@ -682,11 +703,83 @@ def list_tasks():
     return jsonify({"ok": True, "tasks": tasks})
 
 
+def _refresh_running_task(task_id: str) -> None:
+    """Inline best-effort recovery for a task whose background poll thread
+    has gone silent. Re-runs `dreamina query_result --submit_id=...` once,
+    syncs the task state to whatever Jimeng now reports, runs the same
+    post-cache step run_task does on completion, and persists.
+
+    Called from /api/task/<id> when the cached state looks stale — the
+    user's running node is stuck because we never noticed the upstream
+    completed. Worst case (CLI fails, JSON malformed, etc.) the task
+    stays in its current state and we log; the caller still gets a
+    response, just with the same status it already had.
+    """
+    task = tasks.get(task_id)
+    if not isinstance(task, dict):
+        return
+    result_data = task.get("result")
+    submit_id = None
+    if isinstance(result_data, dict):
+        submit_id = result_data.get("submit_id")
+        if not submit_id and isinstance(result_data.get("data"), dict):
+            submit_id = result_data["data"].get("submit_id")
+    if not submit_id:
+        return
+
+    ok, output = run_command(["dreamina", "query_result", f"--submit_id={submit_id}"])
+    if not ok:
+        print(f"[refresh_running_task] {task_id} CLI failed: {output[:200]}", flush=True)
+        task["last_polled_at"] = time.time()
+        save_tasks()
+        return
+    try:
+        polled = json.loads(output)
+    except Exception:
+        print(f"[refresh_running_task] {task_id} non-JSON: {output[:200]}", flush=True)
+        task["last_polled_at"] = time.time()
+        save_tasks()
+        return
+
+    state = _task_state(polled)
+    task["last_polled_at"] = time.time()
+    if state == "done":
+        task["status"] = "done"
+        task["result"] = polled
+        task["error"] = None
+        task.pop("queue_idx", None)
+        _cache_task_output(task)
+        print(f"[refresh_running_task] {task_id} recovered → done", flush=True)
+    elif state == "error":
+        task["status"] = "error"
+        task["result"] = polled
+        task["error"] = (polled.get("fail_reason") if isinstance(polled, dict) else None) or "Generation failed"
+        print(f"[refresh_running_task] {task_id} recovered → error", flush=True)
+    elif _should_keep_polling(polled, submit_id):
+        task["status"] = "queued"
+        task["result"] = polled
+        queue_info = polled.get("queue_info", {}) if isinstance(polled, dict) else {}
+        task["queue_idx"] = queue_info.get("queue_idx")
+    save_tasks()
+
+
 @app.get("/api/task/<task_id>")
 def get_task(task_id: str):
     task = tasks.get(task_id)
     if not task:
         return jsonify({"ok": False, "error": "Task not found"}), 404
+    # On-demand recovery: if the background polling thread died (unhandled
+    # exception, server-process death without the load_tasks reset firing,
+    # etc.) a task can sit in running/queued forever while Jimeng has long
+    # since produced the video. Force a single re-query when the cached
+    # state is stale — anything older than ~3 polling cycles is suspicious.
+    # The Jimeng CLI call adds a few seconds to the request only in this
+    # recovery path; healthy tasks fall through with cached state.
+    if task.get("status") in ("running", "queued"):
+        last_polled = task.get("last_polled_at") or task.get("created_at") or 0
+        if time.time() - last_polled > max(POLL_INTERVAL * 3, 45):
+            _refresh_running_task(task_id)
+            task = tasks.get(task_id) or task
     return jsonify({"ok": True, **task})
 
 

@@ -2334,7 +2334,13 @@ body.view-only textarea.generated-text {
       return;
     }
     if (node.status === 'running' || node.status === 'queued') {
-      toast('Already running', '');
+      // The node thinks it's still running. If it actually has a taskId,
+      // re-attach: the server now does on-demand recovery in /api/task/<id>
+      // when the cached state looks stale, so resumeTask will pick up a
+      // completed-but-not-noticed result instead of leaving the user
+      // staring at a forever-spinning preview.
+      if (node.taskId) { resumeTask(id); }
+      else { toast('Already running', ''); }
       return;
     }
 
