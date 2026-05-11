@@ -1494,7 +1494,7 @@ body {
     for (const id of ids) {
       const p = projects[id];
       if (!p) continue;
-      const res = await fetch('/api/projects', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: p.name + ' copy', description: p.description || '', tags: p.tags || [] }) });
+      const res = await fetch('/api/projects', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: p.name + ' copy', description: p.description || '', tags: p.tags || [], copy_from: id }) });
       const data = await res.json();
       if (data.id) projects[data.id] = data;
     }

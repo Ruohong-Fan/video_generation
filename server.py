@@ -2452,6 +2452,32 @@ def create_project():
         "shared_with": {},
     }
     _save_projects()
+
+    # Optional deep-duplicate: copy the source project's workflow.json
+    # (nodes / edges / projectInputs / projectVars / view) into the new
+    # project so the duplicate is immediately useful. In-flight task state
+    # is stripped — the original's tasks belong to the original; the new
+    # project gets a clean slate for status / taskId, but keeps every
+    # completed result so the user doesn't have to re-run anything.
+    source_pid = (data.get("copy_from") or "").strip()
+    if source_pid and source_pid in projects and user_can_view(source_pid):
+        src_path = WORKFLOWS_DIR / f"{source_pid}.json"
+        if src_path.exists():
+            try:
+                wf = json.loads(src_path.read_text())
+                for n in wf.get("nodes", []) or []:
+                    if not isinstance(n, dict):
+                        continue
+                    if n.get("status") in ("running", "queued"):
+                        n["status"] = "idle"
+                    n["taskId"] = None
+                    n["queueIdx"] = None
+                    n["error"] = None
+                dst_path = WORKFLOWS_DIR / f"{pid}.json"
+                dst_path.write_text(json.dumps(wf, indent=2))
+            except Exception as exc:
+                print(f"[create_project] copy_from={source_pid} failed: {exc}", flush=True)
+
     return jsonify({"ok": True, **_project_view(pid, projects[pid], me)})
 
 
