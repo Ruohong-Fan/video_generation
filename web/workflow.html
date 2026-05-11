@@ -2948,6 +2948,29 @@ body.view-only textarea.generated-text {
   window.addEventListener('beforeunload', flushSaveOnUnload);
   window.addEventListener('pagehide', flushSaveOnUnload);
 
+  // Re-pull the workflow whenever the tab becomes visible after being
+  // hidden, so edits made by other shared users land without a manual
+  // reload. Skips the refresh if we have a pending local save OR an
+  // input/textarea is focused — in either case clobbering the in-progress
+  // edit would be worse than the staleness it would fix.
+  async function refreshFromServer() {
+    if (loading) return;
+    if (savePending || saveTimer) return;
+    const ae = document.activeElement;
+    if (ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA' || ae.tagName === 'SELECT')) return;
+    // Clear local state so a second loadWorkflow doesn't duplicate edges
+    // or strand nodes that were deleted on the server side.
+    for (const id of [...nodes.keys()]) document.getElementById(id)?.remove();
+    nodes.clear();
+    edges.length = 0;
+    if (edgesSvg) edgesSvg.innerHTML = '';
+    await loadWorkflow();
+    renderRightPanel();
+  }
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') refreshFromServer();
+  });
+
   // Observe mutations on canvas + edges SVG to catch drags/renders/connections
   const mo = new MutationObserver(scheduleSave);
   mo.observe(canvas,   { childList: true, subtree: true, attributes: true, attributeFilter: ['style'] });
@@ -4537,16 +4560,28 @@ body.view-only textarea.generated-text {
     // function for view users keeps `results` from the incoming payload,
     // so the edit persists. We rewrite the latest text-result in place
     // and re-render the node card so the canvas preview tracks the edit.
-    panel.querySelector('[data-text-output]')?.addEventListener('input', e => {
-      for (let i = node.results.length - 1; i >= 0; i--) {
-        if (node.results[i]?.kind === 'text') {
-          node.results[i].text = e.target.value;
-          break;
+    const textOut = panel.querySelector('[data-text-output]');
+    if (textOut) {
+      const writeBack = value => {
+        for (let i = node.results.length - 1; i >= 0; i--) {
+          if (node.results[i]?.kind === 'text') {
+            node.results[i].text = value;
+            break;
+          }
         }
-      }
-      renderNode(node);
-      scheduleSave();
-    });
+        renderNode(node);
+      };
+      textOut.addEventListener('input', e => {
+        writeBack(e.target.value);
+        scheduleSave();
+      });
+      // Belt-and-braces: a rapid blur / tab-switch / refresh shouldn't lose
+      // the in-flight 600ms debounce, so flush immediately on focus loss
+      // and on change (Enter / commit). flushSaveNow is await-able but we
+      // fire-and-forget here since the user already moved on.
+      textOut.addEventListener('blur', () => { flushSaveNow(); });
+      textOut.addEventListener('change', () => { flushSaveNow(); });
+    }
     // Clear-upload button (upload node)
     panel.querySelector('[data-clear-upload]')?.addEventListener('click', () => {
       node.uploadUrl = null; node.uploadPath = null; node.uploadKind = null; node.uploadRatio = null;

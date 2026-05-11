@@ -8,3 +8,7 @@ tasks.json
 projects.json
 workflows/
 workflow.json
+# Credentials. Real store lives in $DREAMINA_DATA_DIR (default
+# ~/.dreamina-web) — see server.py. A repo-local users.json is only
+# tolerated as a one-shot migration source.
+users.json

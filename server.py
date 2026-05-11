@@ -104,13 +104,33 @@ def _global_auth_gate():
 
 BASE_DIR = Path(__file__).resolve().parent
 
+# Persistent data lives OUTSIDE the repo by default so credentials and
+# workflow state never get committed by accident. Override DREAMINA_DATA_DIR
+# in production (e.g. /var/lib/dreamina-web) for a stable on-disk location.
+_data_env = os.environ.get("DREAMINA_DATA_DIR", "").strip()
+DATA_DIR = Path(_data_env).expanduser().resolve() if _data_env else (Path.home() / ".dreamina-web").resolve()
+DATA_DIR.mkdir(parents=True, exist_ok=True)
+
 UPLOAD_DIR = BASE_DIR / "uploads"
 UPLOAD_DIR.mkdir(exist_ok=True)
 
 TASKS_FILE = BASE_DIR / "tasks.json"
 WORKFLOW_FILE = BASE_DIR / "workflow.json"
 PROJECTS_FILE = BASE_DIR / "projects.json"
-USERS_FILE = BASE_DIR / "users.json"
+# USERS_FILE lives under DATA_DIR by default. DREAMINA_USERS_FILE can point
+# at a custom path (e.g. a secrets-mount). _migrate_legacy_users_file picks
+# up an in-repo users.json from older deployments and relocates it once.
+_users_env = os.environ.get("DREAMINA_USERS_FILE", "").strip()
+USERS_FILE = Path(_users_env).expanduser().resolve() if _users_env else (DATA_DIR / "users.json")
+USERS_FILE.parent.mkdir(parents=True, exist_ok=True)
+_LEGACY_USERS_FILE = BASE_DIR / "users.json"
+if _LEGACY_USERS_FILE.exists() and _LEGACY_USERS_FILE != USERS_FILE and not USERS_FILE.exists():
+    try:
+        USERS_FILE.write_text(_LEGACY_USERS_FILE.read_text())
+        _LEGACY_USERS_FILE.unlink()
+        print(f"[users] migrated {_LEGACY_USERS_FILE} → {USERS_FILE}", flush=True)
+    except Exception as exc:
+        print(f"[users] migration from {_LEGACY_USERS_FILE} failed: {exc}", flush=True)
 WORKFLOWS_DIR = BASE_DIR / "workflows"
 WORKFLOWS_DIR.mkdir(exist_ok=True)
 POLL_INTERVAL = int(os.environ.get("POLL_INTERVAL_SECONDS", "15"))
