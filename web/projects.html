@@ -1,6 +1,8 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+<!-- build-marker: dup-debug-2026-05-10 — if you don't see this comment in
+     view-source the browser/proxy is serving a stale projects.html -->
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Reel · Projects</title>
@@ -1292,13 +1294,16 @@ body {
 
   document.getElementById('ctx-duplicate').addEventListener('click', async () => {
     hideCtx();
-    if (!ctxId || !projects[ctxId]) return;
+    if (!ctxId || !projects[ctxId]) { console.log('[dup-ctx] aborted: ctxId=', ctxId, 'has project=', !!projects[ctxId]); return; }
     const src = projects[ctxId];
+    const body = { name: src.name + ' copy', description: src.description || '', tags: src.tags || [], copy_from: ctxId };
+    console.log('[dup-ctx] POST /api/projects body=', body, 'serialised=', JSON.stringify(body));
     try {
       const d = await fetch('/api/projects', {
         method: 'POST', headers: {'Content-Type':'application/json'},
-        body: JSON.stringify({ name: src.name + ' copy', description: src.description || '', tags: src.tags || [], copy_from: ctxId }),
+        body: JSON.stringify(body),
       }).then(r => r.json());
+      console.log('[dup-ctx] response=', d);
       if (!d.ok) throw new Error(d.error);
       projects[d.id] = { name: d.name, description: d.description, tags: d.tags || [], favorite: false, archived: false, created_at: d.created_at, updated_at: d.updated_at };
       renderGrid();
@@ -1308,14 +1313,15 @@ body {
       // happy path, "source-missing:<pid>" / "source-workflow-empty:<pid>"
       // / "no-view-access:<pid>" / "copy-failed:<exc>" otherwise.
       const cs = d.copy_status || '';
+      console.log('[dup-ctx] copy_status=', cs || '(missing — server did not run the copy block)');
       if (cs.startsWith('copied:')) {
         toast(`Duplicated (${cs.slice('copied:'.length)})`, 'success');
       } else if (cs) {
         toast(`Duplicated but workflow not copied: ${cs}`, 'error');
       } else {
-        toast('Duplicated');
+        toast('Duplicated (no copy_status — check console)');
       }
-    } catch (e) { toast('Duplicate failed: ' + e.message, 'error'); }
+    } catch (e) { console.log('[dup-ctx] error', e); toast('Duplicate failed: ' + e.message, 'error'); }
   });
 
   document.getElementById('ctx-fav').addEventListener('click', () => {
@@ -1507,14 +1513,19 @@ body {
 
   document.getElementById('selbar-duplicate').addEventListener('click', async () => {
     const ids = [...selected];
+    console.log('[dup-sel] selected ids=', ids);
     const statuses = [];
     for (const id of ids) {
       const p = projects[id];
-      if (!p) continue;
-      const res = await fetch('/api/projects', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: p.name + ' copy', description: p.description || '', tags: p.tags || [], copy_from: id }) });
+      if (!p) { console.log('[dup-sel] skipping unknown project id=', id); continue; }
+      const body = { name: p.name + ' copy', description: p.description || '', tags: p.tags || [], copy_from: id };
+      console.log('[dup-sel] POST /api/projects body=', body, 'serialised=', JSON.stringify(body));
+      const res = await fetch('/api/projects', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
       const data = await res.json();
+      console.log('[dup-sel] response for', id, '=', data);
       if (data.id) projects[data.id] = data;
       if (data.copy_status) statuses.push(data.copy_status);
+      else console.log('[dup-sel] response missing copy_status — server did not run the copy block');
     }
     // Same diagnostic surfacing as the right-click path — if any
     // duplicate landed without its workflow we tell the user instead

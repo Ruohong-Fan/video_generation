@@ -549,19 +549,32 @@ def _start_task(cmd: list[str], label: str, post_process=None) -> dict:
 
 # ── Static files ──────────────────────────────────────────────────────────────
 
+def _serve_html_no_cache(filename: str):
+    """Same as send_from_directory("web", ...) but adds no-cache headers.
+    Without these the browser can sit on a stale projects.html / workflow.html
+    across deploys (we hit exactly this debugging the Duplicate flow) and end
+    up calling endpoints with payloads from yesterday's JS."""
+    resp = send_from_directory("web", filename)
+    resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    resp.headers["Pragma"] = "no-cache"
+    return resp
+
+
 @app.get("/")
 def index():
-    return send_from_directory("web", "projects.html")
+    return _serve_html_no_cache("projects.html")
 
 
 @app.get("/workflow")
 def workflow_view():
-    return send_from_directory("web", "workflow.html")
+    return _serve_html_no_cache("workflow.html")
 
 
 @app.get("/i18n.js")
 def i18n_js():
-    return send_from_directory("web", "i18n.js", mimetype="application/javascript")
+    resp = send_from_directory("web", "i18n.js", mimetype="application/javascript")
+    resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    return resp
 
 
 @app.get("/login")
