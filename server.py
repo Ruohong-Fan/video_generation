@@ -137,16 +137,20 @@ POLL_INTERVAL = int(os.environ.get("POLL_INTERVAL_SECONDS", "15"))
 POLL_TIMEOUT = int(os.environ.get("POLL_TIMEOUT_SECONDS", "21600"))  # 6 hours; <=0 disables timeout
 
 # task_id -> {status, label, result, error, created_at}
+# Locks are RLocks so callers can hold the lock around a mutation AND call
+# the matching save_X() helper (which acquires the same lock internally).
+# A plain Lock here would deadlock the request thread against itself —
+# this is exactly what bit share_project / signup_submit before.
 tasks: dict[str, dict] = {}
-_tasks_lock = threading.Lock()
+_tasks_lock = threading.RLock()
 
 # project_id -> {name, description, ..., owner: email, shared_with: {email: 'read'|'write'}}
 projects: dict[str, dict] = {}
-_projects_lock = threading.Lock()
+_projects_lock = threading.RLock()
 
 # email -> {password_hash: str, created_at: float}
 users: dict[str, dict] = {}
-_users_lock = threading.Lock()
+_users_lock = threading.RLock()
 
 
 # ── Persistence ───────────────────────────────────────────────────────────────

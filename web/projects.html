@@ -1200,8 +1200,12 @@ body {
         method: 'POST', headers: {'Content-Type':'application/json'},
         body: JSON.stringify({ email, permission }),
       });
-      const d = await r.json();
-      if (!r.ok || !d.ok) throw new Error(d.error || 'Failed to add collaborator');
+      // An empty body (e.g. proxy-killed request, server timeout, 5xx with
+      // no JSON envelope) shouldn't surface as "Unexpected end of JSON input"
+      // — that error tells the user nothing about what actually went wrong.
+      let d = {};
+      try { d = await r.json(); } catch (_) {}
+      if (!r.ok || !d.ok) throw new Error(d.error || `Failed to add collaborator (HTTP ${r.status})`);
       await loadShareMembers(id);
       return true;
     } catch (e) {
