@@ -2455,10 +2455,12 @@ def create_project():
 
     # Optional deep-duplicate: copy the source project's workflow.json
     # (nodes / edges / projectInputs / projectVars / view) into the new
-    # project so the duplicate is immediately useful. In-flight task state
-    # is stripped — the original's tasks belong to the original; the new
-    # project gets a clean slate for status / taskId, but keeps every
-    # completed result so the user doesn't have to re-run anything.
+    # project so the duplicate is immediately useful as a fresh template.
+    # Generated outputs are intentionally NOT copied — the new project
+    # gets a clean slate so the user can re-run nodes without confusion
+    # over which project a result actually belongs to. In-flight task
+    # state is also stripped so the duplicate doesn't try to poll for
+    # foreign tasks.
     source_pid = (data.get("copy_from") or "").strip()
     if source_pid and source_pid in projects and user_can_view(source_pid):
         src_path = WORKFLOWS_DIR / f"{source_pid}.json"
@@ -2468,11 +2470,11 @@ def create_project():
                 for n in wf.get("nodes", []) or []:
                     if not isinstance(n, dict):
                         continue
-                    if n.get("status") in ("running", "queued"):
-                        n["status"] = "idle"
+                    n["status"] = "idle"
                     n["taskId"] = None
                     n["queueIdx"] = None
                     n["error"] = None
+                    n["results"] = []  # don't carry generated outputs
                 dst_path = WORKFLOWS_DIR / f"{pid}.json"
                 dst_path.write_text(json.dumps(wf, indent=2))
             except Exception as exc:

@@ -1293,7 +1293,7 @@ body {
     try {
       const d = await fetch('/api/projects', {
         method: 'POST', headers: {'Content-Type':'application/json'},
-        body: JSON.stringify({ name: src.name + ' copy', description: src.description || '', tags: src.tags || [] }),
+        body: JSON.stringify({ name: src.name + ' copy', description: src.description || '', tags: src.tags || [], copy_from: ctxId }),
       }).then(r => r.json());
       if (!d.ok) throw new Error(d.error);
       projects[d.id] = { name: d.name, description: d.description, tags: d.tags || [], favorite: false, archived: false, created_at: d.created_at, updated_at: d.updated_at };
