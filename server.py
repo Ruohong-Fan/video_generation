@@ -2462,25 +2462,56 @@ def create_project():
     # state is also stripped so the duplicate doesn't try to poll for
     # foreign tasks.
     source_pid = (data.get("copy_from") or "").strip()
-    if source_pid and source_pid in projects and user_can_view(source_pid):
-        src_path = WORKFLOWS_DIR / f"{source_pid}.json"
-        if src_path.exists():
-            try:
-                wf = json.loads(src_path.read_text())
-                for n in wf.get("nodes", []) or []:
-                    if not isinstance(n, dict):
-                        continue
-                    n["status"] = "idle"
-                    n["taskId"] = None
-                    n["queueIdx"] = None
-                    n["error"] = None
-                    n["results"] = []  # don't carry generated outputs
-                dst_path = WORKFLOWS_DIR / f"{pid}.json"
-                dst_path.write_text(json.dumps(wf, indent=2))
-            except Exception as exc:
-                print(f"[create_project] copy_from={source_pid} failed: {exc}", flush=True)
+    copy_status: str | None = None
+    if source_pid:
+        if source_pid not in projects:
+            copy_status = f"source-missing:{source_pid}"
+            print(f"[create_project] {copy_status}", flush=True)
+        elif not user_can_view(source_pid):
+            copy_status = f"no-view-access:{source_pid}"
+            print(f"[create_project] {copy_status}", flush=True)
+        else:
+            src_path = WORKFLOWS_DIR / f"{source_pid}.json"
+            if not src_path.exists():
+                copy_status = f"source-workflow-empty:{source_pid}"
+                print(f"[create_project] {copy_status} (no {src_path.name})", flush=True)
+            else:
+                try:
+                    wf = json.loads(src_path.read_text())
+                    # nodes may be an array (current format) or an object
+                    # keyed by id (legacy). Reset run-state on both shapes
+                    # without changing the container type.
+                    def _reset_node(n):
+                        if not isinstance(n, dict):
+                            return
+                        n["status"] = "idle"
+                        n["taskId"] = None
+                        n["queueIdx"] = None
+                        n["error"] = None
+                        n["results"] = []
+                    raw_nodes = wf.get("nodes")
+                    if isinstance(raw_nodes, list):
+                        for n in raw_nodes:
+                            _reset_node(n)
+                        node_count = len(raw_nodes)
+                    elif isinstance(raw_nodes, dict):
+                        for n in raw_nodes.values():
+                            _reset_node(n)
+                        node_count = len(raw_nodes)
+                    else:
+                        node_count = 0
+                    dst_path = WORKFLOWS_DIR / f"{pid}.json"
+                    dst_path.write_text(json.dumps(wf, indent=2))
+                    copy_status = f"copied:{node_count}-nodes"
+                    print(f"[create_project] {source_pid} → {pid}: copied {node_count} nodes, edges={len(wf.get('edges') or [])}, inputs={len(wf.get('projectInputs') or [])}, vars={len(wf.get('projectVars') or [])}", flush=True)
+                except Exception as exc:
+                    copy_status = f"copy-failed:{exc}"
+                    print(f"[create_project] copy_from={source_pid} failed: {exc}", flush=True)
 
-    return jsonify({"ok": True, **_project_view(pid, projects[pid], me)})
+    payload = {"ok": True, **_project_view(pid, projects[pid], me)}
+    if copy_status is not None:
+        payload["copy_status"] = copy_status
+    return jsonify(payload)
 
 
 @app.get("/api/projects/<pid>")
