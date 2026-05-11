@@ -124,6 +124,7 @@ _users_env = os.environ.get("DREAMINA_USERS_FILE", "").strip()
 USERS_FILE = Path(_users_env).expanduser().resolve() if _users_env else (DATA_DIR / "users.json")
 USERS_FILE.parent.mkdir(parents=True, exist_ok=True)
 _LEGACY_USERS_FILE = BASE_DIR / "users.json"
+print(f"[users] USERS_FILE={USERS_FILE} (exists={USERS_FILE.exists()}); legacy={_LEGACY_USERS_FILE} (exists={_LEGACY_USERS_FILE.exists()})", flush=True)
 if _LEGACY_USERS_FILE.exists() and _LEGACY_USERS_FILE != USERS_FILE and not USERS_FILE.exists():
     try:
         USERS_FILE.write_text(_LEGACY_USERS_FILE.read_text())
@@ -217,6 +218,12 @@ def _load_users():
             users = {}
     else:
         users = {}
+    # Visibility on startup — if the data dir was wiped between deploys
+    # (Docker without a persistent volume, CI rsync that misses dotfiles,
+    # etc.) the operator sees which path was read and which accounts
+    # survived, instead of having to guess why a particular email no
+    # longer authenticates.
+    print(f"[users] loaded {len(users)} account(s) from {USERS_FILE}: {sorted(users.keys())}", flush=True)
 
 
 def _bootstrap_users():
@@ -231,6 +238,54 @@ def _bootstrap_users():
             "is_admin": True,
         }
         _save_users()
+        print(f"[users] bootstrapped admin {env_email}", flush=True)
+
+
+def _seed_users_from_env():
+    """Re-create test accounts that should always exist after a deploy.
+
+    DREAMINA_SEED_USERS is a comma-separated list of `email:password`
+    pairs. Any pair whose email isn't already in `users` is created with
+    a fresh werkzeug hash and saved to the live USERS_FILE. Existing
+    accounts are NOT modified — passwords already in place keep working
+    even if the env var lags behind. Use `scripts/create_user.py
+    <email> <pw> --replace` to rotate a password.
+
+    Example:
+        DREAMINA_SEED_USERS="eugeneyeung01@gmail.com:12345678"
+        DREAMINA_SEED_USERS="alice@x.com:pw1,bob@y.com:pw2"
+
+    The point of this hook is exactly the scenario the user reported:
+    each deploy wipes the data dir, so signup-created accounts vanish
+    while bootstrap (admin) and any account that happened to be in
+    a baked-in legacy users.json survive. Seeding from env makes
+    persistence explicit and deploy-script-driven instead of dependent
+    on what's on the host's filesystem.
+    """
+    raw = os.environ.get("DREAMINA_SEED_USERS", "").strip()
+    if not raw:
+        return
+    added = []
+    for pair in raw.split(","):
+        pair = pair.strip()
+        if not pair or ":" not in pair:
+            continue
+        email, _, pw = pair.partition(":")
+        email = email.strip().lower()
+        pw = pw.strip()
+        if not email or "@" not in email or len(pw) < 6:
+            print(f"[users] skipping malformed seed entry: {pair!r}", flush=True)
+            continue
+        if email in users:
+            continue
+        users[email] = {
+            "password_hash": generate_password_hash(pw),
+            "created_at": time.time(),
+        }
+        added.append(email)
+    if added:
+        _save_users()
+        print(f"[users] seeded {len(added)} account(s) from DREAMINA_SEED_USERS: {added}", flush=True)
 
 
 def _migrate_projects():
@@ -321,6 +376,7 @@ def user_owns(pid: str, email: str | None = None) -> bool:
 _load_projects()
 _load_users()
 _bootstrap_users()
+_seed_users_from_env()
 _migrate_projects()
 
 
