@@ -1302,7 +1302,19 @@ body {
       if (!d.ok) throw new Error(d.error);
       projects[d.id] = { name: d.name, description: d.description, tags: d.tags || [], favorite: false, archived: false, created_at: d.created_at, updated_at: d.updated_at };
       renderGrid();
-      toast('Duplicated');
+      // Surface the server's report on the workflow-copy step so a silent
+      // "source-missing" / "source-workflow-empty" doesn't masquerade as a
+      // successful duplicate. d.copy_status is "copied:<N>-nodes" on the
+      // happy path, "source-missing:<pid>" / "source-workflow-empty:<pid>"
+      // / "no-view-access:<pid>" / "copy-failed:<exc>" otherwise.
+      const cs = d.copy_status || '';
+      if (cs.startsWith('copied:')) {
+        toast(`Duplicated (${cs.slice('copied:'.length)})`, 'success');
+      } else if (cs) {
+        toast(`Duplicated but workflow not copied: ${cs}`, 'error');
+      } else {
+        toast('Duplicated');
+      }
     } catch (e) { toast('Duplicate failed: ' + e.message, 'error'); }
   });
 
@@ -1495,13 +1507,20 @@ body {
 
   document.getElementById('selbar-duplicate').addEventListener('click', async () => {
     const ids = [...selected];
+    const statuses = [];
     for (const id of ids) {
       const p = projects[id];
       if (!p) continue;
       const res = await fetch('/api/projects', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: p.name + ' copy', description: p.description || '', tags: p.tags || [], copy_from: id }) });
       const data = await res.json();
       if (data.id) projects[data.id] = data;
+      if (data.copy_status) statuses.push(data.copy_status);
     }
+    // Same diagnostic surfacing as the right-click path — if any
+    // duplicate landed without its workflow we tell the user instead
+    // of letting them discover the empty canvas on their own.
+    const bad = statuses.filter(s => !s.startsWith('copied:'));
+    if (bad.length) toast(`Some workflows did not copy: ${bad.join(', ')}`, 'error');
     selected.clear();
     updateSelbar();
     updateSidebarCounts();

@@ -2625,12 +2625,15 @@ def create_project():
             print(f"[create_project] {copy_status}", flush=True)
         else:
             src_path = WORKFLOWS_DIR / f"{source_pid}.json"
+            src_size = src_path.stat().st_size if src_path.exists() else 0
+            print(f"[create_project] source={source_pid} src_path={src_path} exists={src_path.exists()} size={src_size}", flush=True)
             if not src_path.exists():
                 copy_status = f"source-workflow-empty:{source_pid}"
                 print(f"[create_project] {copy_status} (no {src_path.name})", flush=True)
             else:
                 try:
-                    wf = json.loads(src_path.read_text())
+                    raw_text = src_path.read_text()
+                    wf = json.loads(raw_text)
                     # nodes may be an array (current format) or an object
                     # keyed by id (legacy). Reset run-state on both shapes
                     # without changing the container type.
@@ -2654,9 +2657,24 @@ def create_project():
                     else:
                         node_count = 0
                     dst_path = WORKFLOWS_DIR / f"{pid}.json"
-                    dst_path.write_text(json.dumps(wf, indent=2))
-                    copy_status = f"copied:{node_count}-nodes"
-                    print(f"[create_project] {source_pid} → {pid}: copied {node_count} nodes, edges={len(wf.get('edges') or [])}, inputs={len(wf.get('projectInputs') or [])}, vars={len(wf.get('projectVars') or [])}", flush=True)
+                    dst_text = json.dumps(wf, indent=2)
+                    dst_path.write_text(dst_text)
+                    # Read back to verify the bytes actually landed. If the
+                    # destination ends up with zero nodes (filesystem quirk,
+                    # unexpected JSON shape, etc.) we surface that as a
+                    # distinct status so the user sees "wrote-empty" instead
+                    # of a confident "copied:N-nodes" lie.
+                    try:
+                        verify = json.loads(dst_path.read_text())
+                        v_nodes = verify.get("nodes") or []
+                        v_count = len(v_nodes) if isinstance(v_nodes, (list, dict)) else 0
+                    except Exception as vexc:
+                        v_count = -1
+                        print(f"[create_project] dst readback parse failed: {vexc}", flush=True)
+                    copy_status = f"copied:{node_count}-nodes" if node_count > 0 and v_count == node_count else (
+                        f"empty-source:{node_count}-nodes" if node_count == 0 else f"readback-mismatch:src={node_count}-dst={v_count}"
+                    )
+                    print(f"[create_project] {source_pid} → {pid}: src={node_count} nodes (size={src_size}B), wrote dst (size={dst_path.stat().st_size}B), readback={v_count} nodes, edges={len(wf.get('edges') or [])}, inputs={len(wf.get('projectInputs') or [])}, vars={len(wf.get('projectVars') or [])}", flush=True)
                 except Exception as exc:
                     copy_status = f"copy-failed:{exc}"
                     print(f"[create_project] copy_from={source_pid} failed: {exc}", flush=True)
