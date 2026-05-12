@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
-<script>(function(){try{var t=localStorage.getItem('app.theme')||'dark';if(t==='light')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
+<script>(function(){try{var t=localStorage.getItem('app.theme')||'light';if(t==='dark')document.documentElement.setAttribute('data-theme','dark');}catch(e){}})();</script>
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>饼冰科技</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -12,6 +12,38 @@
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 :root {
+  --bg: #f5f0ea;
+  --surface: oklch(0.95 0.008 75);
+  --surface2: oklch(0.92 0.010 75);
+  --surface3: oklch(0.88 0.012 75);
+  --border: oklch(0.78 0.010 75 / 0.5);
+  --accent: #a07850;
+  --accent2: #c9a87c;
+  --text: oklch(0.22 0.02 70);
+  --muted: oklch(0.50 0.022 72);
+  --success: oklch(0.60 0.14 155);
+  --warning: oklch(0.65 0.15 85);
+  --error: oklch(0.55 0.18 25);
+  --grid: oklch(0.90 0.005 75);
+  --bg-0: oklch(0.97 0.006 75);
+  --bg-1: oklch(0.95 0.008 75);
+  --bg-2: oklch(0.92 0.010 75);
+  --bg-3: oklch(0.88 0.012 75);
+  --bg-4: oklch(0.82 0.014 75);
+  --line: oklch(0.78 0.010 75 / 0.45);
+  --line-soft: oklch(0.78 0.010 75 / 0.2);
+  --fg-0: oklch(0.22 0.02 70);
+  --fg-1: oklch(0.35 0.02 72);
+  --fg-2: oklch(0.50 0.022 74);
+  --fg-3: oklch(0.62 0.020 74);
+  --amber: oklch(0.62 0.145 55);
+  --amber-dim: oklch(0.52 0.10 55);
+  --amber-glow: oklch(0.62 0.145 55 / 0.12);
+  --ok: oklch(0.55 0.14 155);
+  --err: oklch(0.50 0.18 25);
+}
+
+[data-theme="dark"] {
   /* Dark theme (default) */
   --bg: #0f0e0c;
   --surface: oklch(0.21 0.014 62);
@@ -44,52 +76,20 @@
   --err: oklch(0.70 0.18 25);
 }
 
-[data-theme="light"] {
-  --bg: #f5f0ea;
-  --surface: oklch(0.95 0.008 75);
-  --surface2: oklch(0.92 0.010 75);
-  --surface3: oklch(0.88 0.012 75);
-  --border: oklch(0.78 0.010 75 / 0.5);
-  --accent: #a07850;
-  --accent2: #c9a87c;
-  --text: oklch(0.22 0.02 70);
-  --muted: oklch(0.50 0.022 72);
-  --success: oklch(0.60 0.14 155);
-  --warning: oklch(0.65 0.15 85);
-  --error: oklch(0.55 0.18 25);
-  --grid: oklch(0.90 0.005 75);
-  --bg-0: oklch(0.97 0.006 75);
-  --bg-1: oklch(0.95 0.008 75);
-  --bg-2: oklch(0.92 0.010 75);
-  --bg-3: oklch(0.88 0.012 75);
-  --bg-4: oklch(0.82 0.014 75);
-  --line: oklch(0.78 0.010 75 / 0.45);
-  --line-soft: oklch(0.78 0.010 75 / 0.2);
-  --fg-0: oklch(0.22 0.02 70);
-  --fg-1: oklch(0.35 0.02 72);
-  --fg-2: oklch(0.50 0.022 74);
-  --fg-3: oklch(0.62 0.020 74);
-  --amber: oklch(0.62 0.145 55);
-  --amber-dim: oklch(0.52 0.10 55);
-  --amber-glow: oklch(0.62 0.145 55 / 0.12);
-  --ok: oklch(0.55 0.14 155);
-  --err: oklch(0.50 0.18 25);
-}
-
-[data-theme="light"] .file-thumb-placeholder,
-[data-theme="light"] .node-upload-drop,
-[data-theme="light"] .input-media-placeholder,
-[data-theme="light"] .var-file-thumb {
+[data-theme="dark"] .file-thumb-placeholder,
+[data-theme="dark"] .node-upload-drop,
+[data-theme="dark"] .input-media-placeholder,
+[data-theme="dark"] .var-file-thumb {
   background: repeating-linear-gradient(45deg,
-    oklch(0.88 0.008 75), oklch(0.88 0.008 75) 4px,
-    oklch(0.92 0.010 75) 4px, oklch(0.92 0.010 75) 8px);
+    oklch(0.22 0.01 65), oklch(0.22 0.01 65) 4px,
+    oklch(0.25 0.012 65) 4px, oklch(0.25 0.012 65) 8px);
 }
-[data-theme="light"] .var-wrap .var-token {
-  background: oklch(0.90 0.025 75);
+[data-theme="dark"] .var-wrap .var-token {
+  background: oklch(0.24 0.045 65);
 }
-[data-theme="light"] .var-wrap .var-token.unknown {
-  color: oklch(0.55 0.16 25);
-  background: oklch(0.92 0.03 75);
+[data-theme="dark"] .var-wrap .var-token.unknown {
+  color: oklch(0.78 0.16 25);
+  background: oklch(0.24 0.06 25);
 }
 
 
@@ -412,8 +412,8 @@ body.right-collapsed .canvas-wrap { right: 0; }
   display: grid; place-items: center;
   background:
     repeating-linear-gradient(45deg,
-      oklch(0.22 0.01 65), oklch(0.22 0.01 65) 6px,
-      oklch(0.25 0.012 65) 6px, oklch(0.25 0.012 65) 12px);
+      oklch(0.88 0.008 75), oklch(0.88 0.008 75) 6px,
+      oklch(0.92 0.010 75) 6px, oklch(0.92 0.010 75) 12px);
   color: var(--fg-3); font-family: var(--type-mono); font-size: 12px;
   letter-spacing: 0.1em; text-transform: uppercase;
 }
@@ -679,8 +679,8 @@ body.right-collapsed .canvas-wrap { right: 0; }
   width: 100%; height: 100%; display: grid; place-items: center;
   color: var(--fg-3); border-radius: 4px;
   background: repeating-linear-gradient(45deg,
-    oklch(0.22 0.01 65), oklch(0.22 0.01 65) 4px,
-    oklch(0.25 0.012 65) 4px, oklch(0.25 0.012 65) 8px);
+    oklch(0.88 0.008 75), oklch(0.88 0.008 75) 4px,
+    oklch(0.92 0.010 75) 4px, oklch(0.92 0.010 75) 8px);
 }
 .file-thumb-placeholder svg { width: 16px; height: 16px; }
 
@@ -1110,8 +1110,8 @@ body.right-collapsed .canvas-wrap { right: 0; }
 .inspector-thumb img, .inspector-thumb video { width: 100%; height: 100%; object-fit: cover; display: block; border-radius: 6px; }
 .inspector-thumb.placeholder {
   background: repeating-linear-gradient(45deg,
-    oklch(0.22 0.01 65), oklch(0.22 0.01 65) 4px,
-    oklch(0.25 0.012 65) 4px, oklch(0.25 0.012 65) 8px);
+    oklch(0.88 0.008 75), oklch(0.88 0.008 75) 4px,
+    oklch(0.92 0.010 75) 4px, oklch(0.92 0.010 75) 8px);
   display: grid; place-items: center; color: var(--fg-3);
 }
 .inspector-meta { flex: 1; min-width: 0; }
@@ -1195,12 +1195,12 @@ body.view-only .field-textarea[data-field="prompt"] { cursor: not-allowed; }
      margin / weight — they'd change rendered width and the cursor
      would drift from the visible glyphs (see commit 39af5c4). */
   color: var(--amber);
-  background: oklch(0.24 0.045 65);
+  background: oklch(0.90 0.025 75);
   border-radius: 3px;
 }
 .var-wrap .var-token.unknown {
-  color: oklch(0.78 0.16 25);
-  background: oklch(0.24 0.06 25);
+  color: oklch(0.55 0.16 25);
+  background: oklch(0.92 0.03 75);
   border-radius: 3px;
 }
 .field-helper { font-size: 10.5px; color: var(--fg-3); margin-top: 4px; line-height: 1.4; }

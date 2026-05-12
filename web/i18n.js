@@ -474,12 +474,12 @@
   const THEME_KEY = 'app.theme';
 
   function getTheme() {
-    try { return localStorage.getItem(THEME_KEY) || 'dark'; } catch { return 'dark'; }
+    try { return localStorage.getItem(THEME_KEY) || 'light'; } catch { return 'light'; }
   }
 
   function applyTheme(theme) {
-    if (theme === 'light') {
-      document.documentElement.setAttribute('data-theme', 'light');
+    if (theme === 'dark') {
+      document.documentElement.setAttribute('data-theme', 'dark');
     } else {
       document.documentElement.removeAttribute('data-theme');
     }
@@ -492,15 +492,15 @@
   }
 
   function toggleTheme() {
-    setTheme(getTheme() === 'dark' ? 'light' : 'dark');
+    setTheme(getTheme() === 'light' ? 'dark' : 'light');
   }
 
   function updateThemeButton() {
     const btn = document.getElementById('theme-switcher');
     if (!btn) return;
-    const isDark = getTheme() === 'dark';
-    btn.textContent = isDark ? '☀' : '🌙';
-    btn.title = isDark ? (lang === 'zh' ? '切换浅色模式' : 'Switch to light mode') : (lang === 'zh' ? '切换深色模式' : 'Switch to dark mode');
+    const isLight = getTheme() !== 'dark';
+    btn.textContent = isLight ? '☀' : '🌙';
+    btn.title = isLight ? (lang === 'zh' ? '切换深色模式' : 'Switch to dark mode') : (lang === 'zh' ? '切换浅色模式' : 'Switch to light mode');
   }
 
   function makeThemeSwitcher() {
