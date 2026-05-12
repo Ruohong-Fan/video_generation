@@ -648,35 +648,13 @@ body.right-collapsed .canvas-wrap { right: 0; }
   border: 1px solid var(--line); background: var(--bg-2);
 }
 .var-row:focus-within { border-color: var(--amber-dim); }
-.var-key {
-  flex: 0 0 32%; padding: 4px 6px;
-  background: transparent; border: none; outline: none;
-  color: var(--amber); font-size: 13px; font-family: var(--type-mono);
-  min-width: 0;
-}
-.var-eq { color: var(--fg-3); font-family: var(--type-mono); font-size: 13px; }
-/* Text variable: textarea replaces the old single-line input */
-.var-row.text-var-row {
-  flex-wrap: wrap;
-}
-.var-value-wrap {
-  flex: 1; min-width: 0; display: flex; align-items: flex-start; gap: 2px;
-}
-.var-value {
+.var-key, .var-value {
   flex: 1; min-width: 0; padding: 4px 6px;
   background: transparent; border: none; outline: none;
   color: var(--fg-0); font-size: 13px; font-family: var(--type-mono);
-  resize: vertical;
-  min-height: 28px;
-  max-height: 120px;
-  line-height: 1.4;
-  field-sizing: content; /* Chrome 123+: auto-size to content */
 }
-/* Fallback for browsers without field-sizing: limit to 3 lines visible */
-@supports not (field-sizing: content) {
-  .var-value { height: 28px; overflow-y: auto; }
-  .var-value.has-content { height: 60px; }
-}
+.var-key { flex: 0 0 32%; color: var(--amber); }
+.var-eq { color: var(--fg-3); font-family: var(--type-mono); font-size: 13px; }
 .var-expand {
   flex-shrink: 0; width: 22px; height: 22px; padding: 0;
   background: transparent; border: 1px solid transparent; border-radius: 4px;
@@ -3697,11 +3675,10 @@ body.view-only textarea.generated-text {
     const close = (save) => {
       if (save) {
         updateProjectVar(id, 'value', textarea.value);
-        // Sync the inline textarea in the side panel
+        // Sync the inline input in the side panel
         const inline = document.querySelector(`[data-var-id="${id}"] .var-value`);
         if (inline) {
           inline.value = textarea.value;
-          inline.classList.toggle('has-content', textarea.value.length > 40);
         }
       }
       overlay.remove();
@@ -3972,16 +3949,13 @@ body.view-only textarea.generated-text {
     };
 
     const textVarRow = v => `
-      <div class="var-row text-var-row" data-var-id="${esc(v.id)}">
+      <div class="var-row" data-var-id="${esc(v.id)}">
         <input class="var-key" data-var-field="key" placeholder="key"
                value="${esc(v.key)}" spellcheck="false"/>
         <span class="var-eq">=</span>
-        <div class="var-value-wrap">
-          <textarea class="var-value${(v.value || '').length > 40 ? ' has-content' : ''}" data-var-field="value" placeholder="value"
-                    rows="1" spellcheck="false">${esc(v.value)}</textarea>
-          <button class="var-expand" data-var-expand="${esc(v.id)}" title="Expand editor">↗</button>
-        </div>
-        <button class="var-copy" data-copy-var="${esc(v.key)}" title="Copy {{${esc(v.key)}}}">${ICONS.dup}</button>
+        <input class="var-value" data-var-field="value" placeholder="value"
+               value="${esc(v.value)}"/>
+        <button class="var-expand" data-var-expand="${esc(v.id)}" title="Expand editor">↗</button>
         <button class="var-delete" data-var-delete="${esc(v.id)}" title="Remove">${ICONS.trash}</button>
       </div>`;
 
@@ -4012,10 +3986,6 @@ body.view-only textarea.generated-text {
               input.value = stored;
               try { input.setSelectionRange(caret, caret); } catch (_) {}
             }
-          }
-          // Toggle has-content class for textarea height fallback
-          if (input.dataset.varField === 'value' && input.tagName === 'TEXTAREA') {
-            input.classList.toggle('has-content', input.value.length > 40);
           }
         });
       });
