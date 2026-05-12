@@ -1570,6 +1570,34 @@ body.view-only textarea.generated-text {
     ? `/api/media_proxy?url=${encodeURIComponent(url)}`
     : (url || '');
 
+  // navigator.clipboard.writeText only works in secure contexts (HTTPS or
+  // localhost). On bare-IP HTTP deploys (like this app's typical setup)
+  // navigator.clipboard is undefined; the old code did
+  // navigator.clipboard?.writeText(...).then(...) which crashed with
+  // "Cannot read properties of undefined (reading 'then')" — no toast,
+  // no copy, no clue why. Fall back to a hidden-textarea + execCommand
+  // which works in every browser regardless of TLS.
+  function copyToClipboard(text) {
+    if (navigator.clipboard && window.isSecureContext) {
+      return navigator.clipboard.writeText(text);
+    }
+    return new Promise((resolve, reject) => {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.setAttribute('readonly', '');
+      ta.style.position = 'fixed';
+      ta.style.top = '-9999px';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      ta.setSelectionRange(0, ta.value.length);
+      let ok = false;
+      try { ok = document.execCommand('copy'); } catch (_) {}
+      document.body.removeChild(ta);
+      ok ? resolve() : reject(new Error('Clipboard write failed'));
+    });
+  }
+
   // Render a thumbnail element (img or video) for a result object.
   function resultThumb(r, cls = '') {
     if (!r) return null;
@@ -4001,6 +4029,7 @@ body.view-only textarea.generated-text {
         <input class="var-value" data-var-field="value" placeholder="value"
                value="${esc(v.value)}"/>
         <button class="var-expand" data-var-expand="${esc(v.id)}" title="Expand editor">↗</button>
+        <button class="var-copy" data-copy-var="${esc(v.key)}" title="Copy {{${esc(v.key)}}}">${ICONS.dup}</button>
         <button class="var-delete" data-var-delete="${esc(v.id)}" title="Remove">${ICONS.trash}</button>
       </div>`;
 
@@ -4030,6 +4059,14 @@ body.view-only textarea.generated-text {
               const caret = input.selectionStart;
               input.value = stored;
               try { input.setSelectionRange(caret, caret); } catch (_) {}
+            }
+            // Keep the row's copy button pointing at the renamed key so
+            // clicking it copies the current {{key}} (not the stale value
+            // that was rendered when the row was first built).
+            const copy = row.querySelector('[data-copy-var]');
+            if (copy) {
+              copy.dataset.copyVar = stored;
+              copy.title = 'Copy {{' + stored + '}}';
             }
           }
         });
@@ -4111,7 +4148,7 @@ body.view-only textarea.generated-text {
       el.addEventListener('click', e => {
         e.stopPropagation();
         const tok = '{{' + el.dataset.copyVar + '}}';
-        navigator.clipboard?.writeText(tok).then(
+        copyToClipboard(tok).then(
           () => toast('Copied ' + tok, 'success'),
           () => toast('Copy failed', 'error'),
         );
@@ -4837,7 +4874,7 @@ body.view-only textarea.generated-text {
     panel.querySelector('[data-action=copy-text]')?.addEventListener('click', () => {
       const lastTxt = (node.results || []).slice().reverse().find(r => r?.kind === 'text');
       if (!lastTxt?.text) return;
-      navigator.clipboard?.writeText(lastTxt.text).then(
+      copyToClipboard(lastTxt.text).then(
         () => toast('Copied', 'success'),
         () => toast('Copy failed', 'error'),
       );
