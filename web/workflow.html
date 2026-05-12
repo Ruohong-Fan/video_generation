@@ -12,37 +12,37 @@
 
 :root {
   /* legacy canvas vars (nodes / edges still use these) */
-  --bg: #0f0e0c;
-  --surface: oklch(0.21 0.014 62);
-  --surface2: oklch(0.25 0.016 64);
-  --surface3: oklch(0.30 0.018 65);
-  --border: oklch(0.32 0.015 65 / 0.5);
+  --bg: #f5f0ea;
+  --surface: oklch(0.95 0.008 75);
+  --surface2: oklch(0.92 0.010 75);
+  --surface3: oklch(0.88 0.012 75);
+  --border: oklch(0.78 0.010 75 / 0.5);
   --accent: #a07850;
   --accent2: #c9a87c;
-  --text: oklch(0.95 0.02 85);
-  --muted: oklch(0.55 0.02 72);
-  --success: oklch(0.75 0.14 155);
-  --warning: oklch(0.80 0.15 85);
-  --error: oklch(0.70 0.18 25);
-  --grid: oklch(0.22 0.01 65);
+  --text: oklch(0.22 0.02 70);
+  --muted: oklch(0.50 0.022 72);
+  --success: oklch(0.60 0.14 155);
+  --warning: oklch(0.65 0.15 85);
+  --error: oklch(0.55 0.18 25);
+  --grid: oklch(0.90 0.005 75);
 
   /* Reel design vars */
-  --bg-0: oklch(0.17 0.012 60);
-  --bg-1: oklch(0.21 0.014 62);
-  --bg-2: oklch(0.25 0.016 64);
-  --bg-3: oklch(0.30 0.018 65);
-  --bg-4: oklch(0.36 0.020 66);
-  --line: oklch(0.32 0.015 65 / 0.5);
-  --line-soft: oklch(0.32 0.015 65 / 0.25);
-  --fg-0: oklch(0.95 0.02 85);
-  --fg-1: oklch(0.82 0.025 80);
-  --fg-2: oklch(0.62 0.025 75);
-  --fg-3: oklch(0.48 0.022 72);
-  --amber: oklch(0.78 0.145 70);
-  --amber-dim: oklch(0.52 0.10 68);
-  --amber-glow: oklch(0.78 0.145 70 / 0.35);
-  --ok: oklch(0.75 0.14 155);
-  --err: oklch(0.70 0.18 25);
+  --bg-0: oklch(0.97 0.006 75);
+  --bg-1: oklch(0.95 0.008 75);
+  --bg-2: oklch(0.92 0.010 75);
+  --bg-3: oklch(0.88 0.012 75);
+  --bg-4: oklch(0.82 0.014 75);
+  --line: oklch(0.78 0.010 75 / 0.45);
+  --line-soft: oklch(0.78 0.010 75 / 0.2);
+  --fg-0: oklch(0.22 0.02 70);
+  --fg-1: oklch(0.35 0.02 72);
+  --fg-2: oklch(0.50 0.022 74);
+  --fg-3: oklch(0.62 0.020 74);
+  --amber: oklch(0.62 0.145 55);
+  --amber-dim: oklch(0.52 0.10 55);
+  --amber-glow: oklch(0.62 0.145 55 / 0.12);
+  --ok: oklch(0.55 0.14 155);
+  --err: oklch(0.50 0.18 25);
   --type-display: "Instrument Serif", Georgia, serif;
   --type-ui: "Inter", system-ui, sans-serif;
   --type-mono: "JetBrains Mono", ui-monospace, monospace;
@@ -367,8 +367,8 @@ body.right-collapsed .canvas-wrap { right: 0; }
   display: grid; place-items: center;
   background:
     repeating-linear-gradient(45deg,
-      oklch(0.22 0.01 65), oklch(0.22 0.01 65) 6px,
-      oklch(0.25 0.012 65) 6px, oklch(0.25 0.012 65) 12px);
+      oklch(0.88 0.008 75), oklch(0.88 0.008 75) 6px,
+      oklch(0.92 0.010 75) 6px, oklch(0.92 0.010 75) 12px);
   color: var(--fg-3); font-family: var(--type-mono); font-size: 12px;
   letter-spacing: 0.1em; text-transform: uppercase;
 }
@@ -634,8 +634,8 @@ body.right-collapsed .canvas-wrap { right: 0; }
   width: 100%; height: 100%; display: grid; place-items: center;
   color: var(--fg-3); border-radius: 4px;
   background: repeating-linear-gradient(45deg,
-    oklch(0.22 0.01 65), oklch(0.22 0.01 65) 4px,
-    oklch(0.25 0.012 65) 4px, oklch(0.25 0.012 65) 8px);
+    oklch(0.88 0.008 75), oklch(0.88 0.008 75) 4px,
+    oklch(0.92 0.010 75) 4px, oklch(0.92 0.010 75) 8px);
 }
 .file-thumb-placeholder svg { width: 16px; height: 16px; }
 
@@ -1007,8 +1007,8 @@ body.right-collapsed .canvas-wrap { right: 0; }
   font-family: var(--type-mono); font-size: 12px; letter-spacing: 0.14em;
   color: var(--fg-3);
   background: repeating-linear-gradient(45deg,
-    oklch(0.22 0.01 65), oklch(0.22 0.01 65) 6px,
-    oklch(0.25 0.012 65) 6px, oklch(0.25 0.012 65) 12px);
+    oklch(0.88 0.008 75), oklch(0.88 0.008 75) 6px,
+    oklch(0.92 0.010 75) 6px, oklch(0.92 0.010 75) 12px);
 }
 .input-media-pill {
   position: absolute; padding: 2px 6px;
@@ -1065,8 +1065,8 @@ body.right-collapsed .canvas-wrap { right: 0; }
 .inspector-thumb img, .inspector-thumb video { width: 100%; height: 100%; object-fit: cover; display: block; border-radius: 6px; }
 .inspector-thumb.placeholder {
   background: repeating-linear-gradient(45deg,
-    oklch(0.22 0.01 65), oklch(0.22 0.01 65) 4px,
-    oklch(0.25 0.012 65) 4px, oklch(0.25 0.012 65) 8px);
+    oklch(0.88 0.008 75), oklch(0.88 0.008 75) 4px,
+    oklch(0.92 0.010 75) 4px, oklch(0.92 0.010 75) 8px);
   display: grid; place-items: center; color: var(--fg-3);
 }
 .inspector-meta { flex: 1; min-width: 0; }
@@ -1150,12 +1150,12 @@ body.view-only .field-textarea[data-field="prompt"] { cursor: not-allowed; }
      margin / weight — they'd change rendered width and the cursor
      would drift from the visible glyphs (see commit 39af5c4). */
   color: var(--amber);
-  background: oklch(0.24 0.045 65);
+  background: oklch(0.90 0.025 75);
   border-radius: 3px;
 }
 .var-wrap .var-token.unknown {
-  color: oklch(0.78 0.16 25);
-  background: oklch(0.24 0.06 25);
+  color: oklch(0.55 0.16 25);
+  background: oklch(0.92 0.03 75);
   border-radius: 3px;
 }
 .field-helper { font-size: 10.5px; color: var(--fg-3); margin-top: 4px; line-height: 1.4; }

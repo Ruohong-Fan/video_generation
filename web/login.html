@@ -12,18 +12,18 @@
 button { background: none; border: none; cursor: pointer; font-family: inherit; color: inherit; }
 
 :root {
-  --bg-0: oklch(0.17 0.012 60);
-  --bg-1: oklch(0.21 0.014 62);
-  --bg-2: oklch(0.25 0.016 64);
-  --bg-3: oklch(0.30 0.018 65);
-  --bg-4: oklch(0.36 0.020 66);
-  --line: oklch(0.32 0.015 65 / 0.55);
-  --fg-0: oklch(0.95 0.02 85);
-  --fg-1: oklch(0.82 0.025 80);
-  --fg-2: oklch(0.62 0.025 75);
-  --fg-3: oklch(0.50 0.022 72);
-  --amber: oklch(0.78 0.145 70);
-  --amber-dim: oklch(0.52 0.10 68);
+  --bg-0: oklch(0.97 0.006 75);
+  --bg-1: oklch(0.95 0.008 75);
+  --bg-2: oklch(0.92 0.010 75);
+  --bg-3: oklch(0.88 0.012 75);
+  --bg-4: oklch(0.82 0.014 75);
+  --line: oklch(0.78 0.010 75 / 0.45);
+  --fg-0: oklch(0.22 0.02 70);
+  --fg-1: oklch(0.35 0.02 72);
+  --fg-2: oklch(0.50 0.022 74);
+  --fg-3: oklch(0.62 0.020 74);
+  --amber: oklch(0.62 0.145 55);
+  --amber-dim: oklch(0.52 0.10 55);
   --type-display: "Instrument Serif", Georgia, serif;
   --type-ui: "Inter", system-ui, sans-serif;
   --type-mono: "JetBrains Mono", ui-monospace, monospace;
@@ -63,17 +63,17 @@ body {
 .stage-grid {
   position: absolute;
   inset: 0;
-  background-image: radial-gradient(oklch(0.38 0.02 70 / 0.35) 1px, transparent 1px);
+  background-image: radial-gradient(oklch(0.70 0.015 75 / 0.3) 1px, transparent 1px);
   background-size: 22px 22px;
-  -webkit-mask-image: radial-gradient(ellipse at 30% 40%, #000 30%, transparent 75%);
-          mask-image: radial-gradient(ellipse at 30% 40%, #000 30%, transparent 75%);
+  -webkit-mask-image: radial-gradient(ellipse at 30% 40%, #000 25%, transparent 70%);
+          mask-image: radial-gradient(ellipse at 30% 40%, #000 25%, transparent 70%);
 }
 .stage-vignette {
   position: absolute; inset: 0;
   background:
-    radial-gradient(ellipse at 75% 30%, oklch(0.78 0.145 70 / 0.18), transparent 55%),
-    radial-gradient(ellipse at 20% 80%, oklch(0.55 0.12 30 / 0.15), transparent 60%),
-    linear-gradient(to bottom, transparent 60%, oklch(0 0 0 / 0.6));
+    radial-gradient(ellipse at 75% 30%, oklch(0.62 0.145 55 / 0.1), transparent 55%),
+    radial-gradient(ellipse at 20% 80%, oklch(0.62 0.10 55 / 0.08), transparent 60%),
+    linear-gradient(to bottom, transparent 60%, oklch(0 0 0 / 0.15));
   pointer-events: none;
 }
 .stage-mark {
