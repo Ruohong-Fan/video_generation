@@ -4,6 +4,7 @@
 <!-- build-marker: dup-debug-2026-05-10 — if you don't see this comment in
      view-source the browser/proxy is serving a stale projects.html -->
 <meta charset="UTF-8" />
+<script>(function(){try{var t=localStorage.getItem('app.theme')||'dark';if(t==='light')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Reel · Projects</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -14,7 +15,38 @@
 button { background: none; border: none; cursor: pointer; font-family: inherit; color: inherit; }
 
 :root {
-  /* Warm cream-light palette */
+  /* Dark theme (default) */
+  --bg:       oklch(0.17 0.012 60);
+  --surface:  oklch(0.21 0.014 62);
+  --surface2: oklch(0.25 0.016 64);
+  --surface3: oklch(0.30 0.018 65);
+  --border:   oklch(0.32 0.015 65 / 0.55);
+  --accent:   oklch(0.78 0.145 70);
+  --accent2:  oklch(0.86 0.11  70);
+  --text:     oklch(0.95 0.02  85);
+  --muted:    oklch(0.50 0.022 72);
+  --success:  oklch(0.75 0.14 155);
+  --error:    oklch(0.70 0.18 25);
+  --bg-0: var(--bg);
+  --bg-1: var(--surface);
+  --bg-2: var(--surface2);
+  --bg-3: var(--surface3);
+  --fg-0: var(--text);
+  --fg-1: oklch(0.82 0.025 80);
+  --fg-2: oklch(0.62 0.025 75);
+  --fg-3: var(--muted);
+  --amber: var(--accent);
+  --amber-dim: oklch(0.52 0.10 68);
+  --line: var(--border);
+  --line-soft: oklch(0.32 0.015 65 / 0.25);
+  --r-sm: 6px; --r-md: 10px; --r-lg: 14px;
+  --type-display: "Instrument Serif", Georgia, serif;
+  --type-ui: "Inter", system-ui, sans-serif;
+  --type-mono: "JetBrains Mono", ui-monospace, monospace;
+  --shadow-2: 0 1px 0 oklch(1 0 0 / 0.05) inset, 0 18px 48px oklch(0 0 0 / 0.55);
+}
+
+[data-theme="light"] {
   --bg:       oklch(0.97 0.006 75);
   --surface:  oklch(0.95 0.008 75);
   --surface2: oklch(0.92 0.010 75);
@@ -26,8 +58,6 @@ button { background: none; border: none; cursor: pointer; font-family: inherit; 
   --muted:    oklch(0.50 0.022 72);
   --success:  oklch(0.55 0.14 155);
   --error:    oklch(0.50 0.18 25);
-
-  /* extended tokens used by new components */
   --bg-0: var(--bg);
   --bg-1: var(--surface);
   --bg-2: var(--surface2);
@@ -40,11 +70,13 @@ button { background: none; border: none; cursor: pointer; font-family: inherit; 
   --amber-dim: oklch(0.52 0.10 55);
   --line: var(--border);
   --line-soft: oklch(0.78 0.010 75 / 0.2);
-  --r-sm: 6px; --r-md: 10px; --r-lg: 14px;
-  --type-display: "Instrument Serif", Georgia, serif;
-  --type-ui: "Inter", system-ui, sans-serif;
-  --type-mono: "JetBrains Mono", ui-monospace, monospace;
   --shadow-2: 0 1px 0 oklch(0 0 0 / 0.03) inset, 0 8px 24px oklch(0 0 0 / 0.08);
+}
+
+[data-theme="light"] .p-list-thumb {
+  background: repeating-linear-gradient(45deg,
+    oklch(0.88 0.008 75), oklch(0.88 0.008 75) 4px,
+    oklch(0.92 0.010 75) 4px, oklch(0.92 0.010 75) 8px);
 }
 
 html, body { height: 100%; overflow: hidden; }
@@ -571,7 +603,7 @@ body {
 }
 .p-list-thumb {
   width: 40px; height: 26px; border-radius: 4px;
-  background: repeating-linear-gradient(45deg, oklch(0.88 0.008 75), oklch(0.88 0.008 75) 4px, oklch(0.92 0.010 75) 4px, oklch(0.92 0.010 75) 8px);
+  background: repeating-linear-gradient(45deg, oklch(0.22 0.01 65), oklch(0.22 0.01 65) 4px, oklch(0.25 0.012 65) 4px, oklch(0.25 0.012 65) 8px);
   flex-shrink: 0; display: grid; place-items: center;
   font-family: var(--type-mono); font-size: 10px; color: var(--muted); letter-spacing: 0.05em;
 }

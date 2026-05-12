@@ -469,11 +469,90 @@
     }
   }
 
+
+  // ── Theme switcher (dark / light) ──────────────────────────────────────────
+  const THEME_KEY = 'app.theme';
+
+  function getTheme() {
+    try { return localStorage.getItem(THEME_KEY) || 'dark'; } catch { return 'dark'; }
+  }
+
+  function applyTheme(theme) {
+    if (theme === 'light') {
+      document.documentElement.setAttribute('data-theme', 'light');
+    } else {
+      document.documentElement.removeAttribute('data-theme');
+    }
+  }
+
+  function setTheme(theme) {
+    try { localStorage.setItem(THEME_KEY, theme); } catch {}
+    applyTheme(theme);
+    updateThemeButton();
+  }
+
+  function toggleTheme() {
+    setTheme(getTheme() === 'dark' ? 'light' : 'dark');
+  }
+
+  function updateThemeButton() {
+    const btn = document.getElementById('theme-switcher');
+    if (!btn) return;
+    const isDark = getTheme() === 'dark';
+    btn.textContent = isDark ? '☀' : '🌙';
+    btn.title = isDark ? (lang === 'zh' ? '切换浅色模式' : 'Switch to light mode') : (lang === 'zh' ? '切换深色模式' : 'Switch to dark mode');
+  }
+
+  function makeThemeSwitcher() {
+    if (document.getElementById('theme-switcher')) return;
+    const btn = document.createElement('button');
+    btn.id = 'theme-switcher';
+    btn.type = 'button';
+    btn.setAttribute(NO_I18N, '');
+    btn.addEventListener('click', toggleTheme);
+
+    const userMenu = document.querySelector('.user-menu');
+    if (userMenu && userMenu.parentElement) {
+      btn.className = 'lang-switcher-inline';
+      btn.style.cssText = [
+        'flex-shrink:0', 'width:30px', 'height:30px', 'padding:0',
+        'margin-right:6px',
+        'font-size:14px', 'line-height:1',
+        'color:var(--fg-1, rgba(255,255,255,0.85))',
+        'background:var(--bg-2, rgba(255,255,255,0.06))',
+        'border:1px solid var(--line, rgba(255,255,255,0.12))',
+        'border-radius:6px', 'cursor:pointer',
+        'display:grid', 'place-items:center',
+      ].join(';');
+      userMenu.parentElement.insertBefore(btn, userMenu);
+    } else {
+      btn.style.cssText = [
+        'position:fixed', 'top:14px', 'right:56px', 'z-index:99999',
+        'width:28px', 'height:28px', 'padding:0',
+        'font-size:13px', 'line-height:1',
+        'color:rgba(255,255,255,0.92)',
+        'background:rgba(20,20,20,0.55)',
+        'border:1px solid rgba(255,255,255,0.18)',
+        'border-radius:6px', 'cursor:pointer',
+        'backdrop-filter:blur(10px)',
+        '-webkit-backdrop-filter:blur(10px)',
+        'display:grid', 'place-items:center',
+      ].join(';');
+      document.body.appendChild(btn);
+    }
+    updateThemeButton();
+  }
+
+  // Apply saved theme ASAP (before DOM ready to avoid flash)
+  applyTheme(getTheme());
+
   function init() {
     applyAll();
     makeSwitcher();
+    makeThemeSwitcher();
     startObserver();
   }
+
 
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', init, { once: true });
