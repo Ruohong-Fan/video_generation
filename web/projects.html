@@ -77,14 +77,14 @@ body {
   position: relative;
 }
 .logo-mark::after { content:""; position:absolute; inset:6px; background:var(--bg); border-radius:50%; }
-.logo-name { font-family: var(--type-display); font-size: 22px; letter-spacing: -0.01em; align-self: center; color: var(--text); }
-.logo-sub  { font-family: var(--type-mono); font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.1em; align-self: center; }
+.logo-name { font-family: var(--type-display); font-size: 24px; letter-spacing: -0.01em; align-self: center; color: var(--text); }
+.logo-sub  { font-family: var(--type-mono); font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.1em; align-self: center; }
 .topbar-spacer { flex: 1; }
 .topbar-search { position: relative; width: 280px; }
 .topbar-search input {
   width: 100%; padding: 7px 10px 7px 30px;
   background: var(--surface2); border: 1px solid var(--border); border-radius: 8px;
-  color: var(--text); font: inherit; font-size: 12px; outline: none;
+  color: var(--text); font: inherit; font-size: 14px; outline: none;
   transition: border-color 0.12s;
 }
 .topbar-search input:focus { border-color: var(--accent); }
@@ -94,7 +94,7 @@ body {
   width: 30px; height: 30px; border-radius: 50%;
   background: linear-gradient(135deg, var(--amber), oklch(0.55 0.12 30));
   display: grid; place-items: center;
-  font-family: var(--type-display); font-size: 15px;
+  font-family: var(--type-display); font-size: 17px;
   color: oklch(0.18 0.03 65); font-weight: 600;
   flex-shrink: 0;
   cursor: pointer;
@@ -124,7 +124,7 @@ body {
 .user-menu.open .user-menu-pop { display: block; }
 .user-menu-info {
   padding: 8px 10px 6px;
-  font-size: 11px;
+  font-size: 13px;
   color: var(--muted);
   border-bottom: 1px solid var(--border);
   margin-bottom: 4px;
@@ -137,7 +137,7 @@ body {
   display: flex; align-items: center; gap: 8px;
   width: 100%;
   padding: 8px 10px;
-  font-size: 12px;
+  font-size: 14px;
   color: var(--text);
   border-radius: 5px;
   text-align: left;
@@ -153,7 +153,7 @@ body {
   border-radius: 8px;
   color: var(--text);
   padding: 7px 14px;
-  font-size: 0.83rem;
+  font-size: 0.95rem;
   cursor: pointer;
   transition: all 0.15s;
   display: inline-flex;
@@ -192,11 +192,11 @@ body {
 .p-side-item {
   display: flex; align-items: center; gap: 10px;
   padding: 7px 10px; border-radius: var(--r-sm);
-  font-size: 13px; color: var(--fg-1); cursor: pointer; margin-bottom: 1px;
+  font-size: 15px; color: var(--fg-1); cursor: pointer; margin-bottom: 1px;
 }
 .p-side-item:hover { background: var(--surface2); color: var(--text); }
 .p-side-item.active { background: oklch(0.78 0.145 70 / 0.12); color: var(--accent); }
-.p-side-item .count { margin-left: auto; font-family: var(--type-mono); font-size: 10px; color: var(--muted); }
+.p-side-item .count { margin-left: auto; font-family: var(--type-mono); font-size: 12px; color: var(--muted); }
 .p-side-item.active .count { color: var(--accent); }
 
 /* ── Main ────────────────────────────────────────────────────────────────── */
@@ -212,11 +212,11 @@ body {
 .p-hero { margin-bottom: 24px; }
 .p-title {
   font-family: var(--type-display);
-  font-size: 42px; line-height: 1; letter-spacing: -0.01em;
+  font-size: 44px; line-height: 1; letter-spacing: -0.01em;
   color: var(--text); font-weight: 400;
 }
 .p-title em { color: var(--accent); font-style: italic; }
-.p-subtitle { margin-top: 6px; color: var(--muted); font-size: 13px; }
+.p-subtitle { margin-top: 6px; color: var(--muted); font-size: 15px; }
 
 /* ── Project grid ────────────────────────────────────────────────────────── */
 .project-grid {
@@ -263,7 +263,7 @@ body {
     oklch(0.25 0.012 65) 12px
   );
   font-family: var(--type-mono);
-  font-size: 10px;
+  font-size: 12px;
   letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--muted);
@@ -277,7 +277,7 @@ body {
   position: absolute; top: 8px; left: 8px;
   display: inline-flex; align-items: center; gap: 4px;
   padding: 3px 7px;
-  font-family: var(--type-mono); font-size: 9px;
+  font-family: var(--type-mono); font-size: 11px;
   letter-spacing: 0.1em; text-transform: uppercase;
   background: oklch(0 0 0 / 0.65); border-radius: 3px;
   color: var(--fg-0); backdrop-filter: blur(6px);
@@ -310,9 +310,9 @@ body {
 }
 .p-card-new-title {
   font-family: var(--type-display);
-  font-size: 20px; font-style: italic; margin-bottom: 2px;
+  font-size: 22px; font-style: italic; margin-bottom: 2px;
 }
-.p-card-new-sub { font-size: 12px; color: var(--muted); }
+.p-card-new-sub { font-size: 14px; color: var(--muted); }
 .project-card.p-card-new:hover .p-card-new-sub { color: var(--accent); opacity: 0.7; }
 
 /* ── Card menu button ────────────────────────────────────────────────────── */
@@ -334,18 +334,18 @@ body {
   display: flex; flex-direction: column; gap: 4px; flex: 1;
 }
 .p-card-title {
-  font-size: 14px; font-weight: 600; color: var(--text);
+  font-size: 16px; font-weight: 600; color: var(--text);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .p-card-meta {
-  font-family: var(--type-mono); font-size: 10px;
+  font-family: var(--type-mono); font-size: 12px;
   color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em;
 }
 
 /* ── Card tags ───────────────────────────────────────────────────────────── */
 .p-card-tags { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 4px; }
 .p-tag {
-  font-size: 10px; padding: 2px 7px; border-radius: 10px;
+  font-size: 12px; padding: 2px 7px; border-radius: 10px;
   background: var(--surface2); color: var(--fg-2);
   border: 1px solid var(--border);
 }
@@ -355,7 +355,7 @@ body {
   display: flex; align-items: center; gap: 6px;
   padding: 8px 12px;
   border-top: 1px solid var(--line-soft);
-  font-size: 11px; color: var(--fg-2);
+  font-size: 13px; color: var(--fg-2);
   margin-top: auto;
 }
 .p-collab { display: flex; margin-right: auto; }
@@ -363,7 +363,7 @@ body {
   width: 22px; height: 22px; border-radius: 50%;
   border: 2px solid var(--surface);
   display: grid; place-items: center;
-  font-size: 10px; font-weight: 700;
+  font-size: 12px; font-weight: 700;
   color: oklch(0.18 0.03 65);
   background: var(--amber);
 }
@@ -400,7 +400,7 @@ body {
 }
 .p-selbar-count {
   padding: 0 8px; font-family: var(--type-mono);
-  font-size: 11px; color: var(--accent);
+  font-size: 13px; color: var(--accent);
 }
 
 /* ── Empty state ─────────────────────────────────────────────────────────── */
@@ -409,12 +409,12 @@ body {
   display: flex; flex-direction: column; align-items: center;
 }
 .empty-state h2 {
-  font-family: var(--type-display); font-size: 28px;
+  font-family: var(--type-display); font-size: 30px;
   font-style: italic; font-weight: 400;
   color: var(--fg-1); margin-bottom: 8px;
 }
 .empty-state p {
-  font-size: 13px; color: var(--muted);
+  font-size: 15px; color: var(--muted);
   max-width: 300px; margin: 0 auto 24px; line-height: 1.6;
 }
 
@@ -438,10 +438,10 @@ body {
 }
 .modal-head { padding: 20px 22px 8px; }
 .modal-head h2 {
-  font-family: var(--type-display); font-size: 28px;
+  font-family: var(--type-display); font-size: 30px;
   font-style: italic; font-weight: 400; line-height: 1.1; margin: 0;
 }
-.modal-head p { margin: 4px 0 0; color: var(--muted); font-size: 13px; }
+.modal-head p { margin: 4px 0 0; color: var(--muted); font-size: 15px; }
 .modal-body { padding: 14px 22px; }
 .share-member-list {
   display: flex; flex-direction: column; gap: 4px;
@@ -453,13 +453,13 @@ body {
 .share-member-row {
   display: flex; align-items: center; gap: 10px;
   padding: 6px 8px; border-radius: 6px;
-  font-size: 12px;
+  font-size: 14px;
 }
 .share-member-row + .share-member-row { border-top: 1px solid var(--border); }
 .share-member-row .who { flex: 1; min-width: 0; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .share-member-row .role {
   flex: 0 0 auto;
-  font-size: 10px; font-family: var(--type-mono); text-transform: uppercase;
+  font-size: 12px; font-family: var(--type-mono); text-transform: uppercase;
   padding: 2px 6px; border-radius: 4px;
   background: var(--surface2); color: var(--muted);
 }
@@ -467,7 +467,7 @@ body {
 .share-member-row .role.edit { background: oklch(0.65 0.18 145 / 0.15); color: oklch(0.85 0.16 145); }
 .share-member-row .role.view { background: oklch(0.65 0.18 200 / 0.15); color: oklch(0.85 0.18 200); }
 .share-member-row select.role-select {
-  flex: 0 0 auto; padding: 4px 8px; font-size: 11px;
+  flex: 0 0 auto; padding: 4px 8px; font-size: 13px;
   background: var(--surface2); color: var(--text);
   border: 1px solid var(--border); border-radius: 4px; outline: none;
 }
@@ -478,11 +478,11 @@ body {
   display: grid; place-items: center; cursor: pointer;
 }
 .share-member-row .remove-btn:hover { color: oklch(0.78 0.16 25); border-color: oklch(0.78 0.16 25 / 0.4); }
-.share-empty { padding: 18px 12px; text-align: center; color: var(--muted); font-size: 11px; }
+.share-empty { padding: 18px 12px; text-align: center; color: var(--muted); font-size: 13px; }
 
 .role-badge {
   display: inline-flex; align-items: center; gap: 4px;
-  font-size: 9px; font-family: var(--type-mono); text-transform: uppercase;
+  font-size: 11px; font-family: var(--type-mono); text-transform: uppercase;
   padding: 2px 6px; border-radius: 4px;
   background: var(--surface2); color: var(--muted);
   margin-left: 6px;
@@ -498,14 +498,14 @@ body {
 }
 .field-label {
   display: block; font-family: var(--type-mono);
-  font-size: 10px; text-transform: uppercase; letter-spacing: 0.1em;
+  font-size: 12px; text-transform: uppercase; letter-spacing: 0.1em;
   color: var(--muted); margin-bottom: 7px;
 }
 .field-input {
   width: 100%; padding: 9px 12px;
   background: var(--surface2); border: 1px solid var(--border);
   border-radius: var(--r-sm); color: var(--text);
-  font: inherit; font-size: 13px; outline: none;
+  font: inherit; font-size: 15px; outline: none;
   transition: border-color 0.12s;
 }
 .field-input:focus { border-color: var(--accent); }
@@ -520,13 +520,13 @@ body {
 }
 .p-tabs { display: flex; gap: 2px; }
 .p-tab {
-  padding: 6px 12px; font-size: 12px; font-weight: 500;
+  padding: 6px 12px; font-size: 14px; font-weight: 500;
   color: var(--muted); border-radius: var(--r-sm); cursor: pointer;
 }
 .p-tab:hover { color: var(--text); background: var(--surface2); }
 .p-tab.active { color: var(--accent); background: oklch(0.78 0.145 70 / 0.12); }
 .p-tab .pill {
-  margin-left: 5px; font-family: var(--type-mono); font-size: 10px;
+  margin-left: 5px; font-family: var(--type-mono); font-size: 12px;
   background: oklch(0 0 0 / 0.3); padding: 1px 5px; border-radius: 3px; color: var(--muted);
 }
 .p-tab.active .pill { color: var(--accent); }
@@ -551,7 +551,7 @@ body {
   grid-template-columns: 32px 1fr 90px 80px;
   align-items: center; gap: 12px; padding: 9px 14px;
   background: var(--surface2);
-  font-family: var(--type-mono); font-size: 10px;
+  font-family: var(--type-mono); font-size: 12px;
   letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted);
   border-bottom: 1px solid var(--border);
 }
@@ -561,7 +561,7 @@ body {
   align-items: center; gap: 12px; padding: 10px 14px;
   border-bottom: 1px solid var(--line-soft);
   cursor: pointer; transition: background 0.1s;
-  font-size: 12px; color: var(--fg-1);
+  font-size: 14px; color: var(--fg-1);
 }
 .p-list-row:last-child { border-bottom: none; }
 .p-list-row:hover { background: var(--surface2); }
@@ -573,14 +573,14 @@ body {
   width: 40px; height: 26px; border-radius: 4px;
   background: repeating-linear-gradient(45deg, oklch(0.22 0.01 65), oklch(0.22 0.01 65) 4px, oklch(0.25 0.012 65) 4px, oklch(0.25 0.012 65) 8px);
   flex-shrink: 0; display: grid; place-items: center;
-  font-family: var(--type-mono); font-size: 8px; color: var(--muted); letter-spacing: 0.05em;
+  font-family: var(--type-mono); font-size: 10px; color: var(--muted); letter-spacing: 0.05em;
 }
 .p-list-name-text { min-width: 0; }
 .p-list-name-text strong { display: block; color: var(--text); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.p-list-name-text span { font-size: 11px; color: var(--muted); }
+.p-list-name-text span { font-size: 13px; color: var(--muted); }
 .p-list-status {
   display: inline-flex; align-items: center; gap: 5px;
-  font-family: var(--type-mono); font-size: 10px;
+  font-family: var(--type-mono); font-size: 12px;
   text-transform: uppercase; letter-spacing: 0.05em;
 }
 .p-list-status .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
@@ -607,7 +607,7 @@ body {
 .ctx-item {
   display: flex; align-items: center; gap: 8px;
   padding: 7px 10px;
-  font-size: 12px; color: var(--fg-1);
+  font-size: 14px; color: var(--fg-1);
   cursor: pointer; border-radius: var(--r-sm);
   transition: background 0.1s, color 0.1s;
 }
@@ -627,7 +627,7 @@ body {
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 10px 16px;
-  font-size: 0.82rem;
+  font-size: 0.94rem;
   z-index: 500;
   pointer-events: none;
   animation: slideUp 0.2s ease;
@@ -981,7 +981,7 @@ body {
           ${project.description ? `<span>${esc(project.description)}</span>` : ''}
         </div>
       </div>
-      <span style="color:var(--muted);font-size:11px">${ts ? timeAgo(ts) : '—'}</span>
+      <span style="color:var(--muted);font-size: 13px">${ts ? timeAgo(ts) : '—'}</span>
       <span class="p-list-status" style="color:${statusColor}">
         <span class="dot"></span>${statusLabel}
       </span>
