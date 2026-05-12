@@ -648,13 +648,43 @@ body.right-collapsed .canvas-wrap { right: 0; }
   border: 1px solid var(--line); background: var(--bg-2);
 }
 .var-row:focus-within { border-color: var(--amber-dim); }
-.var-key, .var-value {
+.var-key {
+  flex: 0 0 32%; padding: 4px 6px;
+  background: transparent; border: none; outline: none;
+  color: var(--amber); font-size: 13px; font-family: var(--type-mono);
+  min-width: 0;
+}
+.var-eq { color: var(--fg-3); font-family: var(--type-mono); font-size: 13px; }
+/* Text variable: textarea replaces the old single-line input */
+.var-row.text-var-row {
+  flex-wrap: wrap;
+}
+.var-value-wrap {
+  flex: 1; min-width: 0; display: flex; align-items: flex-start; gap: 2px;
+}
+.var-value {
   flex: 1; min-width: 0; padding: 4px 6px;
   background: transparent; border: none; outline: none;
   color: var(--fg-0); font-size: 13px; font-family: var(--type-mono);
+  resize: vertical;
+  min-height: 28px;
+  max-height: 120px;
+  line-height: 1.4;
+  field-sizing: content; /* Chrome 123+: auto-size to content */
 }
-.var-key { flex: 0 0 32%; color: var(--amber); }
-.var-eq { color: var(--fg-3); font-family: var(--type-mono); font-size: 13px; }
+/* Fallback for browsers without field-sizing: limit to 3 lines visible */
+@supports not (field-sizing: content) {
+  .var-value { height: 28px; overflow-y: auto; }
+  .var-value.has-content { height: 60px; }
+}
+.var-expand {
+  flex-shrink: 0; width: 22px; height: 22px; padding: 0;
+  background: transparent; border: 1px solid transparent; border-radius: 4px;
+  color: var(--fg-3); display: grid; place-items: center; cursor: pointer;
+  opacity: 0; transition: opacity 0.1s, color 0.1s, border-color 0.1s;
+}
+.var-row:hover .var-expand, .var-row:focus-within .var-expand { opacity: 1; }
+.var-expand:hover { color: var(--amber); border-color: var(--amber-dim); }
 .var-delete {
   flex-shrink: 0; width: 22px; height: 22px; padding: 0;
   background: transparent; border: 1px solid transparent; border-radius: 4px;
@@ -671,6 +701,110 @@ body.right-collapsed .canvas-wrap { right: 0; }
   opacity: 0; transition: opacity 0.1s, color 0.1s, border-color 0.1s;
 }
 .var-copy:hover { color: var(--amber); border-color: var(--amber-dim); }
+
+/* ── Expand modal (full-screen variable editor) ─────────────────────── */
+.var-modal-overlay {
+  position: fixed; inset: 0; z-index: 9999;
+  background: oklch(0 0 0 / 0.6); backdrop-filter: blur(4px);
+  display: flex; align-items: center; justify-content: center;
+  animation: var-modal-in 0.15s ease;
+}
+@keyframes var-modal-in { from { opacity: 0; } to { opacity: 1; } }
+.var-modal {
+  width: min(720px, 92vw); max-height: 85vh;
+  background: var(--bg-1); border: 1px solid var(--line);
+  border-radius: 14px; box-shadow: 0 24px 80px oklch(0 0 0 / 0.5);
+  display: flex; flex-direction: column;
+  animation: var-modal-scale 0.15s ease;
+}
+@keyframes var-modal-scale { from { transform: scale(0.96); } to { transform: scale(1); } }
+.var-modal-head {
+  display: flex; align-items: center; gap: 10px;
+  padding: 14px 18px; border-bottom: 1px solid var(--line);
+  flex-shrink: 0;
+}
+.var-modal-key {
+  font-family: var(--type-mono); font-size: 15px; color: var(--amber);
+  font-weight: 600;
+}
+.var-modal-label { color: var(--fg-3); font-size: 14px; }
+.var-modal-close {
+  margin-left: auto; width: 28px; height: 28px;
+  background: var(--bg-3); border: none; border-radius: 6px;
+  color: var(--fg-2); display: grid; place-items: center; cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+.var-modal-close:hover { background: var(--bg-4); color: var(--fg-0); }
+.var-modal-body { flex: 1; padding: 14px 18px; overflow: hidden; display: flex; flex-direction: column; }
+.var-modal-textarea {
+  flex: 1; width: 100%; min-height: 200px;
+  background: var(--bg-0); border: 1px solid var(--line);
+  border-radius: 8px; padding: 12px 14px;
+  color: var(--fg-0); font-size: 14px; font-family: var(--type-mono);
+  line-height: 1.55; resize: none; outline: none;
+  transition: border-color 0.12s;
+}
+.var-modal-textarea:focus { border-color: var(--amber-dim); }
+.var-modal-foot {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 10px 18px 14px; flex-shrink: 0;
+}
+.var-modal-chars { font-family: var(--type-mono); font-size: 12px; color: var(--fg-3); }
+.var-modal-save {
+  padding: 6px 18px; border: none; border-radius: 6px;
+  background: var(--amber); color: var(--bg-0); font-weight: 600;
+  font-size: 14px; cursor: pointer; transition: opacity 0.12s;
+}
+.var-modal-save:hover { opacity: 0.85; }
+.var-modal-save:active { opacity: 0.7; }
+
+/* ── File preview modal ─────────────────────────────────────────────── */
+.file-modal-overlay {
+  position: fixed; inset: 0; z-index: 9999;
+  background: oklch(0 0 0 / 0.7); backdrop-filter: blur(4px);
+  display: flex; align-items: center; justify-content: center;
+  animation: var-modal-in 0.15s ease;
+}
+.file-modal {
+  width: min(640px, 92vw); max-height: 85vh;
+  background: var(--bg-1); border: 1px solid var(--line);
+  border-radius: 14px; box-shadow: 0 24px 80px oklch(0 0 0 / 0.5);
+  display: flex; flex-direction: column;
+  animation: var-modal-scale 0.15s ease;
+}
+.file-modal-head {
+  display: flex; align-items: center; gap: 10px;
+  padding: 14px 18px; border-bottom: 1px solid var(--line);
+  flex-shrink: 0;
+}
+.file-modal-title {
+  font-family: var(--type-mono); font-size: 15px; color: var(--amber);
+  font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.file-modal-kind {
+  font-size: 12px; color: var(--fg-3); text-transform: uppercase; letter-spacing: 0.05em;
+}
+.file-modal-close {
+  margin-left: auto; width: 28px; height: 28px;
+  background: var(--bg-3); border: none; border-radius: 6px;
+  color: var(--fg-2); display: grid; place-items: center; cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+.file-modal-close:hover { background: var(--bg-4); color: var(--fg-0); }
+.file-modal-body {
+  flex: 1; padding: 14px 18px; overflow: auto;
+  display: flex; align-items: center; justify-content: center;
+  min-height: 200px;
+}
+.file-modal-body img {
+  max-width: 100%; max-height: 60vh; border-radius: 6px; object-fit: contain;
+}
+.file-modal-body video {
+  max-width: 100%; max-height: 60vh; border-radius: 6px;
+}
+.file-modal-body audio {
+  width: 100%;
+}
 
 /* File-typed variable row: thumbnail pill instead of a value text input. */
 .file-var-row .var-file-pill {
@@ -3520,6 +3654,72 @@ body.view-only textarea.generated-text {
     scheduleSave();
   }
 
+  // ── Full-screen expand modal for editing long variable values ───────
+  function openVarExpandModal(id, key, value) {
+    // Remove any existing modal
+    document.getElementById('var-expand-modal')?.remove();
+
+    const overlay = document.createElement('div');
+    overlay.className = 'var-modal-overlay';
+    overlay.id = 'var-expand-modal';
+    overlay.innerHTML = `
+      <div class="var-modal">
+        <div class="var-modal-head">
+          <span class="var-modal-key">{{${esc(key)}}}</span>
+          <span class="var-modal-label">variable editor</span>
+          <button class="var-modal-close" title="Close (Esc)">✕</button>
+        </div>
+        <div class="var-modal-body">
+          <textarea class="var-modal-textarea" spellcheck="false">${esc(value)}</textarea>
+        </div>
+        <div class="var-modal-foot">
+          <span class="var-modal-chars">${value.length} chars</span>
+          <button class="var-modal-save">Done</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+
+    const textarea = overlay.querySelector('.var-modal-textarea');
+    const chars = overlay.querySelector('.var-modal-chars');
+    const closeBtn = overlay.querySelector('.var-modal-close');
+    const doneBtn = overlay.querySelector('.var-modal-save');
+
+    // Focus the textarea
+    requestAnimationFrame(() => textarea.focus());
+
+    // Live char count
+    textarea.addEventListener('input', () => {
+      chars.textContent = textarea.value.length + ' chars';
+    });
+
+    // Save & close
+    const close = (save) => {
+      if (save) {
+        updateProjectVar(id, 'value', textarea.value);
+        // Sync the inline textarea in the side panel
+        const inline = document.querySelector(`[data-var-id="${id}"] .var-value`);
+        if (inline) {
+          inline.value = textarea.value;
+          inline.classList.toggle('has-content', textarea.value.length > 40);
+        }
+      }
+      overlay.remove();
+    };
+
+    doneBtn.addEventListener('click', () => close(true));
+    closeBtn.addEventListener('click', () => close(true));
+    // Click backdrop to save & close
+    overlay.addEventListener('click', e => { if (e.target === overlay) close(true); });
+    // Escape to save & close
+    const onKey = e => {
+      if (e.key === 'Escape') { close(true); document.removeEventListener('keydown', onKey); }
+      // Ctrl/Cmd+Enter also saves
+      if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); close(true); document.removeEventListener('keydown', onKey); }
+    };
+    document.addEventListener('keydown', onKey);
+  }
+
   // ── Inline {{var}} highlighting inside .field-textarea ───────────────
   // The textarea text itself is rendered transparent (caret/selection still
   // visible); an absolutely-positioned overlay shows the same text with each
@@ -3765,18 +3965,23 @@ body.view-only textarea.generated-text {
           <div class="var-file-thumb">${thumb}</div>
           <span class="var-file-name">${labelText}</span>
         ${pillClose}
+        ${hasFile ? `<button class="var-expand" data-input-preview="${esc(e.id)}" title="Preview">↗</button>` : ''}
         <button class="var-copy" data-copy-var="${esc(k)}" title="Copy {{${esc(k)}}}">${ICONS.dup}</button>
         <button class="var-delete" data-input-delete="${esc(e.id)}" title="Remove">${ICONS.trash}</button>
       </div>`;
     };
 
     const textVarRow = v => `
-      <div class="var-row" data-var-id="${esc(v.id)}">
+      <div class="var-row text-var-row" data-var-id="${esc(v.id)}">
         <input class="var-key" data-var-field="key" placeholder="key"
                value="${esc(v.key)}" spellcheck="false"/>
         <span class="var-eq">=</span>
-        <input class="var-value" data-var-field="value" placeholder="value"
-               value="${esc(v.value)}"/>
+        <div class="var-value-wrap">
+          <textarea class="var-value${(v.value || '').length > 40 ? ' has-content' : ''}" data-var-field="value" placeholder="value"
+                    rows="1" spellcheck="false">${esc(v.value)}</textarea>
+          <button class="var-expand" data-var-expand="${esc(v.id)}" title="Expand editor">↗</button>
+        </div>
+        <button class="var-copy" data-copy-var="${esc(v.key)}" title="Copy {{${esc(v.key)}}}">${ICONS.dup}</button>
         <button class="var-delete" data-var-delete="${esc(v.id)}" title="Remove">${ICONS.trash}</button>
       </div>`;
 
@@ -3808,11 +4013,25 @@ body.view-only textarea.generated-text {
               try { input.setSelectionRange(caret, caret); } catch (_) {}
             }
           }
+          // Toggle has-content class for textarea height fallback
+          if (input.dataset.varField === 'value' && input.tagName === 'TEXTAREA') {
+            input.classList.toggle('has-content', input.value.length > 40);
+          }
         });
       });
     });
     panel.querySelectorAll('[data-var-delete]').forEach(btn => {
       btn.addEventListener('click', () => deleteProjectVar(btn.dataset.varDelete));
+    });
+
+    // Expand button: open a full-screen modal editor for the variable's value
+    panel.querySelectorAll('[data-var-expand]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const id = btn.dataset.varExpand;
+        const v = projectVars.find(x => x.id === id);
+        if (!v) return;
+        openVarExpandModal(id, v.key, v.value);
+      });
     });
 
     // Seek video thumbs in file rows to the first frame
@@ -3859,6 +4078,7 @@ body.view-only textarea.generated-text {
       el.addEventListener('click', e => {
         if (e.target.closest('[data-input-delete]')) return;
         if (e.target.closest('[data-copy-var]')) return;
+        if (e.target.closest('[data-input-preview]')) return;
         if (e.target.closest('[data-input-key-edit]')) return;
         if (e.target.closest('label, input, button')) return;
         const id = el.dataset.inputId;
@@ -3901,6 +4121,52 @@ body.view-only textarea.generated-text {
         }
       });
     });
+
+    // File preview expand: open a modal with a larger preview of the file
+    panel.querySelectorAll('[data-input-preview]').forEach(btn => {
+      btn.addEventListener('click', e => {
+        e.stopPropagation();
+        const id = btn.dataset.inputPreview;
+        const entry = projectInputs.find(x => x.id === id);
+        if (!entry || (!entry.url && !entry.path)) return;
+        openFilePreviewModal(entry);
+      });
+    });
+  }
+
+  function openFilePreviewModal(entry) {
+    document.getElementById('file-preview-modal')?.remove();
+    const url = mediaUrl(entry.url);
+    const kind = entry.kind || 'upload';
+    let mediaEl = '';
+    if (kind === 'image') {
+      mediaEl = `<img src="${esc(url)}" alt="${esc(entry.name)}" referrerpolicy="no-referrer"/>`;
+    } else if (kind === 'video') {
+      mediaEl = `<video src="${esc(url)}" controls autoplay referrerpolicy="no-referrer" style="max-width:100%;max-height:60vh;border-radius:6px;"></video>`;
+    } else if (kind === 'audio') {
+      mediaEl = `<audio controls src="${esc(url)}" style="width:100%;"></audio>`;
+    } else {
+      mediaEl = `<div style="color:var(--fg-3);font-family:var(--type-mono);font-size:14px;padding:40px;">File: ${esc(entry.name)}</div>`;
+    }
+    const overlay = document.createElement('div');
+    overlay.className = 'file-modal-overlay';
+    overlay.id = 'file-preview-modal';
+    overlay.innerHTML = `
+      <div class="file-modal">
+        <div class="file-modal-head">
+          <span class="file-modal-title">${esc(entry.name)}</span>
+          <span class="file-modal-kind">${esc(kind)}</span>
+          <button class="file-modal-close" title="Close (Esc)">✕</button>
+        </div>
+        <div class="file-modal-body">${mediaEl}</div>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+    const close = () => { overlay.remove(); };
+    overlay.querySelector('.file-modal-close').addEventListener('click', close);
+    overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
+    const onKey = e => { if (e.key === 'Escape') { close(); document.removeEventListener('keydown', onKey); } };
+    document.addEventListener('keydown', onKey);
   }
 
   function updateInspector() { renderRightPanel(); }
