@@ -87,7 +87,15 @@ PUBLIC_ENDPOINTS = {
     # Auth-gating these would break previews; the file names act as a
     # weak capability token.
     "uploaded_file",   # /uploads/<filename>
+    "server_version",  # GET /api/_version — unauthed diagnostic
 }
+
+
+# Bump this when something deploy-visible changes that the user might
+# need to verify is actually running on their server (e.g. a new route).
+# Read via GET /api/_version — see logs for the route list printed at
+# import time.
+SERVER_BUILD = "outputs-download-debug+version-endpoint"
 
 
 @app.before_request
@@ -728,6 +736,23 @@ def whoami():
         "user": email,
         "is_admin": bool(info and info.get("is_admin")),
     })
+
+
+@app.get("/api/_version")
+def server_version():
+    """Unauthed diagnostic. Returns the build tag the running Python
+    process was loaded with, plus a count of registered Flask routes.
+    Hit this with curl from the deploy host to verify whatever-just-got-
+    pulled is actually executing — a stale-deploy 404 on a recently-
+    added route will show an old build here."""
+    routes = []
+    for rule in app.url_map.iter_rules():
+        # Skip the static handler — noise.
+        if rule.endpoint == "static":
+            continue
+        methods = sorted(rule.methods - {"HEAD", "OPTIONS"})
+        routes.append({"rule": str(rule), "endpoint": rule.endpoint, "methods": methods})
+    return jsonify({"ok": True, "build": SERVER_BUILD, "route_count": len(routes), "routes": routes})
 
 
 @app.get("/uploads/<path:filename>")
@@ -3158,6 +3183,22 @@ def unshare_project(pid: str, email: str):
             p["updated_at"] = time.time()
             _save_projects()
     return jsonify({"ok": True})
+
+
+# Log every route registered on THIS Python process at import time. If a
+# request hits 404 for a route the source file clearly defines, the diff
+# between this log line and the running build is the giveaway — usually a
+# WSGI worker that didn't get restarted after `git pull`.
+print(f"[startup] build={SERVER_BUILD}", flush=True)
+_route_index = []
+for _rule in app.url_map.iter_rules():
+    if _rule.endpoint == "static":
+        continue
+    _methods = ",".join(sorted(_rule.methods - {"HEAD", "OPTIONS"}))
+    _route_index.append(f"  {_methods:<12} {_rule}")
+print(f"[startup] {len(_route_index)} routes registered:", flush=True)
+for _line in sorted(_route_index):
+    print(_line, flush=True)
 
 
 if __name__ == "__main__":
