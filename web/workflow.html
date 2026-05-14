@@ -1581,13 +1581,16 @@ body.view-only textarea.generated-text {
     const btn = document.getElementById('files-selbar-download');
     if (btn) { btn.disabled = true; btn.textContent = 'Packaging…'; }
     const url = `/api/projects/${encodeURIComponent(projectId)}/outputs/download`;
+    console.log('[download-outputs] POST', url, 'refs:', refs.length);
     try {
+      const t0 = performance.now();
       const resp = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'same-origin',
         body: JSON.stringify({ refs }),
       });
+      console.log('[download-outputs] response', resp.status, 'after', Math.round(performance.now() - t0), 'ms');
       if (!resp.ok) {
         let msg = `HTTP ${resp.status}`;
         try { const d = await resp.json(); if (d?.error) msg = d.error; } catch (_) {}
@@ -1595,6 +1598,7 @@ body.view-only textarea.generated-text {
         throw new Error(msg);
       }
       const blob = await resp.blob();
+      console.log('[download-outputs] blob', blob.size, 'bytes', blob.type);
       // Pull the filename out of Content-Disposition so the saved file
       // matches what the server picked (project name + "-outputs.zip").
       const cd = resp.headers.get('Content-Disposition') || '';
@@ -3244,6 +3248,11 @@ body.view-only textarea.generated-text {
   async function refreshFromServer() {
     if (loading) return;
     if (savePending || saveTimer) return;
+    // Don't blow away the canvas while the user has an in-flight
+    // bulk-download running. The selbar download button stays disabled
+    // until the promise settles; that's our signal to skip the refresh.
+    const dl = document.getElementById('files-selbar-download');
+    if (dl && dl.disabled) return;
     const ae = document.activeElement;
     if (ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA' || ae.tagName === 'SELECT')) return;
     // Clear local state so a second loadWorkflow doesn't duplicate edges
@@ -3252,7 +3261,15 @@ body.view-only textarea.generated-text {
     nodes.clear();
     edges.length = 0;
     if (edgesSvg) edgesSvg.innerHTML = '';
-    await loadWorkflow();
+    try {
+      await loadWorkflow();
+    } catch (err) {
+      // loadWorkflow's internal catch swallows most failures, but a bug
+      // there (cf. the saveStatus ReferenceError fixed in this commit)
+      // could propagate. Make sure renderRightPanel still runs so the
+      // user isn't stranded with an empty canvas.
+      console.log('[refreshFromServer] loadWorkflow rejected:', err);
+    }
     renderRightPanel();
   }
   document.addEventListener('visibilitychange', () => {
@@ -3432,9 +3449,15 @@ body.view-only textarea.generated-text {
           if (v && v.id) projectVars.push({ id: v.id, key: v.key || '', value: v.value || '' });
         }
       }
-      saveStatus.textContent = 'Saved';
-    } catch {
-      saveStatus.textContent = 'Offline';
+    } catch (err) {
+      // Vestigial saveStatus.textContent calls used to live here; the
+      // UI element they targeted was removed but the calls weren't,
+      // so a ReferenceError on every loadWorkflow run was propagating
+      // out of try/catch/finally and silently aborting every
+      // post-load renderer (renderInputsPanel / renderFilesPanel /
+      // repairResults / resumeInFlightTasks). Log the failure
+      // explicitly so the next regression is visible.
+      console.log('[loadWorkflow] failed:', err);
     } finally {
       loading = false;
     }
