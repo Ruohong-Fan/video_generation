@@ -666,6 +666,49 @@ body.right-collapsed .canvas-wrap { right: 0; }
   transition: background 0.1s;
 }
 .file-item:hover { background: var(--bg-2); border-color: var(--line); }
+.file-item.selected { background: oklch(0.78 0.145 70 / 0.08); border-color: var(--amber); }
+/* Leading checkbox on each file-item for bulk Download-as-package. Dim
+   by default, full-opacity on hover or when selected so it doesn't
+   visually clutter the resting state of the file list. */
+.file-check {
+  flex-shrink: 0; width: 16px; height: 16px;
+  margin-top: 12px;  /* align with the 40px thumb's vertical centre-ish */
+  border: 1px solid var(--line); border-radius: 3px;
+  background: var(--bg-0);
+  display: grid; place-items: center; cursor: pointer;
+  opacity: 0.45; transition: opacity 0.1s, background 0.1s, border-color 0.1s;
+}
+.file-item:hover .file-check, .file-item.selected .file-check { opacity: 1; }
+.file-check svg { width: 10px; height: 10px; display: none; }
+.file-item.selected .file-check {
+  background: var(--amber); border-color: var(--amber);
+  color: oklch(0.18 0.03 65);
+}
+.file-item.selected .file-check svg { display: block; }
+.files-selbar {
+  display: none;
+  align-items: center; gap: 6px;
+  padding: 6px 8px; margin-bottom: 8px;
+  border: 1px solid var(--amber-dim); border-radius: 6px;
+  background: oklch(0.78 0.145 70 / 0.08);
+  font-size: 12px;
+  position: sticky; top: 0; z-index: 2;
+}
+.files-selbar.on { display: flex; }
+.files-selbar-count { color: var(--amber); font-family: var(--type-mono); font-size: 11px; flex: 1; }
+.files-selbar button {
+  padding: 4px 10px; font-size: 11px; cursor: pointer;
+  border: 1px solid var(--line); border-radius: 4px;
+  background: var(--bg-1); color: var(--fg-1);
+  font-family: inherit;
+}
+.files-selbar button:hover { color: var(--fg-0); border-color: var(--amber-dim); }
+.files-selbar button.primary {
+  background: var(--amber); color: oklch(0.18 0.03 65);
+  border-color: transparent; font-weight: 500;
+}
+.files-selbar button.primary:hover { background: var(--amber); border-color: var(--amber); }
+.files-selbar button:disabled { opacity: 0.5; cursor: not-allowed; }
 .file-thumb {
   width: 40px; height: 40px; flex-shrink: 0; border-radius: 5px;
   background: var(--bg-3); border: 1px solid var(--line);
@@ -693,47 +736,6 @@ body.right-collapsed .canvas-wrap { right: 0; }
   border: 1px solid var(--line); background: var(--bg-2);
 }
 .var-row:focus-within { border-color: var(--amber-dim); }
-.var-row.selected { border-color: var(--amber); background: oklch(0.78 0.145 70 / 0.06); }
-/* Leading checkbox for bulk select / bulk download. Always present but
-   only dims to full opacity on hover or when the row is selected so it
-   doesn't clutter the resting state. */
-.var-check {
-  flex-shrink: 0; width: 16px; height: 16px;
-  border: 1px solid var(--line); border-radius: 3px;
-  background: var(--bg-0);
-  display: grid; place-items: center; cursor: pointer;
-  opacity: 0.45; transition: opacity 0.1s, background 0.1s, border-color 0.1s;
-}
-.var-row:hover .var-check, .var-row.selected .var-check { opacity: 1; }
-.var-check svg { width: 10px; height: 10px; display: none; }
-.var-row.selected .var-check {
-  background: var(--amber); border-color: var(--amber);
-  color: oklch(0.18 0.03 65);
-}
-.var-row.selected .var-check svg { display: block; }
-.var-selbar {
-  display: none;
-  align-items: center; gap: 6px;
-  padding: 6px 8px; margin-bottom: 6px;
-  border: 1px solid var(--amber-dim); border-radius: 6px;
-  background: oklch(0.78 0.145 70 / 0.08);
-  font-size: 12px;
-}
-.var-selbar.on { display: flex; }
-.var-selbar-count { color: var(--amber); font-family: var(--type-mono); font-size: 11px; flex: 1; }
-.var-selbar button {
-  padding: 4px 10px; font-size: 11px; cursor: pointer;
-  border: 1px solid var(--line); border-radius: 4px;
-  background: var(--bg-1); color: var(--fg-1);
-  font-family: inherit;
-}
-.var-selbar button:hover { color: var(--fg-0); border-color: var(--amber-dim); }
-.var-selbar button.primary {
-  background: var(--amber); color: oklch(0.18 0.03 65);
-  border-color: transparent; font-weight: 500;
-}
-.var-selbar button.primary:hover { background: var(--amber); border-color: var(--amber); }
-.var-selbar button:disabled { opacity: 0.5; cursor: not-allowed; }
 .var-key, .var-value {
   flex: 1; min-width: 0; padding: 4px 6px;
   background: transparent; border: none; outline: none;
@@ -1559,37 +1561,38 @@ body.view-only textarea.generated-text {
   const selected = new Set();
   const projectInputs = [];  // { id, name, kind, url, path, ts } — project-scope assets
   const projectVars = [];    // { id, key, value } — project-scope text variables, {{key}} in prompts
-  const inputsSelected = new Set();  // ids ticked for bulk download in the Input tab
+  const outputsSelected = new Set();  // file refs ticked for bulk download in the Output tab.
+                                       // Each ref is "<nodeId>:upload" (the
+                                       // node's uploadUrl) or "<nodeId>:r<i>"
+                                       // (the i-th result on that node).
 
-  // Bulk download: POSTs the selected ids to the project's inputs/download
-  // endpoint, which streams back a zip. The endpoint handles both file
-  // vars (added as their original filename) and text vars (collapsed into
-  // a single variables.json). Triggers a blob download client-side.
-  async function downloadInputsPackage() {
+  // Bulk download: POSTs the selected refs to the project's outputs/download
+  // endpoint, which streams back a zip. Server resolves each ref against the
+  // saved workflow.json and packages the matching files. Triggers a blob
+  // download client-side.
+  async function downloadOutputsPackage() {
     if (!projectId) { toast('No project context', 'error'); return; }
-    if (!inputsSelected.size) return;
-    const ids = [...inputsSelected];
-    const btn = document.getElementById('var-selbar-download');
+    if (!outputsSelected.size) return;
+    const refs = [...outputsSelected];
+    const btn = document.getElementById('files-selbar-download');
     if (btn) { btn.disabled = true; btn.textContent = 'Packaging…'; }
     try {
-      const resp = await fetch(`/api/projects/${encodeURIComponent(projectId)}/inputs/download`, {
+      const resp = await fetch(`/api/projects/${encodeURIComponent(projectId)}/outputs/download`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'same-origin',
-        body: JSON.stringify({ ids }),
+        body: JSON.stringify({ refs }),
       });
       if (!resp.ok) {
-        // Server replied with a JSON error envelope when it couldn't build
-        // the archive (e.g. all selected entries were missing files).
         let msg = `HTTP ${resp.status}`;
         try { const d = await resp.json(); if (d?.error) msg = d.error; } catch (_) {}
         throw new Error(msg);
       }
       const blob = await resp.blob();
       // Pull the filename out of Content-Disposition so the saved file
-      // matches what the server picked (project name + "-inputs.zip").
+      // matches what the server picked (project name + "-outputs.zip").
       const cd = resp.headers.get('Content-Disposition') || '';
-      let filename = 'inputs.zip';
+      let filename = 'outputs.zip';
       const utf8 = cd.match(/filename\*=UTF-8''([^;]+)/i);
       const ascii = cd.match(/filename="([^"]+)"/i);
       if (utf8) { try { filename = decodeURIComponent(utf8[1]); } catch (_) {} }
@@ -1599,7 +1602,7 @@ body.view-only textarea.generated-text {
       a.href = url; a.download = filename;
       document.body.appendChild(a); a.click(); a.remove();
       setTimeout(() => URL.revokeObjectURL(url), 1000);
-      toast(`Downloaded ${ids.length} item${ids.length === 1 ? '' : 's'}`, 'success');
+      toast(`Downloaded ${refs.length} file${refs.length === 1 ? '' : 's'}`, 'success');
     } catch (err) {
       toast('Download failed: ' + err.message, 'error');
     } finally {
@@ -3580,6 +3583,20 @@ body.view-only textarea.generated-text {
       return `<img src="${p}" alt="" referrerpolicy="no-referrer" onerror="markMediaExpired(this)"/>`;
     };
 
+    // Bulk-select checkbox markup. Each .file-item carries a ref of the
+    // form "<nodeId>:upload" or "<nodeId>:r<i>" — the server resolves
+    // these against the saved workflow.json to find the actual file.
+    const checkbox = (ref) => {
+      const checked = outputsSelected.has(ref);
+      return `<div class="file-check${checked ? '' : ''}" data-file-toggle="${esc(ref)}" title="Select for bulk download"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 8.5 6.5 12 13 4.5"/></svg></div>`;
+    };
+    const itemCls = (ref) => `file-item${outputsSelected.has(ref) ? ' selected' : ''}`;
+
+    // Collect every file-ref we render so we can prune outputsSelected of
+    // entries that no longer exist (a node was deleted, a result was
+    // cleared, etc.) before showing the selbar count.
+    const liveRefs = new Set();
+
     let html = '';
     let total = 0;
 
@@ -3598,7 +3615,10 @@ body.view-only textarea.generated-text {
       if (isUploadNode) {
         const uploadKind = n.uploadKind || 'image';
         const href = esc(mediaUrl(n.uploadUrl));
-        html += `<div class="file-item">
+        const ref = `${n.id}:upload`;
+        liveRefs.add(ref);
+        html += `<div class="${itemCls(ref)}" data-file-ref="${esc(ref)}">
+          ${checkbox(ref)}
           <div class="file-thumb">${fileThumb(n.uploadUrl, uploadKind)}</div>
           <div class="file-info">
             <div class="file-name">${esc(n.uploadUrl.split('/').pop())} <span style="color:var(--amber);font-size: 11px">SOURCE</span></div>
@@ -3615,7 +3635,10 @@ body.view-only textarea.generated-text {
       if (hasUpload) {
         const uploadKind = n.type === 'video' ? 'video' : n.type === 'audio' ? 'audio' : 'image';
         const href = esc(mediaUrl(n.uploadUrl));
-        html += `<div class="file-item">
+        const ref = `${n.id}:upload`;
+        liveRefs.add(ref);
+        html += `<div class="${itemCls(ref)}" data-file-ref="${esc(ref)}">
+          ${checkbox(ref)}
           <div class="file-thumb">${fileThumb(n.uploadUrl, uploadKind)}</div>
           <div class="file-info">
             <div class="file-name">Upload <span style="color:var(--fg-3);font-size: 11px">SOURCE</span></div>
@@ -3637,7 +3660,10 @@ body.view-only textarea.generated-text {
         const isLatest = i === results.length - 1;
         const t = fmtTs(r.ts);
         const href = esc(mediaUrl(src));
-        html += `<div class="file-item">
+        const ref = `${n.id}:r${i}`;
+        liveRefs.add(ref);
+        html += `<div class="${itemCls(ref)}" data-file-ref="${esc(ref)}">
+          ${checkbox(ref)}
           <div class="file-thumb">${fileThumb(src, r.kind)}</div>
           <div class="file-info">
             <div class="file-name">Run ${runNum}${isLatest ? ' <span style="color:var(--amber);font-size: 11px">LATEST</span>' : ''}</div>
@@ -3655,7 +3681,19 @@ body.view-only textarea.generated-text {
       panel.innerHTML = '<div class="side-empty">No files yet.<br>Run nodes to generate outputs,<br>or add an Upload node as a source.</div>';
       return;
     }
-    panel.innerHTML = html;
+
+    // Prune ghost refs (e.g. node deleted while items were selected).
+    for (const ref of [...outputsSelected]) if (!liveRefs.has(ref)) outputsSelected.delete(ref);
+
+    const selCount = outputsSelected.size;
+    panel.innerHTML = `
+      <div class="files-selbar${selCount ? ' on' : ''}" id="files-selbar">
+        <span class="files-selbar-count" id="files-selbar-count">${selCount} selected</span>
+        <button id="files-selbar-download" class="primary">Download as package</button>
+        <button id="files-selbar-clear">Clear</button>
+      </div>
+      ${html}
+    `;
 
     // Seek video thumbnails to first frame so they don't appear black
     panel.querySelectorAll('.file-thumb video').forEach(v => {
@@ -3663,6 +3701,32 @@ body.view-only textarea.generated-text {
       if (v.readyState >= 1) seek();
       else v.addEventListener('loadedmetadata', seek, { once: true });
     });
+
+    // Wire bulk-select checkboxes and the selbar buttons.
+    const refreshSelbar = () => {
+      const bar = panel.querySelector('#files-selbar');
+      const cnt = panel.querySelector('#files-selbar-count');
+      if (!bar || !cnt) return;
+      cnt.textContent = `${outputsSelected.size} selected`;
+      bar.classList.toggle('on', outputsSelected.size > 0);
+    };
+    panel.querySelectorAll('[data-file-toggle]').forEach(box => {
+      box.addEventListener('click', e => {
+        e.stopPropagation();
+        const ref = box.dataset.fileToggle;
+        if (outputsSelected.has(ref)) outputsSelected.delete(ref);
+        else outputsSelected.add(ref);
+        const item = box.closest('[data-file-ref]');
+        if (item) item.classList.toggle('selected', outputsSelected.has(ref));
+        refreshSelbar();
+      });
+    });
+    panel.querySelector('#files-selbar-clear')?.addEventListener('click', () => {
+      outputsSelected.clear();
+      panel.querySelectorAll('[data-file-ref].selected').forEach(r => r.classList.remove('selected'));
+      refreshSelbar();
+    });
+    panel.querySelector('#files-selbar-download')?.addEventListener('click', () => downloadOutputsPackage());
   }
 
   function addNodeFromLibrary(type) {
@@ -4094,10 +4158,7 @@ body.view-only textarea.generated-text {
       const pillClose = hasFile ? '</div>' : '</label>';
       const replaceInput = hasFile ? '' : `<input type="file" data-input-replace="${esc(e.id)}" hidden
           accept="image/*,video/*,audio/*,.srt,.vtt,.ass,.txt"/>`;
-      const checked = inputsSelected.has(e.id);
-      const rowCls = `var-row file-var-row${checked ? ' selected' : ''}`;
-      return `<div class="${rowCls}" data-input-id="${esc(e.id)}" data-select-id="${esc(e.id)}">
-        <div class="var-check" data-select-toggle="${esc(e.id)}" title="Select for bulk download"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 8.5 6.5 12 13 4.5"/></svg></div>
+      return `<div class="var-row file-var-row" data-input-id="${esc(e.id)}">
         <input class="var-key" data-input-key-edit value="${esc(e.key || '')}" placeholder="key"
                spellcheck="false" title="Reference as {{${esc(k)}}}"/>
         <span class="var-eq">=</span>
@@ -4112,11 +4173,8 @@ body.view-only textarea.generated-text {
       </div>`;
     };
 
-    const textVarRow = v => {
-      const checked = inputsSelected.has(v.id);
-      const rowCls = `var-row${checked ? ' selected' : ''}`;
-      return `<div class="${rowCls}" data-var-id="${esc(v.id)}" data-select-id="${esc(v.id)}">
-        <div class="var-check" data-select-toggle="${esc(v.id)}" title="Select for bulk download"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 8.5 6.5 12 13 4.5"/></svg></div>
+    const textVarRow = v => `
+      <div class="var-row" data-var-id="${esc(v.id)}">
         <input class="var-key" data-var-field="key" placeholder="key"
                value="${esc(v.key)}" spellcheck="false"/>
         <span class="var-eq">=</span>
@@ -4126,26 +4184,11 @@ body.view-only textarea.generated-text {
         <button class="var-copy" data-copy-var="${esc(v.key)}" title="Copy {{${esc(v.key)}}}">${ICONS.dup}</button>
         <button class="var-delete" data-var-delete="${esc(v.id)}" title="Remove">${ICONS.trash}</button>
       </div>`;
-    };
 
     const allRows = projectVars.map(textVarRow).join('') + projectInputs.map(fileVarRow).join('');
 
-    // Prune selection of any ids that no longer exist (a delete in the
-    // same session, a workflow refresh that dropped them, etc.).
-    const liveIds = new Set([
-      ...projectVars.map(v => v.id),
-      ...projectInputs.map(e => e.id),
-    ]);
-    for (const id of [...inputsSelected]) if (!liveIds.has(id)) inputsSelected.delete(id);
-
-    const selCount = inputsSelected.size;
     panel.innerHTML = `
       <div class="side-section-title">Project variables</div>
-      <div class="var-selbar${selCount ? ' on' : ''}" id="var-selbar">
-        <span class="var-selbar-count" id="var-selbar-count">${selCount} selected</span>
-        <button id="var-selbar-download" class="primary">Download as package</button>
-        <button id="var-selbar-clear">Clear</button>
-      </div>
       <div class="var-list">${allRows}</div>
       <div class="var-add-row">
         <button class="var-add" id="var-add">+ Add variable</button>
@@ -4153,35 +4196,6 @@ body.view-only textarea.generated-text {
       </div>
       <div class="var-help">Reference variables anywhere as <code>{{key}}</code> — resolved before the prompt hits any API. Keys may use Chinese / any Unicode (e.g. <code>{{品牌}}</code>). Uploads become file-typed variables; the file flows into the matching node argument (image / audio / video) automatically when you reference it.</div>
     `;
-
-    // Bulk-select checkbox toggling — works for both text and file rows.
-    // Stops propagation so a click on the checkbox doesn't bubble to the
-    // row-click handler (which would spawn an Upload node for filled file
-    // rows).
-    const refreshSelbar = () => {
-      const bar = panel.querySelector('#var-selbar');
-      const cnt = panel.querySelector('#var-selbar-count');
-      if (!bar || !cnt) return;
-      cnt.textContent = `${inputsSelected.size} selected`;
-      bar.classList.toggle('on', inputsSelected.size > 0);
-    };
-    panel.querySelectorAll('[data-select-toggle]').forEach(box => {
-      box.addEventListener('click', e => {
-        e.stopPropagation();
-        const id = box.dataset.selectToggle;
-        if (inputsSelected.has(id)) inputsSelected.delete(id);
-        else inputsSelected.add(id);
-        const row = box.closest('[data-select-id]');
-        if (row) row.classList.toggle('selected', inputsSelected.has(id));
-        refreshSelbar();
-      });
-    });
-    panel.querySelector('#var-selbar-clear')?.addEventListener('click', () => {
-      inputsSelected.clear();
-      panel.querySelectorAll('[data-select-id].selected').forEach(r => r.classList.remove('selected'));
-      refreshSelbar();
-    });
-    panel.querySelector('#var-selbar-download')?.addEventListener('click', () => downloadInputsPackage());
 
     // Variables: add / edit / delete (text variables only)
     panel.querySelector('#var-add')?.addEventListener('click', () => addProjectVar());

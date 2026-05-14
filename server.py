@@ -2842,23 +2842,25 @@ def get_project_workflow(pid: str):
     return jsonify({"ok": True, "workflow": {"nodes": {}, "edges": []}})
 
 
-@app.post("/api/projects/<pid>/inputs/download")
-def download_inputs_package(pid: str):
-    """Bulk-download selected Input-tab entries as a single .zip.
+@app.post("/api/projects/<pid>/outputs/download")
+def download_outputs_package(pid: str):
+    """Bulk-download selected Output-tab files as a single .zip.
 
-    Client posts {"ids": [...]} where each id is either a projectInput id
-    (file-typed variable) or a projectVar id (text variable). Files land in
-    the archive under their original `name`; text variables collapse into a
-    single variables.json. Read access on the project is required."""
+    Client posts {"refs": [...]} where each ref is "<node_id>:upload"
+    (the node's uploadUrl) or "<node_id>:r<i>" (the i-th entry in that
+    node's results array). The server resolves each ref against the
+    saved workflow.json, packages the matching local files, and
+    streams the archive back. Read access on the project is required.
+    """
     if pid not in projects:
         return jsonify({"ok": False, "error": "Project not found"}), 404
     if not user_can_view(pid):
         return jsonify({"ok": False, "error": "You don't have access to this project"}), 403
 
     payload = request.get_json(silent=True) or {}
-    ids = [str(i) for i in (payload.get("ids") or []) if i]
-    if not ids:
-        return jsonify({"ok": False, "error": "ids is required"}), 400
+    refs = [str(r) for r in (payload.get("refs") or []) if r]
+    if not refs:
+        return jsonify({"ok": False, "error": "refs is required"}), 400
 
     wf_path = WORKFLOWS_DIR / f"{pid}.json"
     if not wf_path.exists():
@@ -2868,17 +2870,48 @@ def download_inputs_package(pid: str):
     except Exception as exc:
         return jsonify({"ok": False, "error": f"Workflow parse failed: {exc}"}), 500
 
-    inputs_by_id = {e.get("id"): e for e in (wf.get("projectInputs") or []) if isinstance(e, dict) and e.get("id")}
-    vars_by_id   = {v.get("id"): v for v in (wf.get("projectVars")  or []) if isinstance(v, dict) and v.get("id")}
+    # Build a node lookup that handles both legacy dict-shape and the
+    # current list-shape, so this endpoint never silently misses files
+    # because the workflow file was written by an older client.
+    raw_nodes = wf.get("nodes")
+    nodes_by_id: dict[str, dict] = {}
+    if isinstance(raw_nodes, list):
+        for n in raw_nodes:
+            if isinstance(n, dict) and n.get("id"):
+                nodes_by_id[n["id"]] = n
+    elif isinstance(raw_nodes, dict):
+        for k, n in raw_nodes.items():
+            if isinstance(n, dict):
+                nodes_by_id[n.get("id") or k] = n
+
+    def _resolve_local(url_or_path: str) -> Path | None:
+        if not url_or_path:
+            return None
+        if url_or_path.startswith("/uploads/"):
+            p = UPLOAD_DIR / url_or_path.removeprefix("/uploads/")
+        elif url_or_path.startswith("http"):
+            # Foreign CDN URL — skip rather than block the request fetching
+            # it. The client should re-trigger a cache (refresh_media) first.
+            return None
+        else:
+            p = Path(url_or_path)
+        return p if p.exists() else None
+
+    def _ext_for_kind(kind: str) -> str:
+        return {"image": ".jpg", "video": ".mp4", "audio": ".mp3", "text": ".txt"}.get(kind, "")
+
+    def _safe_node_title(n: dict) -> str:
+        t = (n.get("title") or n.get("type") or "node").strip()
+        # Keep CJK + alphanumerics + space/dash; everything else → underscore.
+        t = re.sub(r"[^\w一-鿿\s\-]", "_", t)
+        return t.strip("_ ") or "node"
 
     selected_files: list[tuple[Path, str]] = []
-    selected_vars: dict[str, str] = {}
     used_names: set[str] = set()
     missing: list[str] = []
 
     def _unique(name: str) -> str:
-        # Don't let two files share a name in the same zip — append " (N)"
-        # before the suffix until we find a free slot.
+        # Avoid arcname collisions across nodes that happen to share a title.
         if name not in used_names:
             used_names.add(name)
             return name
@@ -2892,37 +2925,59 @@ def download_inputs_package(pid: str):
                 return cand
             i += 1
 
-    for iid in ids:
-        if iid in inputs_by_id:
-            entry = inputs_by_id[iid]
-            url_or_path = (entry.get("url") or entry.get("path") or "").strip()
-            if not url_or_path:
-                missing.append(iid)
-                continue
-            if url_or_path.startswith("/uploads/"):
-                local = UPLOAD_DIR / url_or_path.removeprefix("/uploads/")
-            elif url_or_path.startswith("http"):
-                # External CDN URL — skip; bulk-fetching foreign hosts in a
-                # download request would block and could fail mid-archive.
-                missing.append(iid)
-                continue
-            else:
-                local = Path(url_or_path)
-            if not local.exists():
-                missing.append(iid)
-                continue
-            zip_name = _unique((entry.get("name") or "").strip() or local.name)
-            selected_files.append((local, zip_name))
-        elif iid in vars_by_id:
-            v = vars_by_id[iid]
-            key = (v.get("key") or v.get("id") or "").strip()
-            if key:
-                selected_vars[key] = v.get("value", "")
-        else:
-            missing.append(iid)
+    for ref in refs:
+        if ":" not in ref:
+            missing.append(ref)
+            continue
+        node_id, _, kind = ref.partition(":")
+        node = nodes_by_id.get(node_id)
+        if not node:
+            missing.append(ref)
+            continue
+        title = _safe_node_title(node)
 
-    if not selected_files and not selected_vars:
-        return jsonify({"ok": False, "error": "Nothing to download (selection had no resolvable files or variables)"}), 400
+        if kind == "upload":
+            local = _resolve_local((node.get("uploadUrl") or node.get("uploadPath") or "").strip())
+            if not local:
+                missing.append(ref)
+                continue
+            # Use original filename if we can recover it; fall back to title+ext.
+            stored = local.name
+            if "_" in stored:
+                # uploads/<uuid>_<original>.ext → reconstruct <original>.ext
+                _uuid, _, original = stored.partition("_")
+                arc = original or stored
+            else:
+                arc = stored
+            zip_name = _unique(f"{title}-source-{arc}")
+            selected_files.append((local, zip_name))
+
+        elif kind.startswith("r") and kind[1:].isdigit():
+            idx = int(kind[1:])
+            results = node.get("results") or []
+            if not isinstance(results, list) or idx < 0 or idx >= len(results):
+                missing.append(ref)
+                continue
+            r = results[idx]
+            if not isinstance(r, dict):
+                missing.append(ref)
+                continue
+            local = _resolve_local((r.get("servePath") or r.get("url") or r.get("localPath") or "").strip())
+            if not local:
+                missing.append(ref)
+                continue
+            ext = local.suffix or _ext_for_kind(r.get("kind") or "")
+            zip_name = _unique(f"{title}-run{idx + 1}{ext}")
+            selected_files.append((local, zip_name))
+
+        else:
+            missing.append(ref)
+
+    if not selected_files:
+        return jsonify({
+            "ok": False,
+            "error": f"Nothing to download (none of the {len(refs)} selected files could be located on disk)",
+        }), 400
 
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
@@ -2930,16 +2985,14 @@ def download_inputs_package(pid: str):
             try:
                 zf.write(local, arcname=name)
             except Exception as exc:
-                print(f"[download_inputs] zip add failed {local} → {name}: {exc}", flush=True)
-        if selected_vars:
-            zf.writestr("variables.json", json.dumps(selected_vars, indent=2, ensure_ascii=False))
+                print(f"[download_outputs] zip add failed {local} → {name}: {exc}", flush=True)
     buf.seek(0)
+    if missing:
+        print(f"[download_outputs] {pid}: skipped {len(missing)} unresolvable refs: {missing[:5]}{'…' if len(missing) > 5 else ''}", flush=True)
 
     proj_name = (projects[pid].get("name") or "project").strip()
-    # Strip anything outside word chars / CJK / space / dash to keep the
-    # filename safe for Content-Disposition; Flask will utf-8-encode it.
     safe_name = re.sub(r"[^\w一-鿿\s\-]", "_", proj_name).strip("_ ") or "project"
-    zip_filename = f"{safe_name}-inputs.zip"
+    zip_filename = f"{safe_name}-outputs.zip"
 
     return send_file(
         buf,
