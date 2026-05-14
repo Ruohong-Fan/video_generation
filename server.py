@@ -101,6 +101,47 @@ def _global_auth_gate():
     return redirect("/login")
 
 
+# Per-worker mtime cache for the JSON state files. With gunicorn / uwsgi
+# running >1 worker, the `projects` / `users` / `tasks` dicts are loaded
+# once per worker process at import time. A delete handled by worker A
+# updates A's memory + disk, but B keeps the stale entry. The next list
+# request routed to B by the load balancer happily serves the ghost
+# project. _refresh_state_if_stale runs before every request, stat()s the
+# state files, and reloads any whose mtime advanced — so any other
+# worker's writes land in our memory before we serve the response.
+_state_mtimes = {"projects": 0.0, "users": 0.0, "tasks": 0.0}
+
+
+def _refresh_state_if_stale():
+    for key, path, loader in (
+        ("projects", PROJECTS_FILE, _load_projects),
+        ("users",    USERS_FILE,    _load_users),
+        ("tasks",    TASKS_FILE,    load_tasks),
+    ):
+        try:
+            if not path.exists():
+                continue
+            mtime = path.stat().st_mtime
+            if _state_mtimes[key] < mtime:
+                loader()
+                _state_mtimes[key] = mtime
+        except Exception:
+            # A failed stat / load just leaves the in-memory state alone —
+            # the loaders themselves no longer wipe to {} on parse error,
+            # so a transient FS hiccup can't lose data.
+            pass
+
+
+@app.before_request
+def _refresh_persisted_state():
+    # Run after the auth gate (it returned None for authed requests).
+    # Skip for the static endpoints — they don't read shared state and
+    # stat-ing 3 files on every CSS/font fetch is wasted syscalls.
+    if request.endpoint in {"static", "uploaded_file", "i18n_js"}:
+        return None
+    _refresh_state_if_stale()
+
+
 
 BASE_DIR = Path(__file__).resolve().parent
 
@@ -156,27 +197,46 @@ _users_lock = threading.RLock()
 
 # ── Persistence ───────────────────────────────────────────────────────────────
 
+def _atomic_write_json(path: Path, payload) -> None:
+    """Write JSON to `path` atomically: dump to a sibling .tmp, then rename
+    into place. Readers in other worker processes either see the previous
+    full content or the new full content — never a half-truncated file.
+    Without this, a read that races with a write could parse 0 bytes,
+    raise, and trigger the loader's exception path."""
+    try:
+        tmp = path.with_suffix(path.suffix + ".tmp")
+        tmp.write_text(json.dumps(payload, indent=2))
+        os.replace(tmp, path)  # atomic on POSIX + Windows
+    except Exception:
+        pass
+
+
 def save_tasks():
     with _tasks_lock:
-        try:
-            TASKS_FILE.write_text(json.dumps(tasks, indent=2))
-        except Exception:
-            pass
+        _atomic_write_json(TASKS_FILE, tasks)
 
 
 def load_tasks():
     global tasks
     if TASKS_FILE.exists():
         try:
-            tasks = json.loads(TASKS_FILE.read_text())
-            # Mark any tasks that were mid-run as interrupted
-            for t in tasks.values():
-                if t.get("status") in ("running", "queued"):
-                    t["status"] = "error"
-                    t["error"] = "Server restarted while task was running"
-            save_tasks()
+            loaded = json.loads(TASKS_FILE.read_text())
         except Exception:
-            tasks = {}
+            # Transient parse failure (e.g. partial read during a write,
+            # though atomic writes should prevent this) — keep whatever is
+            # in memory rather than wiping every task.
+            return
+        tasks = loaded
+        # Mark any tasks that were mid-run as interrupted (only on startup;
+        # the reload hook also calls load_tasks but the marking is idempotent).
+        dirty = False
+        for t in tasks.values():
+            if t.get("status") in ("running", "queued"):
+                t["status"] = "error"
+                t["error"] = "Server restarted while task was running"
+                dirty = True
+        if dirty:
+            save_tasks()
 
 
 load_tasks()
@@ -184,10 +244,7 @@ load_tasks()
 
 def _save_projects():
     with _projects_lock:
-        try:
-            PROJECTS_FILE.write_text(json.dumps(projects, indent=2))
-        except Exception:
-            pass
+        _atomic_write_json(PROJECTS_FILE, projects)
 
 
 def _load_projects():
@@ -196,26 +253,28 @@ def _load_projects():
         try:
             projects = json.loads(PROJECTS_FILE.read_text())
         except Exception:
-            projects = {}
+            # Keep existing in-memory state on parse failure rather than
+            # wiping to {} — losing every project for a transient read
+            # would be far worse than serving briefly-stale data.
+            pass
 
 
 # ── Users / accounts ──────────────────────────────────────────────────────────
 
 def _save_users():
     with _users_lock:
-        try:
-            USERS_FILE.write_text(json.dumps(users, indent=2))
-        except Exception:
-            pass
+        _atomic_write_json(USERS_FILE, users)
 
 
 def _load_users():
     global users
     if USERS_FILE.exists():
         try:
-            users = json.loads(USERS_FILE.read_text()) or {}
+            loaded = json.loads(USERS_FILE.read_text()) or {}
         except Exception:
-            users = {}
+            # Don't wipe in-memory accounts on a transient read failure.
+            return
+        users = loaded
     else:
         users = {}
     # Visibility on startup — if the data dir was wiped between deploys
@@ -378,6 +437,16 @@ _load_users()
 _bootstrap_users()
 _seed_users_from_env()
 _migrate_projects()
+
+# Seed the per-worker mtime cache so the very first request doesn't
+# redundantly reload these files we just loaded above. Subsequent
+# requests reload only when a peer worker bumps the mtime.
+for _key, _path in (("projects", PROJECTS_FILE), ("users", USERS_FILE), ("tasks", TASKS_FILE)):
+    try:
+        if _path.exists():
+            _state_mtimes[_key] = _path.stat().st_mtime
+    except Exception:
+        pass
 
 
 # ── CLI helper ────────────────────────────────────────────────────────────────
