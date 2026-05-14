@@ -81,7 +81,26 @@ body {
 }
 
 /* Left: cinematic stage */
+/* The stage is intentionally dark in BOTH themes — it's a hero/marketing
+   surface, not a content pane. Without this scoped override, light mode
+   (now the default) flips --fg-0..3 to dark values while .login-stage
+   keeps its hardcoded dark background, so the italic title, paragraph,
+   card labels, and bottom meta all render dark-on-dark. Re-declaring the
+   dark token values here keeps every descendant readable regardless of
+   the global theme. */
 .login-stage {
+  --bg-0: oklch(0.17 0.012 60);
+  --bg-1: oklch(0.21 0.014 62);
+  --bg-2: oklch(0.25 0.016 64);
+  --bg-3: oklch(0.30 0.018 65);
+  --bg-4: oklch(0.36 0.020 66);
+  --line: oklch(0.32 0.015 65 / 0.55);
+  --fg-0: oklch(0.95 0.02 85);
+  --fg-1: oklch(0.82 0.025 80);
+  --fg-2: oklch(0.62 0.025 75);
+  --fg-3: oklch(0.50 0.022 72);
+  --amber: oklch(0.78 0.145 70);
+  --amber-dim: oklch(0.52 0.10 68);
   position: relative;
   overflow: hidden;
   background: oklch(0.13 0.012 60);
