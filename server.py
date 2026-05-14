@@ -7,13 +7,16 @@ Tasks are persisted to tasks.json so history survives server restarts.
 
 from __future__ import annotations
 
+import io
 import json
 import os
+import re
 import secrets
 import subprocess
 import threading
 import time
 import uuid
+import zipfile
 from functools import wraps
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
@@ -26,6 +29,7 @@ from flask import (
     jsonify,
     redirect,
     request,
+    send_file,
     send_from_directory,
     session,
     stream_with_context,
@@ -2836,6 +2840,114 @@ def get_project_workflow(pid: str):
         except Exception:
             pass
     return jsonify({"ok": True, "workflow": {"nodes": {}, "edges": []}})
+
+
+@app.post("/api/projects/<pid>/inputs/download")
+def download_inputs_package(pid: str):
+    """Bulk-download selected Input-tab entries as a single .zip.
+
+    Client posts {"ids": [...]} where each id is either a projectInput id
+    (file-typed variable) or a projectVar id (text variable). Files land in
+    the archive under their original `name`; text variables collapse into a
+    single variables.json. Read access on the project is required."""
+    if pid not in projects:
+        return jsonify({"ok": False, "error": "Project not found"}), 404
+    if not user_can_view(pid):
+        return jsonify({"ok": False, "error": "You don't have access to this project"}), 403
+
+    payload = request.get_json(silent=True) or {}
+    ids = [str(i) for i in (payload.get("ids") or []) if i]
+    if not ids:
+        return jsonify({"ok": False, "error": "ids is required"}), 400
+
+    wf_path = WORKFLOWS_DIR / f"{pid}.json"
+    if not wf_path.exists():
+        return jsonify({"ok": False, "error": "No workflow saved for this project"}), 404
+    try:
+        wf = json.loads(wf_path.read_text())
+    except Exception as exc:
+        return jsonify({"ok": False, "error": f"Workflow parse failed: {exc}"}), 500
+
+    inputs_by_id = {e.get("id"): e for e in (wf.get("projectInputs") or []) if isinstance(e, dict) and e.get("id")}
+    vars_by_id   = {v.get("id"): v for v in (wf.get("projectVars")  or []) if isinstance(v, dict) and v.get("id")}
+
+    selected_files: list[tuple[Path, str]] = []
+    selected_vars: dict[str, str] = {}
+    used_names: set[str] = set()
+    missing: list[str] = []
+
+    def _unique(name: str) -> str:
+        # Don't let two files share a name in the same zip — append " (N)"
+        # before the suffix until we find a free slot.
+        if name not in used_names:
+            used_names.add(name)
+            return name
+        stem = Path(name).stem
+        suffix = Path(name).suffix
+        i = 2
+        while True:
+            cand = f"{stem} ({i}){suffix}"
+            if cand not in used_names:
+                used_names.add(cand)
+                return cand
+            i += 1
+
+    for iid in ids:
+        if iid in inputs_by_id:
+            entry = inputs_by_id[iid]
+            url_or_path = (entry.get("url") or entry.get("path") or "").strip()
+            if not url_or_path:
+                missing.append(iid)
+                continue
+            if url_or_path.startswith("/uploads/"):
+                local = UPLOAD_DIR / url_or_path.removeprefix("/uploads/")
+            elif url_or_path.startswith("http"):
+                # External CDN URL — skip; bulk-fetching foreign hosts in a
+                # download request would block and could fail mid-archive.
+                missing.append(iid)
+                continue
+            else:
+                local = Path(url_or_path)
+            if not local.exists():
+                missing.append(iid)
+                continue
+            zip_name = _unique((entry.get("name") or "").strip() or local.name)
+            selected_files.append((local, zip_name))
+        elif iid in vars_by_id:
+            v = vars_by_id[iid]
+            key = (v.get("key") or v.get("id") or "").strip()
+            if key:
+                selected_vars[key] = v.get("value", "")
+        else:
+            missing.append(iid)
+
+    if not selected_files and not selected_vars:
+        return jsonify({"ok": False, "error": "Nothing to download (selection had no resolvable files or variables)"}), 400
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for local, name in selected_files:
+            try:
+                zf.write(local, arcname=name)
+            except Exception as exc:
+                print(f"[download_inputs] zip add failed {local} → {name}: {exc}", flush=True)
+        if selected_vars:
+            zf.writestr("variables.json", json.dumps(selected_vars, indent=2, ensure_ascii=False))
+    buf.seek(0)
+
+    proj_name = (projects[pid].get("name") or "project").strip()
+    # Strip anything outside word chars / CJK / space / dash to keep the
+    # filename safe for Content-Disposition; Flask will utf-8-encode it.
+    safe_name = re.sub(r"[^\w一-鿿\s\-]", "_", proj_name).strip("_ ") or "project"
+    zip_filename = f"{safe_name}-inputs.zip"
+
+    return send_file(
+        buf,
+        mimetype="application/zip",
+        as_attachment=True,
+        download_name=zip_filename,
+        max_age=0,
+    )
 
 
 # Fields a view-only collaborator is allowed to update on each node when the
