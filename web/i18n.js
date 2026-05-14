@@ -186,6 +186,12 @@
     'Canvas is empty': '画布为空',
     'Copied': '已复制',
     'Copy failed': '复制失败',
+    // Output-tab bulk download
+    'Download': '下载',
+    'Packaging…': '打包中…',
+    'Select all': '全选',
+    'Deselect all': '取消全选',
+    'Clear': '清除',
 
     // Inputs / outputs / variables
     'Project inputs': '项目输入',
@@ -296,6 +302,8 @@
   // Matches against the trimmed string only.
   const PATTERNS_ZH = [
     [/^(\d+)\s+selected$/, '已选 $1 项'],
+    [/^Downloaded\s+(\d+)\s+files?$/i, '已下载 $1 个文件'],
+    [/^Download failed:\s*(.+)$/i, '下载失败: $1'],
     [/^(\d+)\s+nodes?$/i, '$1 个节点'],
     [/^(\d+)\s+projects?$/i, '$1 个项目'],
     [/^(\d+)\s+credits?$/i, '$1 积分'],

@@ -686,16 +686,20 @@ body.right-collapsed .canvas-wrap { right: 0; }
 }
 .file-item.selected .file-check svg { display: block; }
 .files-selbar {
-  display: none;
+  display: flex;
   align-items: center; gap: 6px;
   padding: 6px 8px; margin-bottom: 8px;
-  border: 1px solid var(--amber-dim); border-radius: 6px;
-  background: oklch(0.78 0.145 70 / 0.08);
+  border: 1px solid var(--line); border-radius: 6px;
+  background: var(--bg-2);
   font-size: 12px;
   position: sticky; top: 0; z-index: 2;
 }
-.files-selbar.on { display: flex; }
-.files-selbar-count { color: var(--amber); font-family: var(--type-mono); font-size: 11px; flex: 1; }
+/* Amber tint when at least one file is ticked — same visual cue as
+   before, just always-present so the Select-all toggle inside the
+   bar is discoverable from the resting state. */
+.files-selbar.on { border-color: var(--amber-dim); background: oklch(0.78 0.145 70 / 0.08); }
+.files-selbar-count { color: var(--fg-2); font-family: var(--type-mono); font-size: 11px; flex: 1; }
+.files-selbar.on .files-selbar-count { color: var(--amber); }
 .files-selbar button {
   padding: 4px 10px; font-size: 11px; cursor: pointer;
   border: 1px solid var(--line); border-radius: 4px;
@@ -1576,8 +1580,9 @@ body.view-only textarea.generated-text {
     const refs = [...outputsSelected];
     const btn = document.getElementById('files-selbar-download');
     if (btn) { btn.disabled = true; btn.textContent = 'Packaging…'; }
+    const url = `/api/projects/${encodeURIComponent(projectId)}/outputs/download`;
     try {
-      const resp = await fetch(`/api/projects/${encodeURIComponent(projectId)}/outputs/download`, {
+      const resp = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'same-origin',
@@ -1586,6 +1591,7 @@ body.view-only textarea.generated-text {
       if (!resp.ok) {
         let msg = `HTTP ${resp.status}`;
         try { const d = await resp.json(); if (d?.error) msg = d.error; } catch (_) {}
+        console.log('[download-outputs] failed', resp.status, url, msg);
         throw new Error(msg);
       }
       const blob = await resp.blob();
@@ -1597,16 +1603,16 @@ body.view-only textarea.generated-text {
       const ascii = cd.match(/filename="([^"]+)"/i);
       if (utf8) { try { filename = decodeURIComponent(utf8[1]); } catch (_) {} }
       else if (ascii) filename = ascii[1];
-      const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
-      a.href = url; a.download = filename;
+      const blobUrl = URL.createObjectURL(blob);
+      a.href = blobUrl; a.download = filename;
       document.body.appendChild(a); a.click(); a.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
       toast(`Downloaded ${refs.length} file${refs.length === 1 ? '' : 's'}`, 'success');
     } catch (err) {
       toast('Download failed: ' + err.message, 'error');
     } finally {
-      if (btn) { btn.disabled = false; btn.textContent = 'Download as package'; }
+      if (btn) { btn.disabled = false; btn.textContent = 'Download'; }
     }
   }
 
@@ -3686,11 +3692,18 @@ body.view-only textarea.generated-text {
     for (const ref of [...outputsSelected]) if (!liveRefs.has(ref)) outputsSelected.delete(ref);
 
     const selCount = outputsSelected.size;
+    const allSelected = selCount > 0 && selCount === liveRefs.size;
+    // Selbar is ALWAYS visible when there are files — the leading
+    // "Select all" toggle lives in it, and that's not useful if the bar
+    // only appears once the user has already ticked something.
+    // .on just adds the amber-tinted background; Download/Clear are
+    // disabled when nothing is ticked, so they read as inert.
     panel.innerHTML = `
-      <div class="files-selbar${selCount ? ' on' : ''}" id="files-selbar">
+      <div class="files-selbar on" id="files-selbar">
+        <button id="files-selbar-all" title="${allSelected ? 'Deselect all' : 'Select all'}">${allSelected ? 'Deselect all' : 'Select all'}</button>
         <span class="files-selbar-count" id="files-selbar-count">${selCount} selected</span>
-        <button id="files-selbar-download" class="primary">Download as package</button>
-        <button id="files-selbar-clear">Clear</button>
+        <button id="files-selbar-download" class="primary"${selCount ? '' : ' disabled'}>Download</button>
+        <button id="files-selbar-clear"${selCount ? '' : ' disabled'}>Clear</button>
       </div>
       ${html}
     `;
@@ -3702,13 +3715,27 @@ body.view-only textarea.generated-text {
       else v.addEventListener('loadedmetadata', seek, { once: true });
     });
 
-    // Wire bulk-select checkboxes and the selbar buttons.
+    // Wire bulk-select checkboxes and the selbar buttons. refreshSelbar
+    // keeps the count, the Select-all label (Select all / Deselect all),
+    // and the disabled state of Download / Clear in sync with the Set
+    // after every toggle.
+    const totalLive = liveRefs.size;
     const refreshSelbar = () => {
       const bar = panel.querySelector('#files-selbar');
       const cnt = panel.querySelector('#files-selbar-count');
-      if (!bar || !cnt) return;
-      cnt.textContent = `${outputsSelected.size} selected`;
-      bar.classList.toggle('on', outputsSelected.size > 0);
+      const allBtn = panel.querySelector('#files-selbar-all');
+      const dl = panel.querySelector('#files-selbar-download');
+      const clr = panel.querySelector('#files-selbar-clear');
+      const n = outputsSelected.size;
+      if (bar) bar.classList.toggle('on', n > 0);
+      if (cnt) cnt.textContent = `${n} selected`;
+      if (allBtn) {
+        const all = n > 0 && n === totalLive;
+        allBtn.textContent = all ? 'Deselect all' : 'Select all';
+        allBtn.title = allBtn.textContent;
+      }
+      if (dl) dl.disabled = !n;
+      if (clr) clr.disabled = !n;
     };
     panel.querySelectorAll('[data-file-toggle]').forEach(box => {
       box.addEventListener('click', e => {
@@ -3720,6 +3747,19 @@ body.view-only textarea.generated-text {
         if (item) item.classList.toggle('selected', outputsSelected.has(ref));
         refreshSelbar();
       });
+    });
+    panel.querySelector('#files-selbar-all')?.addEventListener('click', () => {
+      // If everything's already ticked, this acts as Deselect all. Else
+      // it ticks every live ref currently rendered in the panel.
+      const all = outputsSelected.size > 0 && outputsSelected.size === totalLive;
+      if (all) {
+        outputsSelected.clear();
+        panel.querySelectorAll('[data-file-ref].selected').forEach(r => r.classList.remove('selected'));
+      } else {
+        for (const ref of liveRefs) outputsSelected.add(ref);
+        panel.querySelectorAll('[data-file-ref]').forEach(r => r.classList.add('selected'));
+      }
+      refreshSelbar();
     });
     panel.querySelector('#files-selbar-clear')?.addEventListener('click', () => {
       outputsSelected.clear();

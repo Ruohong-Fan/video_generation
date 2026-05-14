@@ -146,6 +146,23 @@ def _refresh_persisted_state():
     _refresh_state_if_stale()
 
 
+@app.errorhandler(404)
+def _api_404_handler(_err):
+    """Return a JSON envelope for /api/* 404s so the client's
+    `await resp.json()` doesn't choke on Flask's default HTML page.
+    Non-API 404s fall through to the default response. Log every
+    /api/* miss with the method + path — usually the smoking gun
+    when "HTTP 404" surfaces on a freshly-deployed endpoint that
+    the running worker hasn't picked up yet."""
+    if request.path.startswith("/api/"):
+        print(f"[404] {request.method} {request.path} — route not registered on this worker (stale deploy?)", flush=True)
+        return jsonify({
+            "ok": False,
+            "error": f"No route for {request.method} {request.path} (server may need restart after deploy)",
+        }), 404
+    return ("Not Found", 404)
+
+
 
 BASE_DIR = Path(__file__).resolve().parent
 
