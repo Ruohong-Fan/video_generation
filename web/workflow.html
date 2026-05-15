@@ -1,14 +1,14 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<!-- build-marker: project-input-uuid-match-2026-05-15 —
+<!-- build-marker: collect-inputs-trace-every-run-2026-05-15 —
      if this comment is missing from view-source, the browser or a
      reverse proxy is serving a stale workflow.html. The Cache-Control
      no-store headers in server.py should prevent that, but verify by
      looking for this exact line in DevTools → Sources → workflow.html. -->
 <meta charset="UTF-8" />
 <script>(function(){try{var t=localStorage.getItem('app.theme')||'light';if(t==='dark')document.documentElement.setAttribute('data-theme','dark');}catch(e){}})();</script>
-<script>console.log('[workflow.html build] project-input-uuid-match-2026-05-15');</script>
+<script>console.log('[workflow.html build] collect-inputs-trace-every-run-2026-05-15');</script>
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>饼冰科技</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -2283,6 +2283,11 @@ body.view-only textarea.generated-text {
     // caller inject per-iteration values (the per-scene loop uses this
     // to swap {{text}} / {{prev}} for the current scene block).
     const userPrompt = resolveRuntimeVars(node.prompt || '', node, overrides, iterationIndex);
+    // Single line so every Run leaves an unambiguous trace whether or not
+    // any matching path fires below. If this line isn't visible after a
+    // Run, collectInputs isn't being called at all (server bug / stale
+    // deploy) and the rest of the diagnostics can't help.
+    console.log(`[collectInputs] enter: node=${node.title || node.id} type=${node.type} iterIdx=${iterationIndex} projectInputs=${projectInputs.length} (${projectInputs.map(i => `${_inputVarKey(i)}:${i.kind || 'file'}${(i.url || i.path) ? '' : '∅'}`).join(',') || 'empty'})`);
     let textNodePrompt = '';
     const imageRefs = [];
     const imagePrompts = [];
@@ -2468,6 +2473,13 @@ body.view-only textarea.generated-text {
       console.log(`[collectInputs] resolved prompt head (first 300 chars): ${JSON.stringify(prompt.slice(0, 300))}`);
       console.log(`[collectInputs] raw node.prompt: ${JSON.stringify((node.prompt || '').slice(0, 200))}`);
     }
+
+    // Always-on final summary — one line per Run iteration with the
+    // counts of every ref bucket. If imageRefs is empty here and you
+    // expected an image to attach, scroll up to find the [collectInputs]
+    // enter line + the earlier diagnostics; one of them will tell you
+    // why nothing matched.
+    console.log(`[collectInputs] exit: imageRefs=${imageRefs.length} audioRefs=${audioRefs.length} videoRefs=${videoRefs.length} prompt-len=${prompt.length} prompt-head=${JSON.stringify(prompt.slice(0, 120))}`);
 
     return { prompt, imageRefs, imagePrompts, audioRefs, videoRefs };
   }
