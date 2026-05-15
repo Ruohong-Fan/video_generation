@@ -1,14 +1,14 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<!-- build-marker: collect-inputs-resolved-prompt-scan-2026-05-15 —
+<!-- build-marker: project-input-uuid-match-2026-05-15 —
      if this comment is missing from view-source, the browser or a
      reverse proxy is serving a stale workflow.html. The Cache-Control
      no-store headers in server.py should prevent that, but verify by
      looking for this exact line in DevTools → Sources → workflow.html. -->
 <meta charset="UTF-8" />
 <script>(function(){try{var t=localStorage.getItem('app.theme')||'light';if(t==='dark')document.documentElement.setAttribute('data-theme','dark');}catch(e){}})();</script>
-<script>console.log('[workflow.html build] collect-inputs-resolved-prompt-scan-2026-05-15');</script>
+<script>console.log('[workflow.html build] project-input-uuid-match-2026-05-15');</script>
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>饼冰科技</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -2404,23 +2404,44 @@ body.view-only textarea.generated-text {
     const prompt = userPrompt || textNodePrompt;
 
     // Resolved-prompt sweep: scan the FINAL prompt text for any project-
-    // input URL or path that got substituted in (e.g., {{product_image}}
-    // resolved inside an upstream Text node's output, then carried into
-    // the Video node via {{text}}). The {{key}} scan above only sees the
-    // raw node.prompt template, so without this step a URL that arrived
-    // indirectly through scene text would land in the prompt as inert
-    // characters but never reach the API's image / audio / video flags.
-    // Real failure mode reported by the user — the scene text contained
-    // "产品参考图片：/uploads/<hash>_logo.jpg" but Jimeng never received
-    // the actual file.
+    // input URL / path / filename / UUID that got substituted in (e.g.,
+    // {{product_image}} resolved inside an upstream Text node's output,
+    // then carried into the Video node via {{text}}). The {{key}} scan
+    // above only sees the raw node.prompt template, so without this
+    // step a URL that arrived indirectly through scene text would land
+    // in the prompt as inert characters but never reach the API's
+    // image / audio / video flags. Real failure: scene contained
+    // "产品参考图片：/uploads/<hash>_logo.jpg" but Jimeng never
+    // received the file.
+    //
+    // Match strategies, most-to-least specific. UUID alone is the
+    // fallback because uploads carry a "/uploads/<uuid>_<filename>"
+    // shape — the UUID prefix is unique, survives the LLM rephrasing
+    // the URL (encoded spaces, dropped /uploads/ prefix, quoted, etc.),
+    // and is the most robust matcher available.
+    const _ATTACHED_VIA = 'attached-via-prompt-sweep';
     for (const inp of projectInputs) {
       const url = inp.url || '';
       const path = inp.path || '';
       const candidate = url || path;
       if (!candidate) continue;
-      const mentioned = (url && prompt.includes(url)) || (path && prompt.includes(path));
-      if (!mentioned) continue;
       if (imageRefs.includes(candidate) || audioRefs.includes(candidate) || videoRefs.includes(candidate)) continue;
+      // Extract the upload's UUID, original filename, and unprefixed
+      // filename — any one of those showing up in the prompt is
+      // sufficient evidence the user wants the file.
+      const uuidMatch = candidate.match(/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i);
+      const uuidPart = uuidMatch ? uuidMatch[1] : null;
+      const fileName = String(inp.name || '').trim();
+      const lastSegment = candidate.split('/').filter(Boolean).pop() || '';
+      let mentioned = false;
+      let why = '';
+      if (prompt.includes(candidate)) { mentioned = true; why = 'exact url/path'; }
+      else if (url && prompt.includes(url)) { mentioned = true; why = 'url'; }
+      else if (path && prompt.includes(path)) { mentioned = true; why = 'path'; }
+      else if (uuidPart && prompt.includes(uuidPart)) { mentioned = true; why = `uuid ${uuidPart.slice(0, 8)}…`; }
+      else if (lastSegment && prompt.includes(lastSegment)) { mentioned = true; why = 'filename segment'; }
+      else if (fileName && fileName.length >= 4 && prompt.includes(fileName)) { mentioned = true; why = 'original filename'; }
+      if (!mentioned) continue;
       let kind = inp.kind;
       if (kind !== 'image' && kind !== 'audio' && kind !== 'video') {
         const guessed = _guessKindFromName(inp.name || inp.url || '');
@@ -2430,7 +2451,22 @@ body.view-only textarea.generated-text {
       else if (kind === 'audio') audioRefs.push(candidate);
       else if (kind === 'video') videoRefs.push(candidate);
       else continue;
-      console.log(`[collectInputs] picked up project input ${_inputVarKey(inp)} (${kind}) from a URL embedded in the resolved prompt — routed to the API's image/audio/video flag`);
+      console.log(`[collectInputs] picked up project input ${_inputVarKey(inp)} (${kind}) from the resolved prompt via ${why} match — routed to the API's image/audio/video flag`);
+    }
+
+    // Loud diagnostic when project inputs EXIST but none got attached
+    // via either path (raw {{key}} scan or resolved-prompt sweep). The
+    // user has uploaded files and is running a Video node that needs
+    // an image — if neither routing path fired, log enough state for
+    // a one-line answer to "why didn't my image attach?" without me
+    // needing to ask for more details.
+    if (projectInputs.length && !imageRefs.length && (node.type === 'video' || node.type === 'image')) {
+      const summary = projectInputs.map(i => ({
+        key: _inputVarKey(i), kind: i.kind, hasUrl: !!(i.url || i.path), urlHead: (i.url || i.path || '').slice(0, 60),
+      }));
+      console.log(`[collectInputs] no image attached but ${projectInputs.length} project input(s) exist:`, summary);
+      console.log(`[collectInputs] resolved prompt head (first 300 chars): ${JSON.stringify(prompt.slice(0, 300))}`);
+      console.log(`[collectInputs] raw node.prompt: ${JSON.stringify((node.prompt || '').slice(0, 200))}`);
     }
 
     return { prompt, imageRefs, imagePrompts, audioRefs, videoRefs };
