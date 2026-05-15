@@ -2484,7 +2484,21 @@ body.view-only textarea.generated-text {
         body = { prompt, ratio: params.ratio, resolution: params.resolution };
       }
     } else if (node.type === 'video') {
-      const mode = videoMode(node);
+      let mode = videoMode(node);
+      // Auto-upgrade T2V → R2V when an image actually got wired up
+      // (upstream Image / Upload node, the node's own uploadUrl, or a
+      // project-input file referenced via {{key}} in the prompt). The
+      // text2video endpoint can't carry an image, so leaving the user
+      // on T2V with imageRef set would silently drop the reference —
+      // exactly the bug the user reported. R2V is the safer default of
+      // the two image-bearing modes (uses the image as a style/subject
+      // reference, prompt drives composition; I2V tries to animate the
+      // exact image and is narrower in intent).
+      if (mode === 'T2V' && imageRef) {
+        console.log(`[runNode] ${node.title || node.id}: auto-upgrading T2V → R2V because an image was referenced (${imageRef})`);
+        toast('Image referenced — using R2V mode', '');
+        mode = 'R2V';
+      }
       if (mode === 'R2V') {
         if (!imageRef) throw new Error('R2V (reference) mode requires an image reference (connect an Image/Upload node or upload a file)');
         const mmPrompt = prompt || imagePrompts.join(', ');
@@ -5260,11 +5274,29 @@ body.view-only textarea.generated-text {
         ['I2V', 'I2V'],
         ['R2V', 'R2V (全能参考)'],
       ];
+      // Heuristic: would startTask see an image reference on Run? Mirror
+      // the inputs collectInputs would gather so the hint is accurate.
+      const hasUpstreamImage = upstreamNodes(node.id).some(u => {
+        if (u.type === 'upload' && u.uploadKind === 'image' && (u.uploadPath || u.uploadUrl)) return true;
+        if (u.type === 'image' && (u.results?.some(r => r?.kind === 'image') || u.uploadUrl)) return true;
+        return false;
+      });
+      const referencedProjectImage = (() => {
+        const m = (node.prompt || '').matchAll(/\{\{\s*([\p{L}\p{N}_]+)\s*\}\}/gu);
+        const referenced = new Set();
+        for (const x of m) referenced.add(x[1]);
+        return projectInputs.some(inp => inp.kind === 'image' && referenced.has(_inputVarKey(inp)) && (inp.url || inp.path));
+      })();
+      const willAutoUpgrade = cur === 'T2V' && (hasUpstreamImage || referencedProjectImage || node.uploadUrl);
+      const upgradeHint = willAutoUpgrade
+        ? `<div class="field-helper" style="color:var(--amber);margin-top:4px">An image is wired in — this run will auto-upgrade to R2V so the image actually reaches Jimeng.</div>`
+        : '';
       f += `<div class="field">
         <label class="field-label">Mode</label>
         <div class="chip-row">
           ${modes.map(([v,l]) => `<button class="chip${cur===v?' active':''}" data-field="videoMode" data-val="${v}">${esc(l)}</button>`).join('')}
         </div>
+        ${upgradeHint}
       </div>`;
     }
 
