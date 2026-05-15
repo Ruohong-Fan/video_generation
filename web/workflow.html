@@ -2738,11 +2738,15 @@ body.view-only textarea.generated-text {
     // Count's role in scene mode is purely as a cap: 1 means "use every
     // scene", anything higher truncates to that many.
     let scenes = null;
+    let upstreamTextSeen = false;
+    let lastUpstreamText = '';
     const ups = upstreamNodes(node.id);
     for (const u of ups) {
       if (u.type !== 'text') continue;
       const t = textNodeOutput(u);
       if (!t) continue;
+      upstreamTextSeen = true;
+      lastUpstreamText = t;
       const parts = splitIntoScenes(t);
       if (parts.length >= 2) { scenes = parts; break; }
     }
@@ -2760,6 +2764,15 @@ body.view-only textarea.generated-text {
     }
     if (sceneDriven) {
       console.log(`[runNode] ${node.title || node.id}: scene-driven loop, ${total} of ${scenes.length} scenes (count=${userCount})`);
+    } else if (upstreamTextSeen) {
+      // Loud diagnostic so the user can see WHY only one task fired when
+      // they expected a per-scene loop. Most common cause: the model's
+      // actual output doesn't follow any of the patterns splitIntoScenes
+      // recognises. Print the head of the upstream text to make that
+      // obvious in DevTools without needing to copy it out manually.
+      console.log(`[runNode] ${node.title || node.id}: upstream Text node had output but no scene markers were detected — falling back to single run. Total runs = ${total}.`);
+      console.log(`[runNode] upstream text preview (first 400 chars): ${JSON.stringify(lastUpstreamText.slice(0, 400))}`);
+      console.log(`[runNode] tip: splitIntoScenes wants headers like "Scene 1:" / "Scene 1\\n" / "镜头一:" / "## Scene 1" / "1. ..." — adjust the Text-node prompt to ask for one of these, or paste the upstream output here so I can extend the pattern table.`);
     }
 
     try {
@@ -4097,6 +4110,10 @@ body.view-only textarea.generated-text {
   // Split a Text-node script into per-scene blocks for the scene-driven
   // loop in runNode. Tries common scene markers in descending specificity:
   //   "Scene 1:", "SCENE 1:", "镜头 1:", "分镜 1:", "Shot 1:", "场景 1:",
+  //   plus the same headers WITHOUT trailing punctuation ("Scene 1\n…",
+  //   "## Scene 1\n…", "镜头一\n…") — many models emit headers as plain
+  //   numbered lines and stripping the colon-required pattern caught
+  //   only the strict-format outputs.
   //   "第 N 场" / "第N幕",
   //   numbered lists ("1.", "2)", "3、"),
   //   double-newline paragraphs.
@@ -4106,8 +4123,13 @@ body.view-only textarea.generated-text {
   function splitIntoScenes(text) {
     if (!text || typeof text !== 'string') return [];
     const patterns = [
-      /^[\t ]*(?:#{1,4}\s*)?(?:Scene|SCENE|Shot|SHOT|镜头|分镜|场景)\s*[\d一二三四五六七八九十百]+[:：.、\)\]]/gmu,
-      /^[\t ]*第\s*[\d一二三四五六七八九十百]+\s*[场镜幕节段][:：.、\)\]]?/gmu,
+      // Scene / Shot / 镜头 / 分镜 / 场景 header — only requires the keyword +
+      // a number at the start of a line, then ANYTHING is allowed on the
+      // rest of the line (duration markers like " (5s):", " — 8s:", a bare
+      // newline, etc). The ^ anchor + multiline flag means prose with
+      // "Scene 1" in the middle of a sentence won't false-match.
+      /^[\t ]*(?:[*#]{1,4}\s*)?(?:Scene|SCENE|Shot|SHOT|镜头|分镜|场景)\s*[\d一二三四五六七八九十百]+/gmu,
+      /^[\t ]*第\s*[\d一二三四五六七八九十百]+\s*[场镜幕节段]/gmu,
       /^[\t ]*\d+\s*[\.、\)\]]\s+\S/gm,
     ];
     for (const re of patterns) {
