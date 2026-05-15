@@ -444,6 +444,17 @@ body.right-collapsed .canvas-wrap { right: 0; }
   display: flex; gap: 3px; padding: 6px 8px 4px; flex-wrap: nowrap;
   overflow: hidden;
 }
+/* Video-node run-strip: same flex layout as the Edit node's input
+   filmstrip, but horizontal-scrolling with fixed-width tiles so a
+   6-or-more-clip batch stays browsable instead of getting squished
+   to thumbnail-of-a-thumbnail size. */
+.node-edit-strip[data-run-strip] {
+  overflow-x: auto; overflow-y: hidden; padding-bottom: 8px;
+  scrollbar-width: thin;
+}
+.node-edit-strip[data-run-strip] .node-edit-clip {
+  flex: 0 0 90px; min-width: 90px;
+}
 .node-edit-clip {
   flex: 1; min-width: 0; aspect-ratio: 16/9;
   border-radius: 3px; overflow: hidden;
@@ -2111,7 +2122,10 @@ body.view-only textarea.generated-text {
           if (u.uploadUrl) strip.push({ src: u.uploadUrl, label: u.title || 'Upload', kind: 'video' });
           continue;
         }
-        const vidResults = (u.results || []).filter(r => r && r.kind === 'video');
+        // Match the upstream collector in startTask — show only clips
+        // from the most recent Run press, so the strip matches what
+        // gets submitted on Run.
+        const vidResults = latestRunResults(u).filter(r => r && r.kind === 'video');
         if (vidResults.length) {
           const multi = vidResults.length > 1;
           vidResults.forEach((r, idx) => {
@@ -2139,6 +2153,29 @@ body.view-only textarea.generated-text {
 
     const aspectStyle = previewAspectStyle(node);
     if (last?.url || last?.localPath || last?.servePath) {
+      // For Video nodes, if the most recent Run produced multiple clips,
+      // show them as a filmstrip on the card itself — the user can see
+      // exactly which clips a downstream Edit node will pick up (which
+      // is also defined as latestRunResults). The filmstrip replaces the
+      // single big preview only when there's > 1 clip in this run; one-
+      // clip runs keep the existing big preview.
+      if (node.type === 'video') {
+        const batch = latestRunResults(node).filter(r => r && r.kind === 'video' && (r.servePath || r.url));
+        if (batch.length > 1) {
+          const playBadge = `<div class="video-play-badge"><svg viewBox="0 0 16 16" fill="white"><path d="M5 3l9 5-9 5V3z"/></svg></div>`;
+          const tiles = batch.map((r, i) => {
+            const src = mediaUrl(r.servePath || r.url);
+            return `<div class="node-edit-clip">
+              <video preload="metadata" muted playsinline referrerpolicy="no-referrer" style="width:100%;height:100%;object-fit:cover;display:block"><source src="${esc(src)}" type="video/mp4"/></video>
+              ${playBadge}
+              <div class="node-edit-clip-label">${i + 1}</div>
+            </div>`;
+          }).join('');
+          const olderCount = (node.results || []).length - batch.length;
+          const stripBadge = `<div class="node-output-count">${batch.length} clips · this run${olderCount > 0 ? ` · ${olderCount} older` : ''}</div>`;
+          return `<div class="node-output-wrap"><div class="node-edit-strip" data-run-strip>${tiles}</div>${stripBadge}</div>`;
+        }
+      }
       const u = mediaUrl(last.servePath || last.url);
       const playBadge = `<div class="video-play-badge"><svg viewBox="0 0 16 16" fill="white"><path d="M5 3l9 5-9 5V3z"/></svg></div>`;
       const media = last.kind === 'video'
@@ -2504,12 +2541,13 @@ body.view-only textarea.generated-text {
             }
           }
         } else if (u.type === 'video') {
-          // Edit nodes stitch a sequence — pull EVERY clip the upstream
-          // Video node produced (not just the last), so a count=N or
-          // scene-driven run that generated N clips lands as N timeline
-          // entries in the edit. Each clip is labelled "<title> · run N"
-          // so the AI plan / files panel can tell them apart.
-          const results = (u.results || []).filter(r => r && r.kind === 'video');
+          // Edit nodes stitch a sequence — pull every clip from the
+          // upstream Video node's MOST RECENT Run press (not every clip
+          // ever generated). Accumulated history stays visible in the
+          // Output tab but won't bloat the edit timeline. Each clip is
+          // labelled "<title> · run N" so the AI plan / files panel can
+          // tell them apart.
+          const results = latestRunResults(u).filter(r => r && r.kind === 'video');
           const total = results.length;
           if (total) {
             results.forEach((r, idx) => {
@@ -2627,7 +2665,7 @@ body.view-only textarea.generated-text {
   // status. Used by runNode's loop (which needs to append per-iteration
   // without flipping status='done' until the last one) and by resumeTask
   // (via the applyTaskResult wrapper below) which DOES want 'done'.
-  function appendTaskResult(node, task) {
+  function appendTaskResult(node, task, runId) {
     const url = extractOutputUrl(task);
     const kind = (node.type === 'video' || node.type === 'edit') ? 'video'
                : node.type === 'audio' ? 'audio' : 'image';
@@ -2636,14 +2674,50 @@ body.view-only textarea.generated-text {
     const editPlan  = node.type === 'edit' ? (task?.result?.edit_plan || null) : null;
     const newResults = [...(node.results || [])];
     if (url || localPath || servePath) {
-      newResults.push({ url, kind, localPath, servePath, editPlan, ts: Date.now() });
+      const entry = { url, kind, localPath, servePath, editPlan, ts: Date.now() };
+      // runId groups all clips from one Run press together so downstream
+      // consumers (Edit node, filmstrip preview) can isolate "the latest
+      // run" from accumulated history.
+      if (runId) entry.runId = runId;
+      newResults.push(entry);
     }
     return newResults;
   }
 
+  // Used by resumeTask (which doesn't know the original runId — pick the
+  // most recent one already attached to the node's results so the resumed
+  // task lands in the right group rather than starting a fresh phantom
+  // run-batch).
+  function _latestKnownRunId(node) {
+    const results = node.results || [];
+    for (let i = results.length - 1; i >= 0; i--) {
+      if (results[i]?.runId) return results[i].runId;
+    }
+    return null;
+  }
+
   function applyTaskResult(node, task) {
-    const newResults = appendTaskResult(node, task);
+    const newResults = appendTaskResult(node, task, _latestKnownRunId(node));
     setNodeStatus(node.id, 'done', { results: newResults, error: null, queueIdx: null, taskId: null, loopProgress: null });
+  }
+
+  // Return only the results from the most recent Run press. Used by the
+  // Edit node's upstream-clip collector and by the Video-node card's
+  // filmstrip — both want "what the user just generated", not the whole
+  // historical pile. Legacy results without runId (from before this
+  // change shipped) are returned wholesale when NO entry has a runId,
+  // so old workflows don't suddenly show "no clips".
+  function latestRunResults(node) {
+    const results = node.results || [];
+    if (!results.length) return [];
+    let maxRunId = null;
+    for (const r of results) {
+      if (r?.runId && (maxRunId === null || String(r.runId) > String(maxRunId))) {
+        maxRunId = r.runId;
+      }
+    }
+    if (maxRunId === null) return results.slice();
+    return results.filter(r => r?.runId === maxRunId);
   }
 
   // Re-attach polling to a task that was in flight when the page closed.
@@ -2808,6 +2882,13 @@ body.view-only textarea.generated-text {
       console.log(`[runNode] tip: splitIntoScenes wants headers like "Scene 1:" / "Scene 1\\n" / "镜头一:" / "## Scene 1" / "1. ..." — adjust the Text-node prompt to ask for one of these, or paste the upstream output here so I can extend the pattern table.`);
     }
 
+    // One Run press = one runId. Every clip this loop produces shares it,
+    // so the Edit node and the Video-node filmstrip can isolate "this
+    // batch" from older accumulated results. Use Date.now() + a short
+    // random suffix so concurrent runs (different nodes, same tick)
+    // don't collide.
+    const runId = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+
     try {
       for (let iter = 1; iter <= total; iter++) {
         const loop = total > 1 ? { current: iter, total, mode: sceneDriven ? 'scene' : 'variant' } : null;
@@ -2839,7 +2920,7 @@ body.view-only textarea.generated-text {
         // Text node: the response is synchronous, no polling.
         if (submitResult && submitResult.sync) {
           const newResults = [...(node.results || [])];
-          newResults.push({ kind: 'text', text: submitResult.text, ts: Date.now() });
+          newResults.push({ kind: 'text', text: submitResult.text, ts: Date.now(), runId });
           if (iter < total) {
             setNodeStatus(id, 'running', { results: newResults, error: null, loopProgress: loop });
           } else {
@@ -2852,7 +2933,7 @@ body.view-only textarea.generated-text {
         node.taskId = taskId;
         setNodeStatus(id, 'running', { taskId, loopProgress: loop });
         const task = await pollUntilDone(taskId, id);
-        const newResults = appendTaskResult(node, task);
+        const newResults = appendTaskResult(node, task, runId);
         if (iter < total) {
           setNodeStatus(id, 'running', { results: newResults, taskId: null, queueIdx: null, loopProgress: loop });
         } else {
