@@ -2484,20 +2484,16 @@ body.view-only textarea.generated-text {
         body = { prompt, ratio: params.ratio, resolution: params.resolution };
       }
     } else if (node.type === 'video') {
-      let mode = videoMode(node);
-      // Auto-upgrade T2V → R2V when an image actually got wired up
-      // (upstream Image / Upload node, the node's own uploadUrl, or a
-      // project-input file referenced via {{key}} in the prompt). The
-      // text2video endpoint can't carry an image, so leaving the user
-      // on T2V with imageRef set would silently drop the reference —
-      // exactly the bug the user reported. R2V is the safer default of
-      // the two image-bearing modes (uses the image as a style/subject
-      // reference, prompt drives composition; I2V tries to animate the
-      // exact image and is narrower in intent).
+      const mode = videoMode(node);
+      // T2V endpoint has no image parameter. If the user wired an image
+      // in (upstream Image / Upload, the node's own uploadUrl, or a
+      // project-input referenced via {{key}}) but left the mode chip
+      // on T2V, silently dropping the image would mislead them — they
+      // assume it's being used. Refuse the run and tell them which
+      // mode to pick. The "auto-upgrade" alternative was rejected by
+      // the user precisely because it removes their explicit choice.
       if (mode === 'T2V' && imageRef) {
-        console.log(`[runNode] ${node.title || node.id}: auto-upgrading T2V → R2V because an image was referenced (${imageRef})`);
-        toast('Image referenced — using R2V mode', '');
-        mode = 'R2V';
+        throw new Error('An image is wired in but the mode is T2V (text-only). Switch to R2V to use the image as a style / subject reference, or I2V to animate that exact image.');
       }
       if (mode === 'R2V') {
         if (!imageRef) throw new Error('R2V (reference) mode requires an image reference (connect an Image/Upload node or upload a file)');
@@ -5287,9 +5283,9 @@ body.view-only textarea.generated-text {
         for (const x of m) referenced.add(x[1]);
         return projectInputs.some(inp => inp.kind === 'image' && referenced.has(_inputVarKey(inp)) && (inp.url || inp.path));
       })();
-      const willAutoUpgrade = cur === 'T2V' && (hasUpstreamImage || referencedProjectImage || node.uploadUrl);
-      const upgradeHint = willAutoUpgrade
-        ? `<div class="field-helper" style="color:var(--amber);margin-top:4px">An image is wired in — this run will auto-upgrade to R2V so the image actually reaches Jimeng.</div>`
+      const needsImageMode = cur === 'T2V' && (hasUpstreamImage || referencedProjectImage || node.uploadUrl);
+      const upgradeHint = needsImageMode
+        ? `<div class="field-helper" style="color:var(--err);margin-top:4px">An image is wired in but the mode is T2V — text2video can't carry an image, so the run will fail. Switch to R2V (style/subject reference) or I2V (animate this image) to use it.</div>`
         : '';
       f += `<div class="field">
         <label class="field-label">Mode</label>
