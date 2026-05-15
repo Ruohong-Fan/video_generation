@@ -2213,12 +2213,14 @@ body.view-only textarea.generated-text {
     return resolveVars(n.prompt || '');
   }
 
-  function collectInputs(node) {
+  function collectInputs(node, overrides) {
     const up = upstreamNodes(node.id);
     // Use the runtime resolver so the user can reference upstream Text
     // outputs (e.g. {{text}}, {{prev}}, {{node-title}}) directly in their
-    // prompt — same syntax as project variables.
-    const userPrompt = resolveRuntimeVars(node.prompt || '', node);
+    // prompt — same syntax as project variables. `overrides` lets the
+    // caller inject per-iteration values (the per-scene loop uses this
+    // to swap {{text}} / {{prev}} for the current scene block).
+    const userPrompt = resolveRuntimeVars(node.prompt || '', node, overrides);
     let textNodePrompt = '';
     const imageRefs = [];
     const imagePrompts = [];
@@ -2325,8 +2327,8 @@ body.view-only textarea.generated-text {
   // Upload nodes are passive sources — they hold a file rather than generating one.
   const PASSIVE_TYPES = new Set(['upload']);
 
-  async function startTask(node) {
-    const { prompt, imageRefs, imagePrompts, audioRefs, videoRefs } = collectInputs(node);
+  async function startTask(node, overrides) {
+    const { prompt, imageRefs, imagePrompts, audioRefs, videoRefs } = collectInputs(node, overrides);
     const imageRef = imageRefs[0] || null;
     const audioRef = audioRefs?.[0] || null;
     const videoRef = videoRefs?.[0] || null;
@@ -2343,7 +2345,7 @@ body.view-only textarea.generated-text {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'same-origin',
-        body: JSON.stringify({ prompt: resolveRuntimeVars(node.prompt || '', node), inputs }),
+        body: JSON.stringify({ prompt: resolveRuntimeVars(node.prompt || '', node, overrides), inputs }),
       });
       const data = await resp.json().catch(() => ({}));
       if (!resp.ok || !data.ok) {
@@ -2660,25 +2662,55 @@ body.view-only textarea.generated-text {
       return runGraph([...ancestorsToRun, id]);
     }
 
-    // Per-node loop count. node.params.count tells us how many variants
-    // to generate per Run press — sequential submits, each appending its
-    // own entry to node.results. Clamped to [1, 10] so a stray paste of
-    // "99" can't queue a runaway batch.
-    const total = Math.max(1, Math.min(10, parseInt(node.params?.count, 10) || 1));
+    // Per-node loop count. node.params.count is "how many clips/results
+    // to produce per Run press". Clamped [1, 20] — script-driven loops
+    // can plausibly want 10–15, but we still cap to keep an accidental
+    // paste of "999" from queuing a runaway batch.
+    const userCount = Math.max(1, Math.min(20, parseInt(node.params?.count, 10) || 1));
+
+    // Scene-driven loop: if the upstream Text node's output looks like
+    // a multi-scene script, split it and use one scene per iteration —
+    // each clip gets its own piece of script as {{text}} / {{prev}}.
+    // When no scene markers are detected we fall back to the variant
+    // semantics (same prompt N times).
+    let scenes = null;
+    if (userCount > 1) {
+      const ups = upstreamNodes(node.id);
+      for (const u of ups) {
+        if (u.type !== 'text') continue;
+        const t = textNodeOutput(u);
+        if (!t) continue;
+        const parts = splitIntoScenes(t);
+        if (parts.length >= 2) { scenes = parts; break; }
+      }
+    }
+    const sceneDriven = !!scenes;
+    // If we detected fewer scenes than the user asked for, only iterate
+    // as many scenes as exist (don't repeat the same scene to pad). If
+    // they wanted MORE scenes, the upstream Text node should produce
+    // them; the count knob defers to the script in scene mode.
+    const total = sceneDriven ? Math.min(userCount, scenes.length) : userCount;
+    if (sceneDriven) {
+      console.log(`[runNode] ${node.title || node.id}: scene-driven loop, ${total} of ${scenes.length} scenes (count=${userCount})`);
+    }
 
     try {
       for (let iter = 1; iter <= total; iter++) {
-        const loop = total > 1 ? { current: iter, total } : null;
+        const loop = total > 1 ? { current: iter, total, mode: sceneDriven ? 'scene' : 'variant' } : null;
+        // Per-iteration overrides: in scene mode, {{text}}/{{prev}}
+        // become THIS scene's text; the user's typed prompt template
+        // gets re-resolved each pass so a prompt like
+        //   "Cinematic shot of: {{text}}"
+        // turns into a different real prompt for each clip.
+        const overrides = sceneDriven ? { text: scenes[iter - 1], prev: scenes[iter - 1] } : null;
         setNodeStatus(id, 'queued', { error: null, queueIdx: null, loopProgress: loop });
-        const submitResult = await startTask(node);
+        const submitResult = await startTask(node, overrides);
 
         // Text node: the response is synchronous, no polling.
         if (submitResult && submitResult.sync) {
           const newResults = [...(node.results || [])];
           newResults.push({ kind: 'text', text: submitResult.text, ts: Date.now() });
           if (iter < total) {
-            // Mid-loop: keep status 'running' so the next iteration's
-            // setNodeStatus('queued') reads as a continuous run.
             setNodeStatus(id, 'running', { results: newResults, error: null, loopProgress: loop });
           } else {
             setNodeStatus(id, 'done', { results: newResults, error: null, queueIdx: null, loopProgress: null });
@@ -2697,7 +2729,8 @@ body.view-only textarea.generated-text {
           setNodeStatus(id, 'done', { results: newResults, error: null, queueIdx: null, taskId: null, loopProgress: null });
         }
       }
-      toast(`${node.type} done${total > 1 ? ` (×${total})` : ''}`, 'success');
+      const summary = sceneDriven ? ` (${total} scenes)` : (total > 1 ? ` (×${total})` : '');
+      toast(`${node.type} done${summary}`, 'success');
     } catch (err) {
       setNodeStatus(id, 'error', { error: err.message, queueIdx: null, taskId: null, loopProgress: null });
       toast(`${node.type}: ${err.message}`, 'error');
@@ -3921,7 +3954,7 @@ body.view-only textarea.generated-text {
   //   - convenience aliases: `text` and `prev` → most recent upstream Text.
   // Project vars overlay last so a user-defined override beats an
   // accidental name collision with a node title or a file name.
-  function collectRuntimeVars(node) {
+  function collectRuntimeVars(node, overrides) {
     const vars = {};
     // Project input files — value is the URL/path so {{logo}} substitutes
     // to /uploads/foo.png in any prompt that mentions it.
@@ -3947,16 +3980,63 @@ body.view-only textarea.generated-text {
     for (const v of projectVars) {
       if (v.key) vars[v.key] = v.value;
     }
+    // Per-call overrides win over everything else. Used by the per-scene
+    // loop in runNode to inject the current scene's text as {{text}} /
+    // {{prev}} for each iteration without mutating node state.
+    if (overrides && typeof overrides === 'object') {
+      for (const k in overrides) vars[k] = overrides[k];
+    }
     return vars;
   }
 
   // resolveVars + upstream output substitution. Used when a node runs.
-  function resolveRuntimeVars(text, node) {
+  function resolveRuntimeVars(text, node, overrides) {
     if (!text || typeof text !== 'string') return text;
-    const vars = collectRuntimeVars(node);
+    const vars = collectRuntimeVars(node, overrides);
     return text.replace(/\{\{\s*([\p{L}\p{N}_]+)\s*\}\}/gu, (m, key) => (
       vars[key] !== undefined ? String(vars[key] ?? '') : m
     ));
+  }
+
+  // Split a Text-node script into per-scene blocks for the scene-driven
+  // loop in runNode. Tries common scene markers in descending specificity:
+  //   "Scene 1:", "SCENE 1:", "镜头 1:", "分镜 1:", "Shot 1:", "场景 1:",
+  //   "第 N 场" / "第N幕",
+  //   numbered lists ("1.", "2)", "3、"),
+  //   double-newline paragraphs.
+  // Returns an array of scene strings. Length 1 means "no scenes detected"
+  // — caller falls back to using the full upstream text for every loop
+  // iteration (variants from the same prompt).
+  function splitIntoScenes(text) {
+    if (!text || typeof text !== 'string') return [];
+    const patterns = [
+      /^[\t ]*(?:#{1,4}\s*)?(?:Scene|SCENE|Shot|SHOT|镜头|分镜|场景)\s*[\d一二三四五六七八九十百]+[:：.、\)\]]/gmu,
+      /^[\t ]*第\s*[\d一二三四五六七八九十百]+\s*[场镜幕节段][:：.、\)\]]?/gmu,
+      /^[\t ]*\d+\s*[\.、\)\]]\s+\S/gm,
+    ];
+    for (const re of patterns) {
+      re.lastIndex = 0;
+      const starts = [];
+      let m;
+      while ((m = re.exec(text)) !== null) {
+        starts.push(m.index);
+        if (m.index === re.lastIndex) re.lastIndex++;  // zero-width guard
+      }
+      if (starts.length >= 2) {
+        const parts = [];
+        for (let i = 0; i < starts.length; i++) {
+          const end = i + 1 < starts.length ? starts[i + 1] : text.length;
+          const block = text.slice(starts[i], end).trim();
+          if (block) parts.push(block);
+        }
+        if (parts.length >= 2) return parts;
+      }
+    }
+    // Fallback: paragraphs (only when there are several).
+    const paras = text.split(/\n\s*\n/).map(s => s.trim()).filter(Boolean);
+    if (paras.length >= 2) return paras;
+    const trimmed = text.trim();
+    return trimmed ? [trimmed] : [];
   }
 
   function addProjectVar() {
@@ -4958,17 +5038,23 @@ body.view-only textarea.generated-text {
       </div>`;
     }
 
-    // Loop count (every generation node). When > 1, pressing Run on this
-    // node loops sequentially N times and appends one result per pass —
-    // ideal for "give me 3 video clip variants from this same prompt"
-    // without manually clicking Run 3 times. Clamped [1, 10] to keep
-    // accidental paste of large numbers from queuing a runaway batch.
+    // Loop count (every generation node). When > 1, Run loops N times
+    // sequentially. Two modes auto-detect at run-time:
+    //   • SCENE mode — upstream Text node output contains scene markers
+    //     ("Scene 1:", "镜头 1:", numbered list, etc.). Each iteration
+    //     swaps {{text}}/{{prev}} for one scene block, so N clips get
+    //     N different scripts. Effective count clamps to the number of
+    //     scenes the splitter found.
+    //   • VARIANT mode — no scene markers detected. Same prompt N times
+    //     for stylistic variants.
+    // Clamped [1, 20] to keep accidental paste of "999" from queuing
+    // a runaway batch.
     if (['text', 'image', 'video', 'audio', 'edit'].includes(node.type)) {
       const cur = String(node.params.count ?? '1');
       f += `<div class="field">
-        <label class="field-label">Count <span style="color:var(--fg-3);font-size:10px">how many to generate per run</span></label>
-        <input class="field-input" type="number" min="1" max="10" step="1"
-               inputmode="numeric" data-field="count" data-clamp="1-10"
+        <label class="field-label">Count <span style="color:var(--fg-3);font-size:10px">how many clips per run · iterates over upstream scenes if found</span></label>
+        <input class="field-input" type="number" min="1" max="20" step="1"
+               inputmode="numeric" data-field="count" data-clamp="1-20"
                value="${esc(cur)}"/>
       </div>`;
     }
