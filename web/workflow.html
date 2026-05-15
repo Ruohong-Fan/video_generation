@@ -4267,6 +4267,16 @@ body.view-only textarea.generated-text {
     return out + '\n';  // trailing newline keeps the overlay's last-line height
   }
 
+  // Resolve "the inspector's current node" lazily for the var-overlay
+  // callbacks below. `selNode` is a local of renderRightPanel; reaching
+  // for it from these module-level helpers used to throw ReferenceError
+  // every time the MutationObserver fired (which happens a lot during a
+  // multi-iteration loop). Re-derive it from the selection Set instead.
+  function _inspectorSelectedNode() {
+    if (typeof selected === 'undefined' || selected.size !== 1) return null;
+    return nodes.get([...selected][0]) || null;
+  }
+
   function setupVarHighlight(textarea) {
     if (!textarea || textarea.dataset.varHighlight === '1') return;
     if (!textarea.classList.contains('field-textarea')) return;
@@ -4282,7 +4292,7 @@ body.view-only textarea.generated-text {
     wrap.appendChild(overlay);
     wrap.appendChild(textarea);
 
-    const update = () => { overlay.innerHTML = _varOverlayHtml(textarea.value, selNode); };
+    const update = () => { overlay.innerHTML = _varOverlayHtml(textarea.value, _inspectorSelectedNode()); };
     const syncScroll = () => {
       overlay.scrollTop = textarea.scrollTop;
       overlay.scrollLeft = textarea.scrollLeft;
@@ -4296,9 +4306,10 @@ body.view-only textarea.generated-text {
   }
 
   function refreshAllVarHighlights() {
+    const sel = _inspectorSelectedNode();
     document.querySelectorAll('.var-wrap > textarea.field-textarea').forEach(t => {
       const overlay = t.parentNode.querySelector(':scope > .var-overlay');
-      if (overlay) overlay.innerHTML = _varOverlayHtml(t.value, selNode);
+      if (overlay) overlay.innerHTML = _varOverlayHtml(t.value, sel);
     });
   }
 

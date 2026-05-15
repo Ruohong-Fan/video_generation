@@ -95,7 +95,7 @@ PUBLIC_ENDPOINTS = {
 # need to verify is actually running on their server (e.g. a new route).
 # Read via GET /api/_version — see logs for the route list printed at
 # import time.
-SERVER_BUILD = "outputs-download-debug+version-endpoint"
+SERVER_BUILD = "resume-tasks-on-restart"
 
 
 @app.before_request
@@ -246,6 +246,11 @@ def save_tasks():
 
 
 def load_tasks():
+    """Idempotent reader: pull tasks.json into the in-memory dict.
+    Called both at module-import and from the before-request reload
+    hook (when a peer worker's write advances the file's mtime).
+    Must NOT mark in-flight tasks as errored — peer workers may still
+    be polling them; the marking only makes sense at process startup."""
     global tasks
     if TASKS_FILE.exists():
         try:
@@ -256,16 +261,98 @@ def load_tasks():
             # in memory rather than wiping every task.
             return
         tasks = loaded
-        # Mark any tasks that were mid-run as interrupted (only on startup;
-        # the reload hook also calls load_tasks but the marking is idempotent).
-        dirty = False
-        for t in tasks.values():
-            if t.get("status") in ("running", "queued"):
-                t["status"] = "error"
-                t["error"] = "Server restarted while task was running"
-                dirty = True
-        if dirty:
+
+
+def _interrupt_or_resume_stale_tasks():
+    """One-shot at process startup. For each task that was 'queued' or
+    'running' when the previous worker died, try to resume polling
+    instead of pessimistically marking it errored — the original
+    submit_id is still valid on Jimeng's side, so a fresh polling
+    thread can pick up where the dead one left off. Tasks with no
+    submit_id (the worker died DURING the initial dreamina CLI call,
+    before we got an id back) get marked errored — those are
+    genuinely unrecoverable.
+
+    Critical: only call from module init, NOT from the reload hook.
+    Peer workers in a multi-worker WSGI setup may still own the
+    polling threads for these tasks; we mustn't trample them."""
+    for t_id, t in list(tasks.items()):
+        if not isinstance(t, dict): continue
+        if t.get("status") not in ("queued", "running"): continue
+        result = t.get("result") if isinstance(t.get("result"), dict) else None
+        submit_id = None
+        if result:
+            submit_id = result.get("submit_id")
+            if not submit_id and isinstance(result.get("data"), dict):
+                submit_id = result["data"].get("submit_id")
+        if submit_id:
+            print(f"[startup] resuming polling for task {t_id} (submit_id={submit_id})", flush=True)
+            _resume_task_polling(t_id, str(submit_id))
+        else:
+            t["status"] = "error"
+            t["error"] = "Server restarted before task was submitted"
+    save_tasks()
+
+
+def _resume_task_polling(task_id: str, submit_id: str):
+    """Spawn a daemon thread that resumes the Jimeng polling loop for
+    a task whose previous polling thread died with the worker. Mirrors
+    _run_task_inner's polling section — starts at the query_result
+    phase since the original submit already produced submit_id."""
+    def _resume():
+        try:
+            task = tasks.get(task_id)
+            if not isinstance(task, dict): return
+            task["status"] = "queued"
+            task["last_polled_at"] = time.time()
             save_tasks()
+            deadline = (time.time() + POLL_TIMEOUT) if POLL_TIMEOUT > 0 else None
+            while deadline is None or time.time() < deadline:
+                time.sleep(POLL_INTERVAL)
+                poll_ok, poll_output = run_command(["dreamina", "query_result", f"--submit_id={submit_id}"])
+                try: polled = json.loads(poll_output)
+                except (json.JSONDecodeError, ValueError): polled = {"raw": poll_output}
+                state = _task_state(polled)
+                task["last_polled_at"] = time.time()
+                if not poll_ok and state == "unknown":
+                    save_tasks()
+                    continue
+                if state == "done":
+                    task["status"] = "done"
+                    task["result"] = polled
+                    task["error"] = None
+                    task.pop("queue_idx", None)
+                    _cache_task_output(task)
+                    save_tasks()
+                    print(f"[resume_task] {task_id} → done", flush=True)
+                    return
+                if state == "error":
+                    task["status"] = "error"
+                    task["result"] = polled
+                    task["error"] = (polled.get("fail_reason") if isinstance(polled, dict) else None) or "Generation failed"
+                    save_tasks()
+                    return
+                if _should_keep_polling(polled, submit_id):
+                    task["status"] = "queued"
+                    task["result"] = polled
+                    task["error"] = None
+                    queue_info = polled.get("queue_info", {}) if isinstance(polled, dict) else {}
+                    task["queue_idx"] = queue_info.get("queue_idx")
+                    save_tasks()
+                    continue
+                # Unknown / other terminal state — stop polling.
+                break
+            if deadline is not None and time.time() >= deadline:
+                task["status"] = "error"
+                task["error"] = "Resume polling timed out"
+                save_tasks()
+        except Exception as exc:
+            t = tasks.get(task_id)
+            if isinstance(t, dict):
+                t["status"] = "error"
+                t["error"] = f"Resume polling crashed: {exc}"
+                save_tasks()
+    threading.Thread(target=_resume, daemon=True).start()
 
 
 load_tasks()
@@ -3199,6 +3286,13 @@ for _rule in app.url_map.iter_rules():
 print(f"[startup] {len(_route_index)} routes registered:", flush=True)
 for _line in sorted(_route_index):
     print(_line, flush=True)
+
+
+# Resume polling for tasks that were mid-flight when the previous worker
+# died. Runs HERE at the end of module load so every helper the resume
+# thread reaches for (_task_state, _should_keep_polling, _cache_task_output,
+# POLL_INTERVAL, run_command, …) is already defined.
+_interrupt_or_resume_stale_tasks()
 
 
 if __name__ == "__main__":
