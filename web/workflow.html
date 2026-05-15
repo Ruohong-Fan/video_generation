@@ -2485,18 +2485,28 @@ body.view-only textarea.generated-text {
       }
     } else if (node.type === 'video') {
       const mode = videoMode(node);
+      // Project-input image keys, useful for the error messages below so
+      // the user sees exactly what to type instead of a generic "needs
+      // an image reference".
+      const projectImageKeys = projectInputs
+        .filter(inp => inp.kind === 'image' && (inp.url || inp.path))
+        .map(inp => _inputVarKey(inp))
+        .filter(Boolean);
+      const referenceHint = projectImageKeys.length
+        ? ` Reference an Input-tab image in your prompt as ${projectImageKeys.map(k => `{{${k}}}`).join(' / ')}, or connect an Image / Upload node upstream.`
+        : ` Upload an image to the Input tab and reference it as {{key}}, or connect an Image / Upload node upstream.`;
       // T2V endpoint has no image parameter. If the user wired an image
       // in (upstream Image / Upload, the node's own uploadUrl, or a
-      // project-input referenced via {{key}}) but left the mode chip
-      // on T2V, silently dropping the image would mislead them — they
-      // assume it's being used. Refuse the run and tell them which
+      // project-input file referenced via {{key}}) but left the mode
+      // chip on T2V, silently dropping the image would mislead them —
+      // they assume it's being used. Refuse the run and tell them which
       // mode to pick. The "auto-upgrade" alternative was rejected by
       // the user precisely because it removes their explicit choice.
       if (mode === 'T2V' && imageRef) {
         throw new Error('An image is wired in but the mode is T2V (text-only). Switch to R2V to use the image as a style / subject reference, or I2V to animate that exact image.');
       }
       if (mode === 'R2V') {
-        if (!imageRef) throw new Error('R2V (reference) mode requires an image reference (connect an Image/Upload node or upload a file)');
+        if (!imageRef) throw new Error('R2V (reference) mode requires an image reference.' + referenceHint);
         const mmPrompt = prompt || imagePrompts.join(', ');
         if (!mmPrompt) throw new Error('R2V (reference) mode requires a prompt');
         endpoint = '/api/multimodal2video';
@@ -2510,7 +2520,7 @@ body.view-only textarea.generated-text {
           video_path: videoRef,  // optional camera-motion reference
         };
       } else if (mode === 'I2V') {
-        if (!imageRef) throw new Error('I2V mode requires an image reference (connect an Image/Upload node or upload a file)');
+        if (!imageRef) throw new Error('I2V mode requires an image reference.' + referenceHint);
         // Animate the upstream/uploaded image. Prompt becomes the motion description.
         endpoint = '/api/image2video';
         body = {
@@ -5283,16 +5293,34 @@ body.view-only textarea.generated-text {
         for (const x of m) referenced.add(x[1]);
         return projectInputs.some(inp => inp.kind === 'image' && referenced.has(_inputVarKey(inp)) && (inp.url || inp.path));
       })();
-      const needsImageMode = cur === 'T2V' && (hasUpstreamImage || referencedProjectImage || node.uploadUrl);
-      const upgradeHint = needsImageMode
-        ? `<div class="field-helper" style="color:var(--err);margin-top:4px">An image is wired in but the mode is T2V — text2video can't carry an image, so the run will fail. Switch to R2V (style/subject reference) or I2V (animate this image) to use it.</div>`
-        : '';
+      const hasImageRefAtRunTime = hasUpstreamImage || referencedProjectImage || !!node.uploadUrl;
+      const needsImageMode = cur === 'T2V' && hasImageRefAtRunTime;
+      // Inverse mismatch: user picked I2V or R2V (both need an image) but
+      // didn't wire one up. Surface this now instead of letting the run
+      // fail with a generic "requires an image reference" mid-loop.
+      const missingImage = (cur === 'I2V' || cur === 'R2V') && !hasImageRefAtRunTime;
+      // Image-typed project inputs the user has uploaded but isn't using.
+      // Listing the keys here turns the "how do I reference it" question
+      // into a copyable answer instead of a doc search.
+      const availableImageKeys = projectInputs
+        .filter(inp => inp.kind === 'image' && (inp.url || inp.path))
+        .map(inp => _inputVarKey(inp))
+        .filter(Boolean);
+      let modeHint = '';
+      if (needsImageMode) {
+        modeHint = `<div class="field-helper" style="color:var(--err);margin-top:4px">An image is wired in but the mode is T2V — text2video can't carry an image, so the run will fail. Switch to R2V (style/subject reference) or I2V (animate this image) to use it.</div>`;
+      } else if (missingImage) {
+        const keyHint = availableImageKeys.length
+          ? `Reference one in your prompt as ${availableImageKeys.map(k => `<code>{{${esc(k)}}}</code>`).join(' / ')}, or connect an Image / Upload node upstream.`
+          : `Upload an image to the Input tab (or connect an Image / Upload node upstream), then reference it in your prompt as <code>{{key}}</code>.`;
+      modeHint = `<div class="field-helper" style="color:var(--err);margin-top:4px">${cur} needs an image but none is wired in. ${keyHint}</div>`;
+      }
       f += `<div class="field">
         <label class="field-label">Mode</label>
         <div class="chip-row">
           ${modes.map(([v,l]) => `<button class="chip${cur===v?' active':''}" data-field="videoMode" data-val="${v}">${esc(l)}</button>`).join('')}
         </div>
-        ${upgradeHint}
+        ${modeHint}
       </div>`;
     }
 
