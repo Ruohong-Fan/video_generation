@@ -2731,23 +2731,33 @@ body.view-only textarea.generated-text {
     // each clip gets its own piece of script as {{text}} / {{prev}}.
     // When no scene markers are detected we fall back to the variant
     // semantics (same prompt N times).
+    //
+    // Detection runs UNCONDITIONALLY — even when Count is the default 1.
+    // That way connecting a multi-scene Text node "just works": the user
+    // doesn't need to remember to also bump Count to enable the loop.
+    // Count's role in scene mode is purely as a cap: 1 means "use every
+    // scene", anything higher truncates to that many.
     let scenes = null;
-    if (userCount > 1) {
-      const ups = upstreamNodes(node.id);
-      for (const u of ups) {
-        if (u.type !== 'text') continue;
-        const t = textNodeOutput(u);
-        if (!t) continue;
-        const parts = splitIntoScenes(t);
-        if (parts.length >= 2) { scenes = parts; break; }
-      }
+    const ups = upstreamNodes(node.id);
+    for (const u of ups) {
+      if (u.type !== 'text') continue;
+      const t = textNodeOutput(u);
+      if (!t) continue;
+      const parts = splitIntoScenes(t);
+      if (parts.length >= 2) { scenes = parts; break; }
     }
     const sceneDriven = !!scenes;
-    // If we detected fewer scenes than the user asked for, only iterate
-    // as many scenes as exist (don't repeat the same scene to pad). If
-    // they wanted MORE scenes, the upstream Text node should produce
-    // them; the count knob defers to the script in scene mode.
-    const total = sceneDriven ? Math.min(userCount, scenes.length) : userCount;
+    // In scene mode:
+    //   count = 1 (default) → process EVERY detected scene (no truncation)
+    //   count > 1           → cap at the lower of count and scenes.length,
+    //                         so users can truncate to a preview length
+    // In variant mode (no scene markers), count is just "how many variants".
+    let total;
+    if (sceneDriven) {
+      total = userCount > 1 ? Math.min(userCount, scenes.length) : scenes.length;
+    } else {
+      total = userCount;
+    }
     if (sceneDriven) {
       console.log(`[runNode] ${node.title || node.id}: scene-driven loop, ${total} of ${scenes.length} scenes (count=${userCount})`);
     }
@@ -5138,7 +5148,7 @@ body.view-only textarea.generated-text {
     if (['text', 'image', 'video', 'audio', 'edit'].includes(node.type)) {
       const cur = String(node.params.count ?? '1');
       f += `<div class="field">
-        <label class="field-label">Count <span style="color:var(--fg-3);font-size:10px">clips per run · iterates over upstream scenes / images / videos · multi-line vars indexed too</span></label>
+        <label class="field-label">Count <span style="color:var(--fg-3);font-size:10px">1 = process every upstream scene · > 1 = cap to that many · no scenes → that many variants of one prompt</span></label>
         <input class="field-input" type="number" min="1" max="20" step="1"
                inputmode="numeric" data-field="count" data-clamp="1-20"
                value="${esc(cur)}"/>
