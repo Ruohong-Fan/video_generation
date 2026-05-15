@@ -2344,17 +2344,53 @@ body.view-only textarea.generated-text {
     const referenced = new Set();
     const _matches = (node.prompt || '').matchAll(/\{\{\s*([\p{L}\p{N}_]+)\s*\}\}/gu);
     for (const m of _matches) referenced.add(m[1]);
+    const matchedInputKeys = new Set();
     if (referenced.size) {
       for (const inp of projectInputs) {
         const k = _inputVarKey(inp);
         if (!referenced.has(k)) continue;
+        matchedInputKeys.add(k);
         const ref = inp.url || inp.path;
-        if (!ref) continue;
-        if      (inp.kind === 'image') imageRefs.push(ref);
-        else if (inp.kind === 'audio') audioRefs.push(ref);
-        else if (inp.kind === 'video') videoRefs.push(ref);
+        if (!ref) {
+          console.log(`[collectInputs] {{${k}}} matched a project input but it has no file attached yet — upload one in the Input tab.`);
+          continue;
+        }
+        // Resolve kind defensively: trust the stored value when it
+        // matches a known media bucket, otherwise re-guess from the
+        // filename. Catches the case where the entry was saved with
+        // kind='file' for an actual image (legacy data, manual edit)
+        // and routing would otherwise silently skip it.
+        let kind = inp.kind;
+        if (kind !== 'image' && kind !== 'audio' && kind !== 'video') {
+          const guessed = _guessKindFromName(inp.name || inp.url || '');
+          if (guessed && guessed !== 'file') kind = guessed;
+        }
+        if      (kind === 'image') imageRefs.push(ref);
+        else if (kind === 'audio') audioRefs.push(ref);
+        else if (kind === 'video') videoRefs.push(ref);
+        else console.log(`[collectInputs] project input {{${k}}} referenced but kind="${inp.kind}" (resolved="${kind}") — not routed to image/audio/video. name=${JSON.stringify(inp.name)} url=${JSON.stringify(inp.url)}`);
         // text / subtitle / file: substitution alone is enough — the URL
         // is already in the prompt where the user put the {{token}}.
+      }
+      // Log any {{token}} the user typed that didn't match a project
+      // input AND isn't a text variable / upstream-text alias. Usually
+      // means a typo in the key — without this log a misspelled
+      // {{product_iamge}} fails silently because the literal token just
+      // stays in the prompt text and never routes the file.
+      const knownVarKeys = new Set(projectVars.map(v => v.key).filter(Boolean));
+      const upstreamTextKeys = new Set();
+      for (const u of up) {
+        if (u.type !== 'text') continue;
+        const tk = _sanitizeVarKey(u.title);
+        if (tk) upstreamTextKeys.add(tk);
+      }
+      for (const r of referenced) {
+        if (r === 'text' || r === 'prev') continue;
+        if (matchedInputKeys.has(r)) continue;
+        if (knownVarKeys.has(r)) continue;
+        if (upstreamTextKeys.has(r)) continue;
+        const imageKeys = projectInputs.filter(i => i.kind === 'image').map(i => _inputVarKey(i)).filter(Boolean);
+        console.log(`[collectInputs] {{${r}}} in the prompt doesn't match any project input / variable / upstream-text alias. Available image inputs: [${imageKeys.join(', ') || '(none)'}]. Check for typos in the key.`);
       }
     }
 
@@ -3766,11 +3802,23 @@ body.view-only textarea.generated-text {
           // Keep entries without a file too — the user (or a share recipient)
           // can declare an empty file-typed variable up front and attach the
           // actual upload later, mirroring how text variables work.
-          if (e && e.id) projectInputs.push({
+          if (!e || !e.id) continue;
+          // Repair kind for legacy / mis-categorised entries. An image
+          // sitting with kind='file' won't get routed to imageRefs by
+          // collectInputs, which means the user's uploaded image silently
+          // never reaches Jimeng. Re-detect from the filename / url so
+          // saves predating proper kind tracking still work.
+          let kind = e.kind;
+          if (!kind || kind === 'file') {
+            const guessed = _guessKindFromName(e.name || e.url || '');
+            if (guessed && guessed !== 'file') kind = guessed;
+            else kind = kind || 'file';
+          }
+          projectInputs.push({
             id: e.id,
             name: e.name || '',
             key: e.key || '',
-            kind: e.kind || 'file',
+            kind,
             url: e.url || '',
             path: e.path || null,
             ts: e.ts || Date.now(),
@@ -4489,12 +4537,21 @@ body.view-only textarea.generated-text {
     if (t.startsWith('image/'))  return 'image';
     if (t.startsWith('video/'))  return 'video';
     if (t.startsWith('audio/'))  return 'audio';
-    const name = (file.name || '').toLowerCase();
+    return _guessKindFromName(file.name || '');
+  }
+
+  // Filename-only fallback for when we don't have a live File object —
+  // used by loadWorkflow to repair legacy projectInputs entries that
+  // were saved with kind='file' before kind tracking landed, and by
+  // collectInputs at routing time as a belt-and-braces so a wrong-kind
+  // entry can't silently block the upload to Jimeng.
+  function _guessKindFromName(s) {
+    const name = String(s || '').toLowerCase();
     if (/\.(srt|vtt|ass)$/i.test(name)) return 'subtitle';
     if (/\.txt$/i.test(name))    return 'text';
-    if (/\.(png|jpe?g|gif|webp|bmp)$/i.test(name))     return 'image';
-    if (/\.(mp4|mov|webm|mkv|avi)$/i.test(name))       return 'video';
-    if (/\.(mp3|wav|m4a|aac|flac|ogg|opus)$/i.test(name)) return 'audio';
+    if (/\.(png|jpe?g|gif|webp|bmp|svg|heic|avif)$/i.test(name))   return 'image';
+    if (/\.(mp4|mov|webm|mkv|avi|m4v)$/i.test(name))               return 'video';
+    if (/\.(mp3|wav|m4a|aac|flac|ogg|opus|wma)$/i.test(name))      return 'audio';
     return 'file';
   }
 
