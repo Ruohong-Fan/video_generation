@@ -95,7 +95,7 @@ PUBLIC_ENDPOINTS = {
 # need to verify is actually running on their server (e.g. a new route).
 # Read via GET /api/_version — see logs for the route list printed at
 # import time.
-SERVER_BUILD = "resume-tasks-on-restart"
+SERVER_BUILD = "resume-tasks-grace+immediate-submit-save"
 
 
 @app.before_request
@@ -276,6 +276,16 @@ def _interrupt_or_resume_stale_tasks():
     Critical: only call from module init, NOT from the reload hook.
     Peer workers in a multi-worker WSGI setup may still own the
     polling threads for these tasks; we mustn't trample them."""
+    # Grace window: if a task has no submit_id yet but was created (or
+    # last-saved) within the last N seconds, a peer worker is probably
+    # still inside the initial dreamina CLI call. Marking it errored on
+    # this startup would clobber that work-in-progress submission and
+    # produce a "Server restarted before submit" toast on a task that
+    # Jimeng will receive seconds later. Wait the grace window out
+    # instead — the on-demand /api/task/<id> recovery will catch it once
+    # the peer worker saves the submit_id.
+    GRACE_SECONDS = 180
+    now = time.time()
     for t_id, t in list(tasks.items()):
         if not isinstance(t, dict): continue
         if t.get("status") not in ("queued", "running"): continue
@@ -288,9 +298,13 @@ def _interrupt_or_resume_stale_tasks():
         if submit_id:
             print(f"[startup] resuming polling for task {t_id} (submit_id={submit_id})", flush=True)
             _resume_task_polling(t_id, str(submit_id))
-        else:
-            t["status"] = "error"
-            t["error"] = "Server restarted before task was submitted"
+            continue
+        age = now - (t.get("last_polled_at") or t.get("created_at") or 0)
+        if age < GRACE_SECONDS:
+            print(f"[startup] task {t_id} has no submit_id but is only {age:.0f}s old — leaving as-is for grace window ({GRACE_SECONDS}s)", flush=True)
+            continue
+        t["status"] = "error"
+        t["error"] = f"Server restarted before task was submitted ({age:.0f}s without a submit_id)"
     save_tasks()
 
 
@@ -638,6 +652,18 @@ def _run_task_inner(task_id: str, cmd: list[str], post_process=None):
         result_data = {"raw": output}
 
     submit_id = result_data.get("submit_id") if isinstance(result_data, dict) else None
+    # Persist the submit_id ASAP — before we touch the polling loop. The
+    # interrupt-or-resume sweep on the next worker boot looks for exactly
+    # this field to decide between "resume polling" and "mark errored:
+    # server restarted before task was submitted". Without this save the
+    # submit_id only existed in worker memory until the polling loop's
+    # first iteration, so a worker death in that window guaranteed a
+    # spurious "server restarted before submit" on a task Jimeng actually
+    # received.
+    if submit_id and isinstance(result_data, dict):
+        tasks[task_id]["result"] = result_data
+        tasks[task_id]["last_polled_at"] = time.time()
+        save_tasks()
     state = _task_state(result_data)
     last_pending_result = result_data if _should_keep_polling(result_data, submit_id) else None
 
