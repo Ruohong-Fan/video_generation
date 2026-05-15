@@ -2213,19 +2213,29 @@ body.view-only textarea.generated-text {
     return resolveVars(n.prompt || '');
   }
 
-  function collectInputs(node, overrides) {
+  function collectInputs(node, overrides, iterationIndex) {
     const up = upstreamNodes(node.id);
     // Use the runtime resolver so the user can reference upstream Text
     // outputs (e.g. {{text}}, {{prev}}, {{node-title}}) directly in their
     // prompt — same syntax as project variables. `overrides` lets the
     // caller inject per-iteration values (the per-scene loop uses this
     // to swap {{text}} / {{prev}} for the current scene block).
-    const userPrompt = resolveRuntimeVars(node.prompt || '', node, overrides);
+    const userPrompt = resolveRuntimeVars(node.prompt || '', node, overrides, iterationIndex);
     let textNodePrompt = '';
     const imageRefs = [];
     const imagePrompts = [];
     const audioRefs = [];
     const videoRefs = [];  // camera-motion references (multimodal2video --video)
+    // When a per-scene loop is active, we want every upstream result to
+    // be available so the caller can pick result[i] for clip i. Outside
+    // the loop, we keep the old "last only" behaviour so single-shot runs
+    // still use the most recent generation. _picks() encapsulates that.
+    const inLoop = typeof iterationIndex === 'number' && iterationIndex >= 0;
+    const _picks = (results, kindFilter) => {
+      const list = (results || []).filter(r => r && (!kindFilter || r.kind === kindFilter));
+      if (!list.length) return [];
+      return inLoop ? list : [list[list.length - 1]];
+    };
     for (const u of up) {
       if (u.type === 'text') {
         const t = textNodeOutput(u);
@@ -2239,24 +2249,30 @@ body.view-only textarea.generated-text {
         else if (u.uploadKind === 'video') videoRefs.push(ref);
       }
       if (u.type === 'image') {
-        const uLast = u.results?.[u.results.length - 1];
-        if (uLast?.kind === 'image') {
-          const ref = uLast.servePath || uLast.localPath || uLast.url || null;
+        const picks = _picks(u.results, 'image');
+        for (const r of picks) {
+          const ref = r.servePath || r.localPath || r.url || null;
           if (ref) imageRefs.push(ref);
-        } else if (u.uploadPath || u.uploadUrl) {
+        }
+        if (!picks.length && (u.uploadPath || u.uploadUrl)) {
           imageRefs.push(u.uploadPath || u.uploadUrl);
         }
         if (u.prompt) imagePrompts.push(u.prompt);
       }
       if (u.type === 'audio') {
-        const uLast = u.results?.[u.results.length - 1];
-        const ref = uLast?.servePath || uLast?.localPath || uLast?.url || u.uploadPath || u.uploadUrl || null;
-        if (ref) audioRefs.push(ref);
+        const picks = _picks(u.results);  // any kind that walks audio path
+        for (const r of picks) {
+          const ref = r.servePath || r.localPath || r.url || null;
+          if (ref) audioRefs.push(ref);
+        }
+        if (!picks.length && (u.uploadPath || u.uploadUrl)) audioRefs.push(u.uploadPath || u.uploadUrl);
       }
       if (u.type === 'video') {
-        const uLast = u.results?.[u.results.length - 1];
-        const ref = uLast?.servePath || uLast?.localPath || uLast?.url || null;
-        if (ref) videoRefs.push(ref);
+        const picks = _picks(u.results, 'video');
+        for (const r of picks) {
+          const ref = r.servePath || r.localPath || r.url || null;
+          if (ref) videoRefs.push(ref);
+        }
       }
     }
     // Node's own upload (legacy — from before Upload node existed). Image only;
@@ -2356,15 +2372,24 @@ body.view-only textarea.generated-text {
     return Math.max(4, Math.min(15, i));
   }
 
-  async function startTask(node, overrides, paramOverrides) {
-    const { prompt, imageRefs, imagePrompts, audioRefs, videoRefs } = collectInputs(node, overrides);
+  async function startTask(node, overrides, paramOverrides, iterationIndex) {
+    const { prompt, imageRefs, imagePrompts, audioRefs, videoRefs } = collectInputs(node, overrides, iterationIndex);
     // Merge per-call param overrides (per-scene duration from runNode's
     // scene-driven loop) on top of the saved node params. Anything not
     // explicitly overridden falls back to node.params.
     const params = { ...node.params, ...(paramOverrides || {}) };
-    const imageRef = imageRefs[0] || null;
-    const audioRef = audioRefs?.[0] || null;
-    const videoRef = videoRefs?.[0] || null;
+    // Pick the iteration-matched ref when looping. _picks() in
+    // collectInputs already gave us the full list in that case, so a
+    // straight `refs[i % refs.length]` is enough. Outside the loop the
+    // list is "last only" and refs[0] preserves the legacy behaviour.
+    const inLoop = typeof iterationIndex === 'number' && iterationIndex >= 0;
+    const _pickRef = (refs) => {
+      if (!refs || !refs.length) return null;
+      return inLoop ? refs[iterationIndex % refs.length] : refs[0];
+    };
+    const imageRef = _pickRef(imageRefs);
+    const audioRef = _pickRef(audioRefs);
+    const videoRef = _pickRef(videoRefs);
     let endpoint, body;
 
     if (node.type === 'text') {
@@ -2378,7 +2403,7 @@ body.view-only textarea.generated-text {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'same-origin',
-        body: JSON.stringify({ prompt: resolveRuntimeVars(node.prompt || '', node, overrides), inputs }),
+        body: JSON.stringify({ prompt: resolveRuntimeVars(node.prompt || '', node, overrides, iterationIndex), inputs }),
       });
       const data = await resp.json().catch(() => ({}));
       if (!resp.ok || !data.ok) {
@@ -2748,8 +2773,12 @@ body.view-only textarea.generated-text {
           const d = extractSceneDuration(sceneText);
           if (d != null) paramOverrides = { duration: String(d) };
         }
+        // Only set iterationIndex when actually looping (total > 1).
+        // For a single-shot run, leaving it undefined keeps the legacy
+        // "use the last upstream result" behaviour untouched.
+        const iterationIndex = total > 1 ? (iter - 1) : null;
         setNodeStatus(id, 'queued', { error: null, queueIdx: null, loopProgress: loop });
-        const submitResult = await startTask(node, overrides, paramOverrides);
+        const submitResult = await startTask(node, overrides, paramOverrides, iterationIndex);
 
         // Text node: the response is synchronous, no polling.
         if (submitResult && submitResult.sync) {
@@ -3999,7 +4028,7 @@ body.view-only textarea.generated-text {
   //   - convenience aliases: `text` and `prev` → most recent upstream Text.
   // Project vars overlay last so a user-defined override beats an
   // accidental name collision with a node title or a file name.
-  function collectRuntimeVars(node, overrides) {
+  function collectRuntimeVars(node, overrides, iterationIndex) {
     const vars = {};
     // Project input files — value is the URL/path so {{logo}} substitutes
     // to /uploads/foo.png in any prompt that mentions it.
@@ -4021,9 +4050,21 @@ body.view-only textarea.generated-text {
       if (vars.text === undefined) vars.text = lastText;
       if (vars.prev === undefined) vars.prev = lastText;
     }
-    // Project vars overlay last so they win on key collisions.
+    // Project vars overlay last so they win on key collisions. When a loop
+    // is active (iterationIndex is a number), multi-line project-var
+    // values get auto-indexed: each non-empty line maps to one iteration,
+    // so `images = "url1\nurl2\nurl3"` referenced as {{images}} resolves
+    // to url1 / url2 / url3 across iterations 0 / 1 / 2. Single-line vars
+    // and project inputs are unchanged.
+    const inLoop = typeof iterationIndex === 'number' && iterationIndex >= 0;
     for (const v of projectVars) {
-      if (v.key) vars[v.key] = v.value;
+      if (!v.key) continue;
+      let value = v.value;
+      if (inLoop && typeof value === 'string' && /\r?\n/.test(value)) {
+        const lines = value.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+        if (lines.length > 1) value = lines[iterationIndex % lines.length];
+      }
+      vars[v.key] = value;
     }
     // Per-call overrides win over everything else. Used by the per-scene
     // loop in runNode to inject the current scene's text as {{text}} /
@@ -4035,9 +4076,9 @@ body.view-only textarea.generated-text {
   }
 
   // resolveVars + upstream output substitution. Used when a node runs.
-  function resolveRuntimeVars(text, node, overrides) {
+  function resolveRuntimeVars(text, node, overrides, iterationIndex) {
     if (!text || typeof text !== 'string') return text;
-    const vars = collectRuntimeVars(node, overrides);
+    const vars = collectRuntimeVars(node, overrides, iterationIndex);
     return text.replace(/\{\{\s*([\p{L}\p{N}_]+)\s*\}\}/gu, (m, key) => (
       vars[key] !== undefined ? String(vars[key] ?? '') : m
     ));
@@ -5097,7 +5138,7 @@ body.view-only textarea.generated-text {
     if (['text', 'image', 'video', 'audio', 'edit'].includes(node.type)) {
       const cur = String(node.params.count ?? '1');
       f += `<div class="field">
-        <label class="field-label">Count <span style="color:var(--fg-3);font-size:10px">how many clips per run · iterates over upstream scenes if found</span></label>
+        <label class="field-label">Count <span style="color:var(--fg-3);font-size:10px">clips per run · iterates over upstream scenes / images / videos · multi-line vars indexed too</span></label>
         <input class="field-input" type="number" min="1" max="20" step="1"
                inputmode="numeric" data-field="count" data-clamp="1-20"
                value="${esc(cur)}"/>
