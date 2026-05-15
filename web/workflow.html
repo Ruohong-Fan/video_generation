@@ -2396,6 +2396,37 @@ body.view-only textarea.generated-text {
 
     // User's typed prompt wins; the upstream Text node only fills the gap.
     const prompt = userPrompt || textNodePrompt;
+
+    // Resolved-prompt sweep: scan the FINAL prompt text for any project-
+    // input URL or path that got substituted in (e.g., {{product_image}}
+    // resolved inside an upstream Text node's output, then carried into
+    // the Video node via {{text}}). The {{key}} scan above only sees the
+    // raw node.prompt template, so without this step a URL that arrived
+    // indirectly through scene text would land in the prompt as inert
+    // characters but never reach the API's image / audio / video flags.
+    // Real failure mode reported by the user — the scene text contained
+    // "产品参考图片：/uploads/<hash>_logo.jpg" but Jimeng never received
+    // the actual file.
+    for (const inp of projectInputs) {
+      const url = inp.url || '';
+      const path = inp.path || '';
+      const candidate = url || path;
+      if (!candidate) continue;
+      const mentioned = (url && prompt.includes(url)) || (path && prompt.includes(path));
+      if (!mentioned) continue;
+      if (imageRefs.includes(candidate) || audioRefs.includes(candidate) || videoRefs.includes(candidate)) continue;
+      let kind = inp.kind;
+      if (kind !== 'image' && kind !== 'audio' && kind !== 'video') {
+        const guessed = _guessKindFromName(inp.name || inp.url || '');
+        if (guessed && guessed !== 'file') kind = guessed;
+      }
+      if      (kind === 'image') imageRefs.push(candidate);
+      else if (kind === 'audio') audioRefs.push(candidate);
+      else if (kind === 'video') videoRefs.push(candidate);
+      else continue;
+      console.log(`[collectInputs] picked up project input ${_inputVarKey(inp)} (${kind}) from a URL embedded in the resolved prompt — routed to the API's image/audio/video flag`);
+    }
+
     return { prompt, imageRefs, imagePrompts, audioRefs, videoRefs };
   }
 
