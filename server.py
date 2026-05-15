@@ -95,7 +95,7 @@ PUBLIC_ENDPOINTS = {
 # need to verify is actually running on their server (e.g. a new route).
 # Read via GET /api/_version — see logs for the route list printed at
 # import time.
-SERVER_BUILD = "resume-tasks-grace+immediate-submit-save"
+SERVER_BUILD = "no-reload-tasks+disk-fallback"
 
 
 @app.before_request
@@ -121,14 +121,24 @@ def _global_auth_gate():
 # project. _refresh_state_if_stale runs before every request, stat()s the
 # state files, and reloads any whose mtime advanced — so any other
 # worker's writes land in our memory before we serve the response.
-_state_mtimes = {"projects": 0.0, "users": 0.0, "tasks": 0.0}
+# Tasks are deliberately omitted from this hook — the polling daemon
+# threads constantly mutate the tasks dict between save_tasks() calls,
+# and a load_tasks() that happens to fire in another request handler
+# in the same process would clobber those in-progress mutations
+# (verified user-facing bug: image task "successfully generated on
+# Jimeng but UI still shows rendering"). Cross-worker task visibility
+# is instead handled by:
+#   - get_task() falling back to a disk read when the task isn't in
+#     local memory, so peer-created tasks are still discoverable
+#   - _refresh_running_task() doing an on-demand dreamina query_result
+#     when last_polled_at is stale, so a stuck task can't sit forever.
+_state_mtimes = {"projects": 0.0, "users": 0.0}
 
 
 def _refresh_state_if_stale():
     for key, path, loader in (
         ("projects", PROJECTS_FILE, _load_projects),
         ("users",    USERS_FILE,    _load_users),
-        ("tasks",    TASKS_FILE,    load_tasks),
     ):
         try:
             if not path.exists():
@@ -571,7 +581,7 @@ _migrate_projects()
 # Seed the per-worker mtime cache so the very first request doesn't
 # redundantly reload these files we just loaded above. Subsequent
 # requests reload only when a peer worker bumps the mtime.
-for _key, _path in (("projects", PROJECTS_FILE), ("users", USERS_FILE), ("tasks", TASKS_FILE)):
+for _key, _path in (("projects", PROJECTS_FILE), ("users", USERS_FILE)):
     try:
         if _path.exists():
             _state_mtimes[_key] = _path.stat().st_mtime
@@ -1007,15 +1017,30 @@ def _refresh_running_task(task_id: str) -> None:
 @app.get("/api/task/<task_id>")
 def get_task(task_id: str):
     task = tasks.get(task_id)
+    # Cross-worker visibility: tasks dict is per-process, but the
+    # before_request hook no longer reloads it from disk (that was
+    # clobbering daemon-thread mutations). So if a peer worker submitted
+    # this task and we don't know about it locally, fall back to a one-
+    # shot disk read. We adopt the disk entry into local memory so the
+    # subsequent stale-check + recovery logic has something to work on.
+    if not task:
+        try:
+            if TASKS_FILE.exists():
+                disk = json.loads(TASKS_FILE.read_text()) or {}
+                if task_id in disk and isinstance(disk[task_id], dict):
+                    tasks[task_id] = disk[task_id]
+                    task = tasks[task_id]
+        except Exception:
+            pass
     if not task:
         return jsonify({"ok": False, "error": "Task not found"}), 404
     # On-demand recovery: if the background polling thread died (unhandled
-    # exception, server-process death without the load_tasks reset firing,
-    # etc.) a task can sit in running/queued forever while Jimeng has long
-    # since produced the video. Force a single re-query when the cached
-    # state is stale — anything older than ~3 polling cycles is suspicious.
-    # The Jimeng CLI call adds a few seconds to the request only in this
-    # recovery path; healthy tasks fall through with cached state.
+    # exception, worker recycle, etc.) a task can sit in running/queued
+    # forever while Jimeng has long since produced the video. Force a
+    # single re-query when the cached state is stale — anything older
+    # than ~3 polling cycles is suspicious. The Jimeng CLI call adds a
+    # few seconds to the request only in this recovery path; healthy
+    # tasks fall through with cached state.
     if task.get("status") in ("running", "queued"):
         last_polled = task.get("last_polled_at") or task.get("created_at") or 0
         if time.time() - last_polled > max(POLL_INTERVAL * 3, 45):
