@@ -2327,8 +2327,41 @@ body.view-only textarea.generated-text {
   // Upload nodes are passive sources — they hold a file rather than generating one.
   const PASSIVE_TYPES = new Set(['upload']);
 
-  async function startTask(node, overrides) {
+  // Per-scene duration hint extractor. Looks for explicit time markers
+  // inside the scene's header line (most reliable) or an explicit
+  // "Duration:" / "时长:" key anywhere in the block. Conservative on
+  // purpose — random "5 seconds later" narration shouldn't be parsed
+  // as a clip length. Returns null when no marker is found so the
+  // caller falls back to node.params.duration.
+  function extractSceneDuration(sceneText) {
+    if (!sceneText || typeof sceneText !== 'string') return null;
+    const headerLine = sceneText.split(/\r?\n/, 1)[0] || '';
+    // 1. Parens / brackets: "Scene 1 (5s):" / "Scene 1 [5s]:" / "镜头一(5秒):"
+    let m = headerLine.match(/[\(\[【（]\s*(\d+(?:\.\d+)?)\s*(?:s|秒|sec|seconds?)\s*[\)\]】）]/i);
+    if (m) return _clampDuration(parseFloat(m[1]));
+    // 2. Dash / dot / middle-dot delimiter near the header: " — 5s" / " · 5 秒"
+    //    No \b after the unit — JS \b is ASCII-only and won't fire next to 秒.
+    m = headerLine.match(/[\-·—~～]\s*(\d+(?:\.\d+)?)\s*(?:seconds?|sec|s|秒)/i);
+    if (m) return _clampDuration(parseFloat(m[1]));
+    // 3. Explicit "Duration:" / "时长:" / "长度:" / "Length:" key anywhere
+    //    inside the scene body.
+    m = sceneText.match(/(?:Duration|Length|时长|长度|Time)\s*[:：]\s*(\d+(?:\.\d+)?)\s*(?:seconds?|sec|s|秒)?/i);
+    if (m) return _clampDuration(parseFloat(m[1]));
+    return null;
+  }
+
+  function _clampDuration(n) {
+    if (!Number.isFinite(n)) return null;
+    const i = Math.round(n);
+    return Math.max(4, Math.min(15, i));
+  }
+
+  async function startTask(node, overrides, paramOverrides) {
     const { prompt, imageRefs, imagePrompts, audioRefs, videoRefs } = collectInputs(node, overrides);
+    // Merge per-call param overrides (per-scene duration from runNode's
+    // scene-driven loop) on top of the saved node params. Anything not
+    // explicitly overridden falls back to node.params.
+    const params = { ...node.params, ...(paramOverrides || {}) };
     const imageRef = imageRefs[0] || null;
     const audioRef = audioRefs?.[0] || null;
     const videoRef = videoRefs?.[0] || null;
@@ -2363,11 +2396,11 @@ body.view-only textarea.generated-text {
       if (imageRef) {
         if (!prompt) throw new Error('prompt required for image transform');
         endpoint = '/api/image2image';
-        body = { image: imageRef, prompt, ratio: node.params.ratio };
+        body = { image: imageRef, prompt, ratio: params.ratio };
       } else {
         if (!prompt) throw new Error('prompt required (connect a Text node or type one)');
         endpoint = '/api/text2image';
-        body = { prompt, ratio: node.params.ratio, resolution: node.params.resolution };
+        body = { prompt, ratio: params.ratio, resolution: params.resolution };
       }
     } else if (node.type === 'video') {
       const mode = videoMode(node);
@@ -2379,9 +2412,9 @@ body.view-only textarea.generated-text {
         body = {
           image: imageRef,
           prompt: mmPrompt,
-          duration: node.params.duration,
-          ratio: node.params.ratio,
-          model_version: node.params.modelVersion,
+          duration: params.duration,
+          ratio: params.ratio,
+          model_version: params.modelVersion,
           audio_path: audioRef,
           video_path: videoRef,  // optional camera-motion reference
         };
@@ -2392,9 +2425,9 @@ body.view-only textarea.generated-text {
         body = {
           image: imageRef,
           prompt: prompt || imagePrompts.join(', '),
-          duration: node.params.duration,
-          ratio: node.params.ratio,
-          model_version: node.params.modelVersion,
+          duration: params.duration,
+          ratio: params.ratio,
+          model_version: params.modelVersion,
           audio_path: audioRef,
         };
       } else {
@@ -2402,7 +2435,7 @@ body.view-only textarea.generated-text {
         const videoPrompt = prompt || imagePrompts.join(', ');
         if (!videoPrompt) throw new Error('prompt required (connect a Text or Image node, or type one)');
         endpoint = '/api/text2video';
-        body = { prompt: videoPrompt, duration: node.params.duration, ratio: node.params.ratio, resolution: node.params.resolution, model_version: node.params.modelVersion, audio_path: audioRef };
+        body = { prompt: videoPrompt, duration: params.duration, ratio: params.ratio, resolution: params.resolution, model_version: params.modelVersion, audio_path: audioRef };
       }
     } else if (node.type === 'edit') {
       const up = upstreamNodes(node.id);
@@ -2702,9 +2735,21 @@ body.view-only textarea.generated-text {
         // gets re-resolved each pass so a prompt like
         //   "Cinematic shot of: {{text}}"
         // turns into a different real prompt for each clip.
-        const overrides = sceneDriven ? { text: scenes[iter - 1], prev: scenes[iter - 1] } : null;
+        const sceneText = sceneDriven ? scenes[iter - 1] : null;
+        const overrides = sceneText ? { text: sceneText, prev: sceneText } : null;
+        // Per-scene duration override: if the scene header carries a
+        // "(5s)" / " — 8 秒" / "Duration: 10" marker, the parser picks
+        // it up and that clip alone renders at that length. Falls back
+        // to node.params.duration when the scene doesn't specify one,
+        // so a mixed-format script (some scenes with timings, some
+        // without) still works.
+        let paramOverrides = null;
+        if (sceneText && node.type === 'video') {
+          const d = extractSceneDuration(sceneText);
+          if (d != null) paramOverrides = { duration: String(d) };
+        }
         setNodeStatus(id, 'queued', { error: null, queueIdx: null, loopProgress: loop });
-        const submitResult = await startTask(node, overrides);
+        const submitResult = await startTask(node, overrides, paramOverrides);
 
         // Text node: the response is synchronous, no polling.
         if (submitResult && submitResult.sync) {
