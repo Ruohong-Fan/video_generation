@@ -2102,16 +2102,35 @@ body.view-only textarea.generated-text {
       const videoUps = upstreamNodes(node.id).filter(u => u.type === 'video' || (u.type === 'upload' && u.uploadKind === 'video'));
       const audioUps = upstreamNodes(node.id).filter(u => u.type === 'audio' || (u.type === 'upload' && u.uploadKind === 'audio'));
       if (!videoUps.length) return `<div class="node-preview empty">Connect Video or Upload nodes to edit</div>`;
-      const stripItems = videoUps.map(u => {
-        const uLast = u.results?.[u.results.length - 1];
-        const src = uLast ? (uLast.servePath || uLast.url) : (u.uploadUrl || null);
-        const isVid = uLast?.kind === 'video' || u.type === 'upload';
+      // Expand each upstream into one tile PER video result, so a Video
+      // node with 6 clips renders as 6 strip items — matches what the
+      // Edit node actually submits (every clip becomes a timeline entry).
+      const strip = [];
+      for (const u of videoUps) {
+        if (u.type === 'upload') {
+          if (u.uploadUrl) strip.push({ src: u.uploadUrl, label: u.title || 'Upload', kind: 'video' });
+          continue;
+        }
+        const vidResults = (u.results || []).filter(r => r && r.kind === 'video');
+        if (vidResults.length) {
+          const multi = vidResults.length > 1;
+          vidResults.forEach((r, idx) => {
+            const src = r.servePath || r.url;
+            if (!src) return;
+            const label = multi ? `${u.title || 'Video'} · ${idx + 1}` : (u.title || 'Video');
+            strip.push({ src, label, kind: 'video' });
+          });
+        } else if (u.uploadUrl) {
+          strip.push({ src: u.uploadUrl, label: u.title || 'Video', kind: 'video' });
+        } else {
+          strip.push({ src: null, label: u.title || 'Video', kind: 'video' });
+        }
+      }
+      const stripItems = strip.map(({ src, label }) => {
         const mediaEl = src
-          ? (isVid
-              ? `<video src="${esc(mediaUrl(src))}" muted preload="metadata" style="width:100%;height:100%;object-fit:cover;display:block"></video>`
-              : `<img src="${esc(mediaUrl(src))}" style="width:100%;height:100%;object-fit:cover;display:block"/>`)
+          ? `<video src="${esc(mediaUrl(src))}" muted preload="metadata" style="width:100%;height:100%;object-fit:cover;display:block"></video>`
           : `<div style="display:grid;place-items:center;height:100%;color:var(--fg-3)">${ICONS.video}</div>`;
-        return `<div class="node-edit-clip">${mediaEl}<div class="node-edit-clip-label">${esc(u.title || 'Video')}</div></div>`;
+        return `<div class="node-edit-clip">${mediaEl}<div class="node-edit-clip-label">${esc(label)}</div></div>`;
       }).join('');
       const audioNote = audioUps.length
         ? `<div class="node-edit-audio-note">${ICONS.audio} +${audioUps.length} audio</div>` : '';
@@ -2485,9 +2504,23 @@ body.view-only textarea.generated-text {
             }
           }
         } else if (u.type === 'video') {
-          const last = u.results?.[u.results.length - 1];
-          const path = last?.servePath || last?.localPath || u.uploadPath || last?.url || u.uploadUrl || null;
-          if (path) clips.push({ path, label: u.title || 'Video' });
+          // Edit nodes stitch a sequence — pull EVERY clip the upstream
+          // Video node produced (not just the last), so a count=N or
+          // scene-driven run that generated N clips lands as N timeline
+          // entries in the edit. Each clip is labelled "<title> · run N"
+          // so the AI plan / files panel can tell them apart.
+          const results = (u.results || []).filter(r => r && r.kind === 'video');
+          const total = results.length;
+          if (total) {
+            results.forEach((r, idx) => {
+              const path = r.servePath || r.localPath || r.url || null;
+              if (!path) return;
+              const label = total > 1 ? `${u.title || 'Video'} · run ${idx + 1}` : (u.title || 'Video');
+              clips.push({ path, label });
+            });
+          } else if (u.uploadPath || u.uploadUrl) {
+            clips.push({ path: u.uploadPath || u.uploadUrl, label: u.title || 'Video' });
+          }
         } else if (u.type === 'audio') {
           const last = u.results?.[u.results.length - 1];
           const path = last?.servePath || last?.localPath || u.uploadPath || last?.url || u.uploadUrl || null;
