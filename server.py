@@ -1410,17 +1410,21 @@ def _run_minimax_audio_task(task_id: str, text: str, duration: str, api_key: str
 def _resolve_one_image(ref) -> str | None:
     """Resolve a single image reference (URL / /uploads path / absolute
     filesystem path) into a local filesystem path the dreamina CLI can
-    consume. Returns None on failure."""
+    consume. Returns None on failure. Logs the failure reason so the
+    server log explains why a 400 was returned upstream."""
     if not ref:
+        print("[resolve_one_image] skip: empty ref", flush=True)
         return None
     ref = str(ref).strip()
     if not ref:
+        print("[resolve_one_image] skip: blank ref", flush=True)
         return None
     parsed = urlparse(ref)
     if parsed.path.startswith("/uploads/"):
         local = UPLOAD_DIR / parsed.path.removeprefix("/uploads/")
         if local.exists():
             return str(local.resolve())
+        print(f"[resolve_one_image] /uploads ref not on disk: {ref} → {local}", flush=True)
         return None
     if not parsed.scheme or parsed.scheme not in {"http", "https"}:
         return ref
@@ -1428,6 +1432,7 @@ def _resolve_one_image(ref) -> str | None:
     local = _download_image(ref)
     if local and not local.startswith("http"):
         return local
+    print(f"[resolve_one_image] download failed for remote URL: {ref}", flush=True)
     return None
 
 
@@ -1458,6 +1463,7 @@ def _resolve_image_inputs(request) -> list[str]:
     data = request.get_json(silent=True) or {}
     raw = data.get("image_url") or data.get("image") or data.get("images") or None
     if not raw:
+        print(f"[resolve_image_inputs] no image field in JSON body; keys={list(data.keys())}", flush=True)
         return out
     # Normalise to a list of strings. The client can send either a JSON
     # array or a single comma-separated string (legacy single-image
@@ -1466,16 +1472,21 @@ def _resolve_image_inputs(request) -> list[str]:
     if isinstance(raw, list):
         candidates = [str(x).strip() for x in raw if x]
     else:
-        # Split on comma, but preserve the leading "/uploads/" segment
-        # which is unique enough that a comma can't appear inside a
-        # uploaded filename and still resolve.
+        # Split on comma. Uploaded filenames are UUID-prefixed and won't
+        # legitimately contain a comma, so this is safe for our refs.
         candidates = [s.strip() for s in str(raw).split(",") if s.strip()]
+    if not candidates:
+        print(f"[resolve_image_inputs] raw image field present but parsed to no candidates: {raw!r}", flush=True)
+        return out
+    print(f"[resolve_image_inputs] {len(candidates)} candidate(s): {candidates}", flush=True)
     seen: set[str] = set()
     for ref in candidates:
         local = _resolve_one_image(ref)
         if local and local not in seen:
             out.append(local)
             seen.add(local)
+    if not out:
+        print(f"[resolve_image_inputs] all {len(candidates)} candidate(s) failed to resolve", flush=True)
     return out
 
 
