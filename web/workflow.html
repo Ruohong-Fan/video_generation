@@ -1,14 +1,14 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<!-- build-marker: collect-inputs-trace-every-run-2026-05-15 —
+<!-- build-marker: pin-image-from-prompt-2026-05-15 —
      if this comment is missing from view-source, the browser or a
      reverse proxy is serving a stale workflow.html. The Cache-Control
      no-store headers in server.py should prevent that, but verify by
      looking for this exact line in DevTools → Sources → workflow.html. -->
 <meta charset="UTF-8" />
 <script>(function(){try{var t=localStorage.getItem('app.theme')||'light';if(t==='dark')document.documentElement.setAttribute('data-theme','dark');}catch(e){}})();</script>
-<script>console.log('[workflow.html build] collect-inputs-trace-every-run-2026-05-15');</script>
+<script>console.log('[workflow.html build] pin-image-from-prompt-2026-05-15');</script>
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>饼冰科技</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -2564,7 +2564,41 @@ body.view-only textarea.generated-text {
       if (!refs || !refs.length) return null;
       return inLoop ? refs[iterationIndex % refs.length] : refs[0];
     };
-    const imageRef = _pickRef(imageRefs);
+    // Pin to the project-input image whose URL appears in the resolved
+    // prompt, if any — overrides the modulo-indexed pick from imageRefs.
+    // Rationale: when imageRefs has multiple candidates (upstream Image
+    // node results + a project-input "constant" image referenced from
+    // the scene text via Text-node substitution), the modulo pick
+    // shuffles between them by iteration, so a user-supplied product
+    // image at position N gets cycled in instead of being used for
+    // every clip. The resolved prompt is the source of truth: whichever
+    // image URL the user got the LLM to embed in the scene is the one
+    // they want as the reference for THAT clip. Per-clip variation
+    // still works — if the user has multiple project images mentioned
+    // in different scenes, each iteration's resolved prompt mentions a
+    // different URL.
+    const _imageRefFromPrompt = (() => {
+      const p = prompt || '';
+      if (!p) return null;
+      for (const inp of projectInputs) {
+        if (inp.kind !== 'image') continue;
+        const url = inp.url || '';
+        const path = inp.path || '';
+        if (!url && !path) continue;
+        if (url && p.includes(url)) return url || path;
+        if (path && p.includes(path)) return url || path;
+        const m = (url || path).match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i);
+        if (m && p.includes(m[0])) return url || path;
+        const lastSeg = (url || path).split('/').filter(Boolean).pop() || '';
+        if (lastSeg && p.includes(lastSeg)) return url || path;
+      }
+      return null;
+    })();
+    const _moduloImageRef = _pickRef(imageRefs);
+    const imageRef = _imageRefFromPrompt || _moduloImageRef;
+    if (_imageRefFromPrompt && _moduloImageRef && _imageRefFromPrompt !== _moduloImageRef) {
+      console.log(`[startTask] pinning imageRef to ${_imageRefFromPrompt} (referenced in resolved prompt) instead of the modulo-picked ${_moduloImageRef}`);
+    }
     const audioRef = _pickRef(audioRefs);
     const videoRef = _pickRef(videoRefs);
     let endpoint, body;
