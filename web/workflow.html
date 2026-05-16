@@ -1,14 +1,14 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<!-- build-marker: multi-image-repeated-flags-2026-05-16 —
+<!-- build-marker: upstream-latest-run-only-2026-05-16 —
      if this comment is missing from view-source, the browser or a
      reverse proxy is serving a stale workflow.html. The Cache-Control
      no-store headers in server.py should prevent that, but verify by
      looking for this exact line in DevTools → Sources → workflow.html. -->
 <meta charset="UTF-8" />
 <script>(function(){try{var t=localStorage.getItem('app.theme')||'light';if(t==='dark')document.documentElement.setAttribute('data-theme','dark');}catch(e){}})();</script>
-<script>console.log('[workflow.html build] multi-image-repeated-flags-2026-05-16');</script>
+<script>console.log('[workflow.html build] upstream-latest-run-only-2026-05-16');</script>
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>饼冰科技</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -2316,7 +2316,12 @@ body.view-only textarea.generated-text {
         else if (u.uploadKind === 'video') videoRefs.push(ref);
       }
       if (u.type === 'image') {
-        const picks = _picks(u.results, 'image');
+        // Only consume the LATEST run's results from this upstream
+        // Image node — if the user has run the Image node multiple
+        // times (e.g. iterating on the prompt), historical runs
+        // shouldn't all be forwarded as references. Matches the same
+        // policy used by the Edit node.
+        const picks = _picks(latestRunResults(u), 'image');
         for (const r of picks) {
           const ref = r.servePath || r.localPath || r.url || null;
           if (ref) imageRefs.push(ref);
@@ -2327,7 +2332,7 @@ body.view-only textarea.generated-text {
         if (u.prompt) imagePrompts.push(u.prompt);
       }
       if (u.type === 'audio') {
-        const picks = _picks(u.results);  // any kind that walks audio path
+        const picks = _picks(latestRunResults(u));  // any kind that walks audio path
         for (const r of picks) {
           const ref = r.servePath || r.localPath || r.url || null;
           if (ref) audioRefs.push(ref);
@@ -2335,7 +2340,7 @@ body.view-only textarea.generated-text {
         if (!picks.length && (u.uploadPath || u.uploadUrl)) audioRefs.push(u.uploadPath || u.uploadUrl);
       }
       if (u.type === 'video') {
-        const picks = _picks(u.results, 'video');
+        const picks = _picks(latestRunResults(u), 'video');
         for (const r of picks) {
           const ref = r.servePath || r.localPath || r.url || null;
           if (ref) videoRefs.push(ref);
