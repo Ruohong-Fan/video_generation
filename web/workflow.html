@@ -1,14 +1,14 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<!-- build-marker: pin-image-from-prompt-2026-05-15 —
+<!-- build-marker: multi-image-upload-2026-05-15 —
      if this comment is missing from view-source, the browser or a
      reverse proxy is serving a stale workflow.html. The Cache-Control
      no-store headers in server.py should prevent that, but verify by
      looking for this exact line in DevTools → Sources → workflow.html. -->
 <meta charset="UTF-8" />
 <script>(function(){try{var t=localStorage.getItem('app.theme')||'light';if(t==='dark')document.documentElement.setAttribute('data-theme','dark');}catch(e){}})();</script>
-<script>console.log('[workflow.html build] pin-image-from-prompt-2026-05-15');</script>
+<script>console.log('[workflow.html build] multi-image-upload-2026-05-15');</script>
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>饼冰科技</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -2599,6 +2599,33 @@ body.view-only textarea.generated-text {
     if (_imageRefFromPrompt && _moduloImageRef && _imageRefFromPrompt !== _moduloImageRef) {
       console.log(`[startTask] pinning imageRef to ${_imageRefFromPrompt} (referenced in resolved prompt) instead of the modulo-picked ${_moduloImageRef}`);
     }
+    // Build the FULL list of images Jimeng should receive for this clip,
+    // not just one. Common case: the user wires both an upstream Image
+    // node (per-scene image, picked by modulo) AND a project-input image
+    // referenced in the resolved prompt (constant brand/product
+    // reference). Both should be uploaded so the model has both
+    // references to ground the generation.
+    //   Order matters — explicit-prompt-pinned image goes FIRST so the
+    //   CLI's primary image slot is filled by the user's intentional
+    //   reference. The modulo pick (if different) becomes the second
+    //   image. Any additional upstream image candidates from the same
+    //   iteration's per-scene loop also get appended, deduped.
+    const imageList = (() => {
+      const out = [];
+      const seen = new Set();
+      const push = (r) => { if (r && !seen.has(r)) { out.push(r); seen.add(r); } };
+      push(_imageRefFromPrompt);
+      push(_moduloImageRef);
+      // For per-scene loops, _pickRef only returned the modulo-indexed
+      // entry. Include the rest of imageRefs too so a Video node wired
+      // to BOTH an upstream Image (with N results) AND a project image
+      // sends every relevant frame, not just the modulo pick.
+      for (const r of imageRefs) push(r);
+      return out;
+    })();
+    if (imageList.length > 1) {
+      console.log(`[startTask] sending ${imageList.length} images to Jimeng: ${imageList.join(' , ')}`);
+    }
     const audioRef = _pickRef(audioRefs);
     const videoRef = _pickRef(videoRefs);
     let endpoint, body;
@@ -2666,7 +2693,12 @@ body.view-only textarea.generated-text {
         if (!mmPrompt) throw new Error('R2V (reference) mode requires a prompt');
         endpoint = '/api/multimodal2video';
         body = {
-          image: imageRef,
+          // image (singular, comma-joined) keeps the field name
+          // compatible with single-image legacy clients while letting
+          // the server fan out to multiple --image=... arguments when
+          // the user has wired up both an upstream Image and a
+          // project-input image.
+          image: imageList.join(','),
           prompt: mmPrompt,
           duration: params.duration,
           ratio: params.ratio,
@@ -2679,7 +2711,7 @@ body.view-only textarea.generated-text {
         // Animate the upstream/uploaded image. Prompt becomes the motion description.
         endpoint = '/api/image2video';
         body = {
-          image: imageRef,
+          image: imageList.join(','),
           prompt: prompt || imagePrompts.join(', '),
           duration: params.duration,
           ratio: params.ratio,

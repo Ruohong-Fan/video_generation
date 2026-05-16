@@ -1407,44 +1407,76 @@ def _run_minimax_audio_task(task_id: str, text: str, duration: str, api_key: str
     print(f"[minimax] done → {serve_path}", flush=True)
 
 
-def _resolve_image_input(request) -> str | None:
-    """Return a path-or-URL usable by `dreamina --image=...`.
-    Accepts either a multipart upload OR JSON with image_url.
-    """
-    if request.content_type and "multipart" in request.content_type:
-        image_file = request.files.get("image")
-        if image_file:
-            save_path = UPLOAD_DIR / f"{uuid.uuid4()}_{image_file.filename}"
-            image_file.save(save_path)
-            return str(save_path)
+def _resolve_one_image(ref) -> str | None:
+    """Resolve a single image reference (URL / /uploads path / absolute
+    filesystem path) into a local filesystem path the dreamina CLI can
+    consume. Returns None on failure."""
+    if not ref:
         return None
-
-    data = request.get_json(silent=True) or {}
-    image_ref = data.get("image_url") or data.get("image") or None
-    if not image_ref:
+    ref = str(ref).strip()
+    if not ref:
         return None
-
-    parsed = urlparse(str(image_ref))
-
-    # /uploads/<file> paths have no URL scheme but are NOT filesystem paths —
-    # resolve them to the actual local file before anything else.
+    parsed = urlparse(ref)
     if parsed.path.startswith("/uploads/"):
         local = UPLOAD_DIR / parsed.path.removeprefix("/uploads/")
         if local.exists():
             return str(local.resolve())
         return None
-
-    # Already a filesystem path (no scheme)
     if not parsed.scheme or parsed.scheme not in {"http", "https"}:
-        return str(image_ref)
-
-    # Remote URL: download locally so the CLI gets a file it can upload.
-    # _download_image returns the URL itself on failure — the CLI only accepts
-    # local paths, so treat a URL return as a failed download.
-    local = _download_image(str(image_ref))
+        return ref
+    # Remote URL — download to /uploads/ so the CLI sees a local file.
+    local = _download_image(ref)
     if local and not local.startswith("http"):
         return local
     return None
+
+
+def _resolve_image_input(request) -> str | None:
+    """Return a single path-or-URL usable by `dreamina --image=...`.
+    Backward-compatible wrapper around _resolve_image_inputs that picks
+    the first successfully-resolved image."""
+    refs = _resolve_image_inputs(request)
+    return refs[0] if refs else None
+
+
+def _resolve_image_inputs(request) -> list[str]:
+    """Return a list of local filesystem paths usable by
+    `dreamina --image=A,B,C` or repeated `--image=` flags.
+    Accepts either a multipart upload OR JSON with image / image_url
+    / images. The JSON `image` field may be a single string or a
+    comma-joined list of references; each item is resolved to a
+    local file via _resolve_one_image."""
+    out: list[str] = []
+    if request.content_type and "multipart" in request.content_type:
+        image_file = request.files.get("image")
+        if image_file:
+            save_path = UPLOAD_DIR / f"{uuid.uuid4()}_{image_file.filename}"
+            image_file.save(save_path)
+            out.append(str(save_path))
+        return out
+
+    data = request.get_json(silent=True) or {}
+    raw = data.get("image_url") or data.get("image") or data.get("images") or None
+    if not raw:
+        return out
+    # Normalise to a list of strings. The client can send either a JSON
+    # array or a single comma-separated string (legacy single-image
+    # callers pass one URL — works either way).
+    candidates: list[str] = []
+    if isinstance(raw, list):
+        candidates = [str(x).strip() for x in raw if x]
+    else:
+        # Split on comma, but preserve the leading "/uploads/" segment
+        # which is unique enough that a comma can't appear inside a
+        # uploaded filename and still resolve.
+        candidates = [s.strip() for s in str(raw).split(",") if s.strip()]
+    seen: set[str] = set()
+    for ref in candidates:
+        local = _resolve_one_image(ref)
+        if local and local not in seen:
+            out.append(local)
+            seen.add(local)
+    return out
 
 
 _MIME_TO_EXT = {
@@ -1772,16 +1804,18 @@ def image2video():
     duration = _get_param(request, "duration", "5")
     ratio = _get_param(request, "ratio", "").strip()
     model_version = _get_param(request, "model_version", "").strip()
-    image_ref = _resolve_image_input(request)
-    if not image_ref:
+    image_refs = _resolve_image_inputs(request)
+    if not image_refs:
         return jsonify({"ok": False, "error": "image is required — upload failed or URL could not be downloaded (it may have expired)"}), 400
-    # Re-frame the image to the requested ratio; the CLI also takes --ratio,
+    # Re-frame each image to the requested ratio; the CLI also takes --ratio,
     # but giving it a source that already matches avoids any internal letterbox.
     if ratio:
-        image_ref = _crop_image_to_ratio(image_ref, ratio)
+        image_refs = [_crop_image_to_ratio(p, ratio) for p in image_refs]
+    image_arg = ",".join(image_refs)
+    print(f"[image2video] sending {len(image_refs)} image(s) to dreamina: {image_refs}", flush=True)
     cmd = [
         "dreamina", "image2video",
-        f"--image={image_ref}",
+        f"--image={image_arg}",
         f"--duration={duration}",
         "--poll=240",
     ]
@@ -1795,7 +1829,7 @@ def image2video():
     # --audio flag isn't confirmed for image2video, so keep ffmpeg post-mux.
     audio_path = _resolve_audio_for_mux(request)
     post = _video_finalize_post_process(ratio=ratio, audio_path=audio_path)
-    return jsonify(_start_task(cmd, f"image2video: {prompt[:60] or image_ref[-40:]}", post_process=post))
+    return jsonify(_start_task(cmd, f"image2video: {prompt[:60] or image_refs[0][-40:]}", post_process=post))
 
 
 @app.post("/api/multimodal2video")
@@ -1804,16 +1838,23 @@ def multimodal2video():
     duration = _get_param(request, "duration", "5")
     ratio = _get_param(request, "ratio", "").strip()
     model_version = _get_param(request, "model_version", "").strip()
-    image_ref = _resolve_image_input(request)
-    if not image_ref:
+    image_refs = _resolve_image_inputs(request)
+    if not image_refs:
         return jsonify({"ok": False, "error": "image is required for multimodal2video — upload failed or URL could not be downloaded"}), 400
     if not prompt:
         return jsonify({"ok": False, "error": "prompt is required for multimodal2video"}), 400
     if ratio:
-        image_ref = _crop_image_to_ratio(image_ref, ratio)
+        image_refs = [_crop_image_to_ratio(p, ratio) for p in image_refs]
+    # multimodal2video's CLI takes --image=<path>. To pass multiple
+    # references we comma-join. dreamina's image2image already accepts
+    # --images=A,B (plural) on the same code path, so this is the same
+    # pattern. If the CLI rejects it, the run will surface a normal CLI
+    # error instead of silently dropping references.
+    image_arg = ",".join(image_refs)
+    print(f"[multimodal2video] sending {len(image_refs)} image(s) to dreamina: {image_refs}", flush=True)
     cmd = [
         "dreamina", "multimodal2video",
-        f"--image={image_ref}",
+        f"--image={image_arg}",
         f"--prompt={prompt}",
         f"--duration={duration}",
         "--poll=240",
