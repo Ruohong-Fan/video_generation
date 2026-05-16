@@ -79,7 +79,7 @@ Animate an existing image into a video clip.
 
 | Flag | Required | Values | Default |
 |---|---|---|---|
-| `--image` | yes | local path or URL | — |
+| `--image` | yes | local path or URL (**single** — `string`, only one) | — |
 | `--prompt` | no | motion description | — |
 | `--duration` | no | `5` `10` | `5` |
 | `--poll` | no | seconds (int) | async |
@@ -123,6 +123,7 @@ Generate a video that transitions between two keyframe images.
 |---|---|---|---|
 | `--first_frame` | yes | local path or URL | — |
 | `--last_frame` | yes | local path or URL | — |
+| `--images` | optional | `strings` — comma-separated list of intermediate keyframes | — |
 | `--prompt` | no | scene/motion description | — |
 | `--duration` | no | `5` `10` | `5` |
 | `--poll` | no | seconds (int) | async |
@@ -142,9 +143,15 @@ dreamina multiframe2video \
 ### `dreamina multimodal2video`
 Generate video using combined text and image inputs.
 
+`--image` is `stringArray`: pass the flag multiple times to send multiple
+reference images, e.g. `--image=A.png --image=B.png --image=C.png`.
+Comma-joining (`--image=A.png,B.png`) is rejected — the CLI treats the
+joined string as a single filename.
+
 ```bash
 dreamina multimodal2video \
-  --image ./reference.png \
+  --image ./reference1.png \
+  --image ./reference2.png \
   --prompt="A futuristic cityscape at night, neon lights, rain" \
   --duration=5 \
   --poll=120

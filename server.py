@@ -1490,6 +1490,48 @@ def _resolve_image_inputs(request) -> list[str]:
     return out
 
 
+def _filter_valid_image_files(paths: list[str]) -> tuple[list[str], list[str]]:
+    """Drop paths that look like bad downloads (missing, empty, or
+    obviously-not-an-image content). Returns (kept, dropped) so the
+    caller can log the drop reason. We intentionally do NOT try to be
+    clever about format detection — just check that the file exists,
+    has non-zero size, and starts with a known image magic byte
+    sequence. Anything else (e.g. an HTML error page saved as .png
+    when a signed CDN URL had already expired) is dropped, since
+    handing it to dreamina causes
+        upload image: upload phase, no file upload
+    which then fails the whole run."""
+    image_magic = (
+        b"\xff\xd8\xff",        # JPEG
+        b"\x89PNG\r\n\x1a\n",   # PNG
+        b"GIF87a", b"GIF89a",   # GIF
+        b"RIFF",                # WEBP container (RIFF....WEBP)
+        b"BM",                  # BMP
+    )
+    kept: list[str] = []
+    dropped: list[str] = []
+    for p in paths:
+        try:
+            fp = Path(p)
+            if not fp.exists():
+                print(f"[filter_valid_image] drop (missing): {p}", flush=True)
+                dropped.append(p); continue
+            size = fp.stat().st_size
+            if size == 0:
+                print(f"[filter_valid_image] drop (empty): {p}", flush=True)
+                dropped.append(p); continue
+            with open(fp, "rb") as f:
+                head = f.read(16)
+            if not any(head.startswith(sig) for sig in image_magic):
+                print(f"[filter_valid_image] drop (not an image, size={size}, head={head[:8]!r}): {p}", flush=True)
+                dropped.append(p); continue
+            kept.append(p)
+        except Exception as exc:
+            print(f"[filter_valid_image] drop (stat/read error: {exc}): {p}", flush=True)
+            dropped.append(p)
+    return kept, dropped
+
+
 _MIME_TO_EXT = {
     "video/mp4": ".mp4",
     "video/webm": ".webm",
@@ -1818,21 +1860,28 @@ def image2video():
     image_refs = _resolve_image_inputs(request)
     if not image_refs:
         return jsonify({"ok": False, "error": "image is required — upload failed or URL could not be downloaded (it may have expired)"}), 400
-    # Re-frame each image to the requested ratio; the CLI also takes --ratio,
-    # but giving it a source that already matches avoids any internal letterbox.
+    image_refs, _bad = _filter_valid_image_files(image_refs)
+    if not image_refs:
+        return jsonify({"ok": False, "error": "every supplied image was empty / corrupt / not an image (see server log for which file)"}), 400
+    # image2video's CLI flag is `--image string` (single — confirmed by
+    # the CLI's --help). Take the first ref only. The client may send
+    # multiple (for R2V), but for I2V only one source frame can be
+    # animated. If multiple were sent, log the drop so the user knows.
+    if len(image_refs) > 1:
+        print(f"[image2video] CLI is single-image; using first ref {image_refs[0]}, dropping {len(image_refs) - 1} extra(s): {image_refs[1:]}", flush=True)
+    primary = image_refs[0]
+    # Re-frame the chosen image to the requested ratio; the CLI also
+    # takes --ratio, but giving it a source that already matches avoids
+    # any internal letterbox.
     if ratio:
-        image_refs = [_crop_image_to_ratio(p, ratio) for p in image_refs]
-    # Pass repeated --image=A --image=B flags rather than comma-joining
-    # — the CLI rejected --image=A,B,C as a single filename. See the
-    # matching note in multimodal2video below.
-    print(f"[image2video] sending {len(image_refs)} image(s) to dreamina (repeated --image flags): {image_refs}", flush=True)
-    cmd = ["dreamina", "image2video"]
-    for p in image_refs:
-        cmd.append(f"--image={p}")
-    cmd.extend([
+        primary = _crop_image_to_ratio(primary, ratio)
+    print(f"[image2video] sending 1 image to dreamina: {primary}", flush=True)
+    cmd = [
+        "dreamina", "image2video",
+        f"--image={primary}",
         f"--duration={duration}",
         "--poll=240",
-    ])
+    ]
     if ratio:
         cmd.append(f"--ratio={ratio}")
     if prompt:
@@ -1843,7 +1892,7 @@ def image2video():
     # --audio flag isn't confirmed for image2video, so keep ffmpeg post-mux.
     audio_path = _resolve_audio_for_mux(request)
     post = _video_finalize_post_process(ratio=ratio, audio_path=audio_path)
-    return jsonify(_start_task(cmd, f"image2video: {prompt[:60] or image_refs[0][-40:]}", post_process=post))
+    return jsonify(_start_task(cmd, f"image2video: {prompt[:60] or primary[-40:]}", post_process=post))
 
 
 @app.post("/api/multimodal2video")
@@ -1857,15 +1906,16 @@ def multimodal2video():
         return jsonify({"ok": False, "error": "image is required for multimodal2video — upload failed or URL could not be downloaded"}), 400
     if not prompt:
         return jsonify({"ok": False, "error": "prompt is required for multimodal2video"}), 400
+    image_refs, _bad = _filter_valid_image_files(image_refs)
+    if not image_refs:
+        return jsonify({"ok": False, "error": "every supplied image was empty / corrupt / not an image (see server log for which file)"}), 400
     if ratio:
         image_refs = [_crop_image_to_ratio(p, ratio) for p in image_refs]
-    # multimodal2video's CLI takes --image=<path>. Comma-joining was
-    # rejected by the CLI (it treated the joined string as one filename
-    # and tried to read "A,B,C" as a single file). Pass repeated
-    # --image=A --image=B --image=C flags instead — the standard Go
-    # multi-value flag pattern. If the CLI rejects repeated flags too,
-    # the error will be different and visible; in that case we fall
-    # back to single-image and the user will see only the first ref.
+    # multimodal2video's CLI is `--image stringArray` — confirmed by
+    # the CLI's --help — so repeated --image=A --image=B flags are
+    # the correct way to pass multiple references. Comma-joining was
+    # rejected (the CLI treated the joined string as one filename and
+    # tried to open "A,B,C").
     print(f"[multimodal2video] sending {len(image_refs)} image(s) to dreamina (repeated --image flags): {image_refs}", flush=True)
     cmd = ["dreamina", "multimodal2video"]
     for p in image_refs:
