@@ -1822,14 +1822,17 @@ def image2video():
     # but giving it a source that already matches avoids any internal letterbox.
     if ratio:
         image_refs = [_crop_image_to_ratio(p, ratio) for p in image_refs]
-    image_arg = ",".join(image_refs)
-    print(f"[image2video] sending {len(image_refs)} image(s) to dreamina: {image_refs}", flush=True)
-    cmd = [
-        "dreamina", "image2video",
-        f"--image={image_arg}",
+    # Pass repeated --image=A --image=B flags rather than comma-joining
+    # — the CLI rejected --image=A,B,C as a single filename. See the
+    # matching note in multimodal2video below.
+    print(f"[image2video] sending {len(image_refs)} image(s) to dreamina (repeated --image flags): {image_refs}", flush=True)
+    cmd = ["dreamina", "image2video"]
+    for p in image_refs:
+        cmd.append(f"--image={p}")
+    cmd.extend([
         f"--duration={duration}",
         "--poll=240",
-    ]
+    ])
     if ratio:
         cmd.append(f"--ratio={ratio}")
     if prompt:
@@ -1856,20 +1859,22 @@ def multimodal2video():
         return jsonify({"ok": False, "error": "prompt is required for multimodal2video"}), 400
     if ratio:
         image_refs = [_crop_image_to_ratio(p, ratio) for p in image_refs]
-    # multimodal2video's CLI takes --image=<path>. To pass multiple
-    # references we comma-join. dreamina's image2image already accepts
-    # --images=A,B (plural) on the same code path, so this is the same
-    # pattern. If the CLI rejects it, the run will surface a normal CLI
-    # error instead of silently dropping references.
-    image_arg = ",".join(image_refs)
-    print(f"[multimodal2video] sending {len(image_refs)} image(s) to dreamina: {image_refs}", flush=True)
-    cmd = [
-        "dreamina", "multimodal2video",
-        f"--image={image_arg}",
+    # multimodal2video's CLI takes --image=<path>. Comma-joining was
+    # rejected by the CLI (it treated the joined string as one filename
+    # and tried to read "A,B,C" as a single file). Pass repeated
+    # --image=A --image=B --image=C flags instead — the standard Go
+    # multi-value flag pattern. If the CLI rejects repeated flags too,
+    # the error will be different and visible; in that case we fall
+    # back to single-image and the user will see only the first ref.
+    print(f"[multimodal2video] sending {len(image_refs)} image(s) to dreamina (repeated --image flags): {image_refs}", flush=True)
+    cmd = ["dreamina", "multimodal2video"]
+    for p in image_refs:
+        cmd.append(f"--image={p}")
+    cmd.extend([
         f"--prompt={prompt}",
         f"--duration={duration}",
         "--poll=240",
-    ]
+    ])
     if ratio:
         cmd.append(f"--ratio={ratio}")
     if model_version:
